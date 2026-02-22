@@ -1,0 +1,61 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Root env files
+.env
+.env.*
+!.env.example
+
+# Python (backend)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+
+# Local DB / runtime files
+*.db
+*.sqlite
+*.sqlite3
+
+# Alembic / logs
+alembic.log
+*.log
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/.angular/
+frontend/.cache/
+frontend/dist/
+frontend/coverage/
+frontend/.sass-cache/
+
+# Build artifacts
+build/
+dist/
+
+# Test artifacts
+junit.xml
+pytest.xml
+
+# Misc
+*.tmp
+*.temp

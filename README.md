@@ -29,22 +29,19 @@ Permitir localizar objetos rápidamente mediante:
 
 ## Estado actual
 
-Se inició la **Slice 1 (Fundaciones)**:
+**Slice 1 (Fundaciones) completada**:
 
 - Backend implementado:
-  - Auth: `signup`, `login`, `refresh`, `logout`, `me`
+  - Auth: `signup`, `login`, `refresh`, `logout`, `me`, `forgot-password`, `reset-password`, `change-password`
   - Warehouses: listar, crear, detalle y miembros
-  - Migración Alembic inicial
-  - Test de integración básico
+  - Migraciones Alembic iniciales (`20260222_0001`, `20260222_0002`)
+  - Tests de integración de auth y warehouses
 - Frontend implementado:
-  - Pantallas `login`, `signup`, `warehouses`, `shell`
+  - Pantallas `login`, `signup`, `forgot-password`, `reset-password`, `warehouses`, `shell`
   - Interceptor JWT y guards de autenticación
   - Creación/listado de warehouses y selección persistida
-
-Pendiente para cerrar Slice 1:
-
-- `forgot-password` y `reset-password`
-- Ajustes UX responsive finos del shell
+  - Shell responsive (sidenav `over` en móvil, `side` en escritorio)
+  - Cambio de contraseña desde shell
 
 ## Requisitos
 

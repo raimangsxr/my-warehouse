@@ -1,0 +1,32 @@
+[project]
+name = "my-warehouse-backend"
+version = "0.1.0"
+description = "Backend for my-warehouse"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116.0",
+  "uvicorn[standard]>=0.35.0",
+  "sqlalchemy>=2.0.38",
+  "asyncpg>=0.30.0",
+  "alembic>=1.14.1",
+  "pydantic-settings>=2.8.0",
+  "python-jose[cryptography]>=3.3.0",
+  "passlib[argon2]>=1.7.4",
+  "email-validator>=2.2.0",
+  "python-multipart>=0.0.20"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.25.3",
+  "httpx>=0.28.1",
+  "aiosqlite>=0.20.0",
+  "ruff>=0.9.6"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
