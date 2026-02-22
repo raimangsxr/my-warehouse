@@ -23,6 +23,11 @@ export interface Item {
   box_path: string[];
 }
 
+export interface TagCloudEntry {
+  tag: string;
+  count: number;
+}
+
 export type BatchAction = 'move' | 'favorite' | 'unfavorite' | 'delete';
 
 @Injectable({ providedIn: 'root' })
@@ -33,6 +38,7 @@ export class ItemService {
     warehouseId: string,
     options: {
       q?: string;
+      tag?: string;
       favoritesOnly?: boolean;
       stockZero?: boolean;
       withPhoto?: boolean | null;
@@ -42,6 +48,9 @@ export class ItemService {
     let params = new HttpParams();
     if (options.q) {
       params = params.set('q', options.q);
+    }
+    if (options.tag) {
+      params = params.set('tag', options.tag);
     }
     if (options.favoritesOnly) {
       params = params.set('favorites_only', true);
@@ -57,6 +66,10 @@ export class ItemService {
     }
 
     return this.http.get<Item[]>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/items`, { params });
+  }
+
+  tagsCloud(warehouseId: string): Observable<TagCloudEntry[]> {
+    return this.http.get<TagCloudEntry[]>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/tags/cloud`);
   }
 
   get(warehouseId: string, itemId: string): Observable<Item> {

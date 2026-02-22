@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import String, cast, delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -76,18 +76,18 @@ def _favorite_set(db: Session, user_id: str, item_ids: list[str]) -> set[str]:
     return set(rows)
 
 
-def _box_path(db: Session, warehouse_id: str, box_id: str) -> list[str]:
-    boxes = db.scalars(
-        select(Box).where(Box.warehouse_id == warehouse_id, Box.deleted_at.is_(None))
-    ).all()
-    by_id = {b.id: b for b in boxes}
+def _active_boxes_map(db: Session, warehouse_id: str) -> dict[str, Box]:
+    boxes = db.scalars(select(Box).where(Box.warehouse_id == warehouse_id, Box.deleted_at.is_(None))).all()
+    return {box.id: box for box in boxes}
 
+
+def _box_path_from_map(boxes_by_id: dict[str, Box], box_id: str) -> list[str]:
     path: list[str] = []
     cursor = box_id
     safe_guard = 0
     while cursor and safe_guard < 128:
         safe_guard += 1
-        node = by_id.get(cursor)
+        node = boxes_by_id.get(cursor)
         if node is None:
             break
         path.append(node.name)
@@ -96,7 +96,34 @@ def _box_path(db: Session, warehouse_id: str, box_id: str) -> list[str]:
     return path
 
 
-def _serialize_item(db: Session, user_id: str, item: Item, stock: int, favorite: bool) -> ItemResponse:
+def _search_relevance_score(item: Item, normalized_q: str, path_text: str) -> int:
+    name = item.name.lower()
+    aliases = [alias.lower() for alias in (item.aliases or [])]
+    tags = [tag.lower() for tag in (item.tags or [])]
+    description = (item.description or "").lower()
+    location = (item.physical_location or "").lower()
+
+    if name == normalized_q:
+        return 100
+    if name.startswith(normalized_q):
+        return 90
+    if normalized_q in name:
+        return 80
+    if any(alias == normalized_q or normalized_q in alias for alias in aliases):
+        return 70
+    if any(tag == normalized_q or normalized_q in tag for tag in tags):
+        return 60
+    if normalized_q in description or normalized_q in path_text or normalized_q in location:
+        return 50
+    return 0
+
+
+def _serialize_item(
+    boxes_by_id: dict[str, Box],
+    item: Item,
+    stock: int,
+    favorite: bool,
+) -> ItemResponse:
     return ItemResponse(
         id=item.id,
         warehouse_id=item.warehouse_id,
@@ -113,7 +140,7 @@ def _serialize_item(db: Session, user_id: str, item: Item, stock: int, favorite:
         deleted_at=item.deleted_at,
         stock=stock,
         is_favorite=favorite,
-        box_path=_box_path(db, item.warehouse_id, item.box_id),
+        box_path=_box_path_from_map(boxes_by_id, item.box_id),
     )
 
 
@@ -121,6 +148,7 @@ def _serialize_item(db: Session, user_id: str, item: Item, stock: int, favorite:
 def list_items(
     warehouse_id: str,
     q: str | None = None,
+    tag: str | None = None,
     favorites_only: bool = False,
     stock_zero: bool = False,
     with_photo: bool | None = None,
@@ -133,32 +161,43 @@ def list_items(
     if not include_deleted:
         query = query.where(Item.deleted_at.is_(None))
 
-    if q:
-        needle = f"%{q.strip().lower()}%"
-        query = query.where(
-            or_(
-                func.lower(Item.name).like(needle),
-                func.lower(func.coalesce(Item.description, "")).like(needle),
-                func.lower(func.coalesce(Item.physical_location, "")).like(needle),
-                func.lower(cast(Item.tags, String)).like(needle),
-                func.lower(cast(Item.aliases, String)).like(needle),
-            )
-        )
-
     if with_photo is True:
         query = query.where(Item.photo_url.is_not(None))
     if with_photo is False:
         query = query.where(Item.photo_url.is_(None))
 
-    items = db.scalars(query.order_by(Item.created_at.desc())).all()
+    items = db.scalars(query).all()
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    path_cache = {item.id: _box_path_from_map(boxes_by_id, item.box_id) for item in items}
+
+    if tag and tag.strip():
+        normalized_tag = tag.strip().lower()
+        items = [
+            item
+            for item in items
+            if any(existing_tag.lower() == normalized_tag for existing_tag in (item.tags or []))
+        ]
+
+    if q and q.strip():
+        normalized_q = q.strip().lower()
+        ranked: list[tuple[int, Item]] = []
+        for item in items:
+            path_text = " > ".join(path_cache[item.id]).lower()
+            score = _search_relevance_score(item, normalized_q, path_text)
+            if score > 0:
+                ranked.append((score, item))
+        ranked.sort(key=lambda row: (-row[0], row[1].name.lower(), -row[1].created_at.timestamp()))
+        items = [item for _, item in ranked]
+    else:
+        items = sorted(items, key=lambda item: item.created_at, reverse=True)
+
     item_ids = [item.id for item in items]
     stocks = _stock_map(db, item_ids)
     favorites = _favorite_set(db, current_user.id, item_ids)
 
     serialized = [
         _serialize_item(
-            db,
-            current_user.id,
+            boxes_by_id,
             item,
             stock=stocks.get(item.id, 0),
             favorite=item.id in favorites,
@@ -197,7 +236,8 @@ def create_item(
     db.add(item)
     db.commit()
     db.refresh(item)
-    return _serialize_item(db, current_user.id, item, stock=0, favorite=False)
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    return _serialize_item(boxes_by_id, item, stock=0, favorite=False)
 
 
 @router.get("/{item_id}", response_model=ItemResponse)
@@ -211,7 +251,8 @@ def get_item(
     item = _get_item(db, warehouse_id, item_id)
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
-    return _serialize_item(db, current_user.id, item, stock=stock, favorite=favorite)
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    return _serialize_item(boxes_by_id, item, stock=stock, favorite=favorite)
 
 
 @router.patch("/{item_id}", response_model=ItemResponse)
@@ -256,7 +297,8 @@ def update_item(
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
-    return _serialize_item(db, current_user.id, item, stock=stock, favorite=favorite)
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    return _serialize_item(boxes_by_id, item, stock=stock, favorite=favorite)
 
 
 @router.delete("/{item_id}", response_model=MessageResponse)
@@ -292,7 +334,8 @@ def restore_item(
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
-    return _serialize_item(db, current_user.id, item, stock=stock, favorite=favorite)
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    return _serialize_item(boxes_by_id, item, stock=stock, favorite=favorite)
 
 
 @router.post("/{item_id}/favorite", response_model=ItemResponse)
@@ -316,7 +359,8 @@ def set_favorite(
     db.commit()
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
-    return _serialize_item(db, current_user.id, item, stock=stock, favorite=payload.is_favorite)
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    return _serialize_item(boxes_by_id, item, stock=stock, favorite=payload.is_favorite)
 
 
 @router.post("/{item_id}/stock/adjust", response_model=ItemResponse)
@@ -356,7 +400,8 @@ def adjust_stock(
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
-    return _serialize_item(db, current_user.id, item, stock=stock, favorite=favorite)
+    boxes_by_id = _active_boxes_map(db, warehouse_id)
+    return _serialize_item(boxes_by_id, item, stock=stock, favorite=favorite)
 
 
 @router.post("/batch", response_model=MessageResponse)

@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v0.4  
+- **Versión:** v0.5  
 - **Última actualización:** 2026-02-22  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -23,6 +23,7 @@
 - **v0.2 (2026-02-22):** Arranque Slice 1 implementado (backend auth + warehouses + migración inicial + tests, frontend login/signup/warehouses/shell conectado por API). Se añade CORS de desarrollo para `http://localhost:4200`. Nota temporal: entorno local inicial con SQLite para bootstrap, objetivo final sigue siendo PostgreSQL.
 - **v0.3 (2026-02-22):** Slice 1 cerrada: `forgot-password`, `reset-password` y `change-password` implementados end-to-end; shell responsive móvil/escritorio con sidenav overlay/side; migración `password_reset_tokens`; tests de auth extendidos.
 - **v0.4 (2026-02-22):** Slice 2 completada: backend con CRUD de cajas y artículos, movimiento de cajas con prevención de ciclos, favoritos por usuario, stock como `stock_movements` idempotentes, acciones en lote y soft-delete/restore; frontend con rutas `/app/home`, `/app/boxes`, `/app/boxes/:id`, `/app/items/new`, `/app/items/:id` integradas en shell Material; migración `20260222_0003_slice2_boxes_items`; tests de Slice 2 añadidos. Fix técnico adicional: refresh tokens incorporan `jti` para evitar colisiones de hash en logins consecutivos.
+- **v0.5 (2026-02-22):** Slice 3 completada (fase inicial): búsqueda incremental en Home con debounce, orden por relevancia en backend, búsqueda por ruta de cajas, filtro por tag y nube de tags por warehouse (`/warehouses/{warehouse_id}/tags/cloud`) con chips en UI. Se añaden tests backend de búsqueda/tags.
 
 ---
 
@@ -308,16 +309,16 @@ Secciones:
 
 ### EPIC E — Búsqueda + filtros + nube de tags
 **US-E1: Búsqueda de artículos**
-- [ ] Busca por: nombre, descripción, tags, alias, ruta, ubicación física.
-- [ ] Actualización incremental con debounce.
-- [ ] Orden por relevancia (match exacto > parcial).
+- [x] Busca por: nombre, descripción, tags, alias, ruta, ubicación física.
+- [x] Actualización incremental con debounce.
+- [x] Orden por relevancia (match exacto > parcial).
 
 **US-E2: Filtros rápidos**
-- [ ] Chips: Favoritos, Stock=0, Con foto, Sin foto, etc.
+- [x] Chips: Favoritos, Stock=0, Con foto, Sin foto, etc.
 
 **US-E3: Nube de tags**
-- [ ] Chips discretos.
-- [ ] Click en tag filtra.
+- [x] Chips discretos.
+- [x] Click en tag filtra.
 
 ---
 
@@ -599,8 +600,8 @@ Stock:
 - `GET /photos/{photo_id}` (cacheable, immutable por hash/etag)
 
 ### Tags
-- `GET /tags?warehouse_id=...`
-- `GET /tags/cloud?warehouse_id=...` → `{ tag, count }[]`
+- `GET /warehouses/{warehouse_id}/tags`
+- `GET /warehouses/{warehouse_id}/tags/cloud` → `{ tag, count }[]`
 
 ### Settings
 - `GET /settings/smtp?warehouse_id=...`
@@ -762,6 +763,10 @@ El servidor persiste `processed_commands` para no duplicar.
 - Buscador incremental.
 - Chips filtros.
 - Nube tags (aunque aún se alimentará más tarde).
+- Estado actual (2026-02-22): **completada**.
+  - Backend: `GET /warehouses/{warehouse_id}/items` con ranking por relevancia, búsqueda por ruta de cajas y filtro `tag`; endpoints `GET /warehouses/{warehouse_id}/tags` y `GET /warehouses/{warehouse_id}/tags/cloud`.
+  - Frontend: Home con búsqueda incremental (debounce), filtros rápidos y nube de tags con chips clicables.
+  - Calidad: test backend `test_slice3_search_tags.py`.
 
 ### Slice 4 — QR cajas + Scan + Detalle recursivo con rutas
 - qr_token + endpoint by-qr.
@@ -809,3 +814,4 @@ Para considerar una slice “Done”:
 - **A-002 (2026-02-22):** La validación de email en el backend se dejó básica (string + límites) en esta fase inicial por disponibilidad de entorno; se endurecerá en siguientes pasos de Slice 1/2.
 - **A-003 (2026-02-22):** En entorno de desarrollo, `POST /auth/forgot-password` devuelve `reset_token` en la respuesta para poder probar el flujo sin SMTP. En producción debe enviarse por email y no exponerse en API.
 - **A-004 (2026-02-22):** En Slice 2 el endpoint de stock rápido se expone como `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` (en lugar de `/stock`) para dejar explícito el comando idempotente con `command_id`; se puede simplificar en Slice 7 si se estandariza capa de sync.
+- **A-005 (2026-02-22):** En Slice 3 la relevancia de búsqueda usa un ranking heurístico en backend (exacto nombre > prefijo/contains nombre > alias > tag > descripción/ruta/ubicación) compatible con SQLite bootstrap; al migrar a PostgreSQL se podrá reemplazar por full-text/trigram conservando la misma semántica de orden.
