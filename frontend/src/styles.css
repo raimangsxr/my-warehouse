@@ -1,3 +1,5 @@
+@import "@angular/material/prebuilt-themes/indigo-pink.css";
+
 html,
 body {
   height: 100%;
@@ -17,6 +19,36 @@ body {
 
 .full-width {
   width: 100%;
+}
+
+.page-wide {
+  max-width: 1080px;
+  margin: 24px auto;
+  padding: 16px;
+}
+
+.row {
+  display: flex;
+}
+
+.gap {
+  gap: 12px;
+}
+
+.grow {
+  flex: 1 1 auto;
+}
+
+.center-y {
+  align-items: center;
+}
+
+.muted {
+  color: #5f6368;
+}
+
+.item-row {
+  min-height: 64px;
 }
 
 .error {
