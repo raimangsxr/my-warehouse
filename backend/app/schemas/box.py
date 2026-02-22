@@ -56,3 +56,11 @@ class BoxItemResponse(BaseModel):
     physical_location: str | None
     stock: int
     box_path: list[str]
+    box_path_ids: list[str]
+
+
+class BoxByQrResponse(BaseModel):
+    box_id: str
+    warehouse_id: str
+    short_code: str
+    name: str

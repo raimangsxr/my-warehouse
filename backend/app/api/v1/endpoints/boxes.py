@@ -5,12 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_warehouse_membership
+from app.api.deps import get_current_user, require_warehouse_membership
 from app.db.session import get_db
 from app.models.box import Box
 from app.models.item import Item
+from app.models.membership import Membership
 from app.models.stock_movement import StockMovement
+from app.models.user import User
 from app.schemas.box import (
+    BoxByQrResponse,
     BoxCreateRequest,
     BoxDeleteRequest,
     BoxItemResponse,
@@ -22,6 +25,7 @@ from app.schemas.box import (
 from app.schemas.common import MessageResponse
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/boxes", tags=["boxes"])
+qr_router = APIRouter(prefix="/boxes", tags=["boxes"])
 
 
 def utcnow() -> datetime:
@@ -133,6 +137,21 @@ def _box_path(warehouse_boxes: dict[str, Box], box_id: str) -> list[str]:
     return path
 
 
+def _box_path_ids(warehouse_boxes: dict[str, Box], box_id: str) -> list[str]:
+    path: list[str] = []
+    cursor = box_id
+    safe_guard = 0
+    while cursor and safe_guard < 128:
+        safe_guard += 1
+        box = warehouse_boxes.get(cursor)
+        if box is None:
+            break
+        path.append(box.id)
+        cursor = box.parent_box_id
+    path.reverse()
+    return path
+
+
 @router.get("/tree", response_model=list[BoxTreeNode])
 def get_tree(
     warehouse_id: str,
@@ -237,6 +256,7 @@ def get_box_items_recursive(
             physical_location=item.physical_location,
             stock=stocks.get(item.id, 0),
             box_path=_box_path(boxes, item.box_id),
+            box_path_ids=_box_path_ids(boxes, item.box_id),
         )
         for item in items
     ]
@@ -367,3 +387,30 @@ def restore_box(
     db.commit()
     db.refresh(box)
     return BoxResponse.model_validate(box)
+
+
+@qr_router.get("/by-qr/{qr_token}", response_model=BoxByQrResponse)
+def get_box_by_qr(
+    qr_token: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BoxByQrResponse:
+    box = db.scalar(select(Box).where(Box.qr_token == qr_token, Box.deleted_at.is_(None)))
+    if box is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QR not found")
+
+    membership = db.scalar(
+        select(Membership).where(
+            Membership.user_id == current_user.id,
+            Membership.warehouse_id == box.warehouse_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to warehouse")
+
+    return BoxByQrResponse(
+        box_id=box.id,
+        warehouse_id=box.warehouse_id,
+        short_code=box.short_code,
+        name=box.name,
+    )

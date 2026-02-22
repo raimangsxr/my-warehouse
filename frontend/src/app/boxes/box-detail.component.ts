@@ -50,7 +50,12 @@ import { WarehouseService } from '../services/warehouse.service';
                   <strong>{{ item.name }}</strong>
                   <span class="muted">Stock: {{ item.stock }}</span>
                 </div>
-                <div class="muted">{{ item.box_path.join(' > ') }}</div>
+                <div class="muted">
+                  <ng-container *ngFor="let segment of item.box_path; let idx = index">
+                    <a [routerLink]="['/app/boxes', item.box_path_ids[idx]]">{{ segment }}</a>
+                    <span *ngIf="idx < item.box_path.length - 1"> &gt; </span>
+                  </ng-container>
+                </div>
               </div>
               <button mat-button [routerLink]="['/app/items', item.id]">Editar</button>
             </mat-list-item>

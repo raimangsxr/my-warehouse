@@ -30,6 +30,7 @@ import { WarehouseService } from '../services/warehouse.service';
         <mat-nav-list>
           <a mat-list-item routerLink="/app/home" (click)="closeIfMobile()">Home</a>
           <a mat-list-item routerLink="/app/boxes" (click)="closeIfMobile()">Cajas</a>
+          <a mat-list-item routerLink="/app/scan" (click)="closeIfMobile()">Scan QR</a>
           <a mat-list-item routerLink="/app/settings" (click)="closeIfMobile()">Settings</a>
           <a mat-list-item routerLink="/warehouses" (click)="closeIfMobile()">Warehouses</a>
         </mat-nav-list>
@@ -42,7 +43,9 @@ import { WarehouseService } from '../services/warehouse.service';
           <span>my-warehouse</span>
           <span style="flex: 1 1 auto"></span>
           <span style="margin-right: 16px" *ngIf="selectedWarehouseId">WH: {{ selectedWarehouseId }}</span>
-          <mat-icon style="margin-right: 16px">qr_code_scanner</mat-icon>
+          <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan" style="margin-right: 8px">
+            <mat-icon>qr_code_scanner</mat-icon>
+          </button>
           <button mat-stroked-button (click)="logout()">Salir</button>
         </mat-toolbar>
 

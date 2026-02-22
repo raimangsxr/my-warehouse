@@ -34,6 +34,14 @@ export interface BoxItem {
   physical_location: string | null;
   stock: number;
   box_path: string[];
+  box_path_ids: string[];
+}
+
+export interface BoxByQrLookup {
+  box_id: string;
+  warehouse_id: string;
+  short_code: string;
+  name: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -92,5 +100,9 @@ export class BoxService {
     return this.http.get<BoxItem[]>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/boxes/${boxId}/items`, {
       params
     });
+  }
+
+  resolveByQrToken(qrToken: string): Observable<BoxByQrLookup> {
+    return this.http.get<BoxByQrLookup>(`${environment.apiBaseUrl}/boxes/by-qr/${encodeURIComponent(qrToken)}`);
   }
 }

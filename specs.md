@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v0.5  
+- **Versión:** v0.6  
 - **Última actualización:** 2026-02-22  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -24,6 +24,7 @@
 - **v0.3 (2026-02-22):** Slice 1 cerrada: `forgot-password`, `reset-password` y `change-password` implementados end-to-end; shell responsive móvil/escritorio con sidenav overlay/side; migración `password_reset_tokens`; tests de auth extendidos.
 - **v0.4 (2026-02-22):** Slice 2 completada: backend con CRUD de cajas y artículos, movimiento de cajas con prevención de ciclos, favoritos por usuario, stock como `stock_movements` idempotentes, acciones en lote y soft-delete/restore; frontend con rutas `/app/home`, `/app/boxes`, `/app/boxes/:id`, `/app/items/new`, `/app/items/:id` integradas en shell Material; migración `20260222_0003_slice2_boxes_items`; tests de Slice 2 añadidos. Fix técnico adicional: refresh tokens incorporan `jti` para evitar colisiones de hash en logins consecutivos.
 - **v0.5 (2026-02-22):** Slice 3 completada (fase inicial): búsqueda incremental en Home con debounce, orden por relevancia en backend, búsqueda por ruta de cajas, filtro por tag y nube de tags por warehouse (`/warehouses/{warehouse_id}/tags/cloud`) con chips en UI. Se añaden tests backend de búsqueda/tags.
+- **v0.6 (2026-02-22):** Slice 4 completada: endpoint `GET /boxes/by-qr/{qr_token}` con control de acceso por membresía, vista `/app/scan` integrada en el header con escaneo por cámara (BarcodeDetector) y fallback por token manual, redirect post-login conservando deep link, y detalle de caja con breadcrumbs navegables por tramo. Se añaden tests backend para lookup QR y permisos.
 
 ---
 
@@ -155,6 +156,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - `/app/boxes` (árbol de cajas)
   - `/app/boxes/:id` (detalle de caja)
   - `/app/scan` (escaneo QR)
+  - `/app/scan/:qrToken` (deep link con token)
   - `/app/settings` (configuración)
   - `/app/conflicts` (lista + resolución)
 
@@ -324,13 +326,13 @@ Secciones:
 
 ### EPIC F — QR (solo cajas)
 **US-F1: Escaneo desde header**
-- [ ] Permisos cámara con UX claro.
-- [ ] Escaneo abre detalle caja.
+- [x] Permisos cámara con UX claro.
+- [x] Escaneo abre detalle caja.
 
 **US-F2: Deep link seguro**
-- [ ] QR token no adivinable.
-- [ ] Login redirect.
-- [ ] Control acceso por warehouse.
+- [x] QR token no adivinable.
+- [x] Login redirect.
+- [x] Control acceso por warehouse.
 
 ---
 
@@ -772,6 +774,12 @@ El servidor persiste `processed_commands` para no duplicar.
 - qr_token + endpoint by-qr.
 - scanner.
 - detalle caja con lista plana recursiva + breadcrumbs.
+- Estado actual (2026-02-22): **completada**.
+  - Backend: `GET /boxes/by-qr/{qr_token}` con validación de acceso por membresía y respuesta `{box_id, warehouse_id}` para navegación segura.
+  - Frontend: ruta `/app/scan` (y `/app/scan/:qrToken`) desde el header; escaneo por cámara con `BarcodeDetector` cuando está disponible y fallback manual por token.
+  - UX/Seguridad: redirect a login preservando URL objetivo y retorno al deep link tras autenticación; selección automática de `warehouse_id` al resolver QR.
+  - Detalle de caja: breadcrumbs navegables por tramo en resultados recursivos.
+  - Calidad: test backend `test_slice4_qr_scan.py`.
 
 ### Slice 5 — Multiusuario: invites + papelera/restauración + actividad mínima
 - invitaciones.
@@ -815,3 +823,4 @@ Para considerar una slice “Done”:
 - **A-003 (2026-02-22):** En entorno de desarrollo, `POST /auth/forgot-password` devuelve `reset_token` en la respuesta para poder probar el flujo sin SMTP. En producción debe enviarse por email y no exponerse en API.
 - **A-004 (2026-02-22):** En Slice 2 el endpoint de stock rápido se expone como `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` (en lugar de `/stock`) para dejar explícito el comando idempotente con `command_id`; se puede simplificar en Slice 7 si se estandariza capa de sync.
 - **A-005 (2026-02-22):** En Slice 3 la relevancia de búsqueda usa un ranking heurístico en backend (exacto nombre > prefijo/contains nombre > alias > tag > descripción/ruta/ubicación) compatible con SQLite bootstrap; al migrar a PostgreSQL se podrá reemplazar por full-text/trigram conservando la misma semántica de orden.
+- **A-006 (2026-02-22):** En Slice 4 el escaneo QR en web usa `BarcodeDetector` nativo cuando existe soporte del navegador; si no está disponible o no hay permisos de cámara, la UI habilita fallback por token manual para mantener el flujo funcional sin dependencias nuevas.

@@ -9,6 +9,7 @@ import { BoxesComponent } from './boxes/boxes.component';
 import { authGuard, guestGuard } from './core/auth.guard';
 import { HomeComponent } from './home/home.component';
 import { ItemFormComponent } from './items/item-form.component';
+import { ScanComponent } from './scan/scan.component';
 import { SettingsComponent } from './settings/settings.component';
 import { ShellComponent } from './shell/shell.component';
 import { WarehousesComponent } from './warehouses/warehouses.component';
@@ -29,6 +30,8 @@ export const routes: Routes = [
       { path: 'boxes/:id', component: BoxDetailComponent },
       { path: 'items/new', component: ItemFormComponent },
       { path: 'items/:id', component: ItemFormComponent },
+      { path: 'scan', component: ScanComponent },
+      { path: 'scan/:qrToken', component: ScanComponent },
       { path: 'settings', component: SettingsComponent },
       { path: '', pathMatch: 'full', redirectTo: 'home' }
     ]
