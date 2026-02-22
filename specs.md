@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v0.7  
+- **Versión:** v0.8  
 - **Última actualización:** 2026-02-22  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -26,6 +26,7 @@
 - **v0.5 (2026-02-22):** Slice 3 completada (fase inicial): búsqueda incremental en Home con debounce, orden por relevancia en backend, búsqueda por ruta de cajas, filtro por tag y nube de tags por warehouse (`/warehouses/{warehouse_id}/tags/cloud`) con chips en UI. Se añaden tests backend de búsqueda/tags.
 - **v0.6 (2026-02-22):** Slice 4 completada: endpoint `GET /boxes/by-qr/{qr_token}` con control de acceso por membresía, vista `/app/scan` integrada en el header con escaneo por cámara (BarcodeDetector) y fallback por token manual, redirect post-login conservando deep link, y detalle de caja con breadcrumbs navegables por tramo. Se añaden tests backend para lookup QR y permisos.
 - **v0.7 (2026-02-22):** Slice 5 completada: invitaciones por token con expiración (`POST /warehouses/{id}/invites`, `POST /invites/{token}/accept`), papelera/restauración expuesta en UI (`/app/trash`) y actividad mínima (`/warehouses/{id}/activity`, `/app/activity`) con eventos clave (create/delete/restore/stock/batch/invite). Se añade migración `20260222_0004_slice5_invites_activity` y tests de invites/activity.
+- **v0.8 (2026-02-22):** Slice 6 completada: configuración SMTP y Gemini por warehouse con secretos cifrados en backend (`smtp_settings`, `llm_settings`), endpoint de test SMTP, toggles `auto-tags/auto-alias`, reprocesado manual de item y autogeneración de tags/aliases al crear/editar items cuando LLM está habilitado. UI de Settings ampliada y migración `20260222_0005_slice6_settings_smtp_llm`.
 
 ---
 
@@ -288,11 +289,11 @@ Secciones:
 ### EPIC D — Artículos
 **US-D1: Crear artículo**
 - [x] Campos: name (req), desc (opt), photo (opt), box (req), ubicación física (opt).
-- [ ] Enriquecimiento LLM (tags + alias) si habilitado.
+- [x] Enriquecimiento LLM (tags + alias) si habilitado.
 
 **US-D2: Editar artículo**
 - [x] Cambiar name/desc/photo/box/ubicación.
-- [ ] Si cambia name/desc → re-LLM (si habilitado).
+- [x] Si cambia name/desc → re-LLM (si habilitado).
 
 **US-D3: Favoritos por usuario**
 - [x] Toggle ⭐ por usuario.
@@ -342,14 +343,14 @@ Secciones:
 
 ### EPIC G — Configuración (SMTP + Gemini)
 **US-G1: Config SMTP**
-- [ ] Por warehouse.
-- [ ] Guardado seguro (password cifrado).
-- [ ] “Test email”.
+- [x] Por warehouse.
+- [x] Guardado seguro (password cifrado).
+- [x] “Test email”.
 
 **US-G2: Config Gemini API key**
-- [ ] Guardada cifrada en backend.
-- [ ] Toggles auto-tags/auto-alias.
-- [ ] Reprocesar tags/alias.
+- [x] Guardada cifrada en backend.
+- [x] Toggles auto-tags/auto-alias.
+- [x] Reprocesar tags/alias.
 
 ---
 
@@ -617,7 +618,7 @@ Stock:
 
 - `GET /settings/llm?warehouse_id=...`
 - `PUT /settings/llm?warehouse_id=...`
-- `POST /settings/llm/reprocess-item/{item_id}`
+- `POST /settings/llm/reprocess-item/{item_id}?warehouse_id=...`
 
 ### Sync
 - `POST /sync/push`
@@ -800,6 +801,13 @@ El servidor persiste `processed_commands` para no duplicar.
 - settings SMTP + test.
 - settings Gemini + autogen tags/alias.
 - reprocesado manual.
+- Estado actual (2026-02-22): **completada**.
+  - Backend: endpoints `/settings/smtp`, `/settings/smtp/test`, `/settings/llm`, `/settings/llm/reprocess-item/{item_id}` con validación de membresía por warehouse.
+  - Seguridad: secretos SMTP y Gemini almacenados cifrados en backend y expuestos en lectura solo como máscara (`has_*`/`*_masked`).
+  - Items: autogeneración de tags/aliases en create/update cuando LLM está habilitado con API key configurada.
+  - Frontend: Settings con secciones de Seguridad, SMTP, LLM y reprocesado manual por `item_id`.
+  - Migración: `20260222_0005_slice6_settings_smtp_llm`.
+  - Calidad: test backend `test_slice6_settings_llm_smtp.py`.
 
 ### Slice 7 — Offline + Sync + Conflictos
 - IndexedDB + cola.
@@ -835,3 +843,4 @@ Para considerar una slice “Done”:
 - **A-005 (2026-02-22):** En Slice 3 la relevancia de búsqueda usa un ranking heurístico en backend (exacto nombre > prefijo/contains nombre > alias > tag > descripción/ruta/ubicación) compatible con SQLite bootstrap; al migrar a PostgreSQL se podrá reemplazar por full-text/trigram conservando la misma semántica de orden.
 - **A-006 (2026-02-22):** En Slice 4 el escaneo QR en web usa `BarcodeDetector` nativo cuando existe soporte del navegador; si no está disponible o no hay permisos de cámara, la UI habilita fallback por token manual para mantener el flujo funcional sin dependencias nuevas.
 - **A-007 (2026-02-22):** En Slice 5, `POST /warehouses/{warehouse_id}/invites` devuelve `invite_url` calculada con `frontend_url` del backend y expone `invite_token` en respuesta para uso manual/QA; cuando SMTP esté activo (Slice 6), la entrega por email podrá hacerse sin cambiar el contrato base de aceptación.
+- **A-008 (2026-02-22):** En Slice 6, el endpoint `POST /settings/smtp/test` valida configuración y responde en modo simulado (sin envío real) para mantener bootstrap local sin dependencia de servidor SMTP externo; la verificación de entrega real se completará cuando se integre transporte SMTP productivo.

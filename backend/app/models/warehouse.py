@@ -15,3 +15,5 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     items = relationship("Item", back_populates="warehouse", cascade="all, delete-orphan")
     invites = relationship("WarehouseInvite", cascade="all, delete-orphan")
     activity_events = relationship("ActivityEvent", cascade="all, delete-orphan")
+    smtp_setting = relationship("SMTPSetting", uselist=False, cascade="all, delete-orphan")
+    llm_setting = relationship("LLMSetting", uselist=False, cascade="all, delete-orphan")

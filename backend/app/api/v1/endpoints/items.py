@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models.box import Box
 from app.models.item import Item
 from app.models.item_favorite import ItemFavorite
+from app.models.llm_setting import LLMSetting
 from app.models.stock_movement import StockMovement
 from app.models.user import User
 from app.schemas.common import MessageResponse
@@ -23,6 +24,7 @@ from app.schemas.item import (
     StockAdjustRequest,
 )
 from app.services.activity import record_activity
+from app.services.llm_enrichment import generate_tags_and_aliases
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/items", tags=["items"])
 
@@ -145,6 +147,20 @@ def _serialize_item(
     )
 
 
+def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *, changed_text: bool) -> None:
+    if not changed_text:
+        return
+    llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
+    if llm_setting is None or not llm_setting.api_key_encrypted:
+        return
+
+    tags, aliases = generate_tags_and_aliases(item.name, item.description)
+    if llm_setting.auto_tags_enabled:
+        item.tags = tags
+    if llm_setting.auto_alias_enabled:
+        item.aliases = aliases
+
+
 @router.get("", response_model=list[ItemResponse])
 def list_items(
     warehouse_id: str,
@@ -234,6 +250,7 @@ def create_item(
         tags=payload.tags,
         aliases=payload.aliases,
     )
+    _apply_llm_autogen_if_enabled(db, warehouse_id, item, changed_text=True)
     db.add(item)
     record_activity(
         db,
@@ -277,6 +294,7 @@ def update_item(
     item = _get_item(db, warehouse_id, item_id)
 
     changed = False
+    changed_text = False
     if payload.box_id is not None:
         _get_active_box(db, warehouse_id, payload.box_id)
         item.box_id = payload.box_id
@@ -284,9 +302,11 @@ def update_item(
     if payload.name is not None:
         item.name = payload.name.strip()
         changed = True
+        changed_text = True
     if payload.description is not None:
         item.description = payload.description
         changed = True
+        changed_text = True
     if payload.photo_url is not None:
         item.photo_url = payload.photo_url
         changed = True
@@ -301,6 +321,7 @@ def update_item(
         changed = True
 
     if changed:
+        _apply_llm_autogen_if_enabled(db, warehouse_id, item, changed_text=changed_text)
         item.version += 1
         db.commit()
         db.refresh(item)

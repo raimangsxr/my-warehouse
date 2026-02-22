@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     refresh_token_days: int = 30
     frontend_url: str = "http://localhost:4200"
+    secret_encryption_key: str = "change-me-secret-key"
 
 
 settings = Settings()
