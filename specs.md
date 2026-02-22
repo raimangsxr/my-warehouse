@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v0.2  
+- **Versión:** v0.3  
 - **Última actualización:** 2026-02-22  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -21,6 +21,7 @@
 
 - **v0.1 (2026-02-22):** Primera especificación completa (MVP + roadmap + arquitectura + sync + Gemini).
 - **v0.2 (2026-02-22):** Arranque Slice 1 implementado (backend auth + warehouses + migración inicial + tests, frontend login/signup/warehouses/shell conectado por API). Se añade CORS de desarrollo para `http://localhost:4200`. Nota temporal: entorno local inicial con SQLite para bootstrap, objetivo final sigue siendo PostgreSQL.
+- **v0.3 (2026-02-22):** Slice 1 cerrada: `forgot-password`, `reset-password` y `change-password` implementados end-to-end; shell responsive móvil/escritorio con sidenav overlay/side; migración `password_reset_tokens`; tests de auth extendidos.
 
 ---
 
@@ -212,33 +213,33 @@ Secciones:
 
 ### EPIC A — Autenticación y cuenta
 **US-A1: Registro**
-- [ ] Registro con email + password.
-- [ ] Validación password (mínimo longitud, etc.).
-- [ ] Tras registro: acceso a crear/seleccionar warehouse.
+- [x] Registro con email + password.
+- [x] Validación password (mínimo longitud, etc.).
+- [x] Tras registro: acceso a crear/seleccionar warehouse.
 
 **US-A2: Login/Logout**
-- [ ] Login devuelve access token + refresh token.
-- [ ] Logout invalida refresh token.
-- [ ] Sesión persistente (PWA).
+- [x] Login devuelve access token + refresh token.
+- [x] Logout invalida refresh token.
+- [x] Sesión persistente (PWA).
 
 **US-A3: Cambio de contraseña**
-- [ ] Usuario autenticado puede cambiar contraseña (requiere password actual).
+- [x] Usuario autenticado puede cambiar contraseña (requiere password actual).
 
 **US-A4: Recuperación de contraseña por email**
-- [ ] Solicitud reset → email con link token.
-- [ ] Token caduca, un solo uso.
-- [ ] Tras reset, refresh tokens previos quedan invalidados.
+- [x] Solicitud reset → email con link token.
+- [x] Token caduca, un solo uso.
+- [x] Tras reset, refresh tokens previos quedan invalidados.
 
 ---
 
 ### EPIC B — Warehouses (multiusuario sin roles)
 **US-B1: Crear warehouse**
-- [ ] Crear warehouse con nombre.
-- [ ] Creador queda como miembro.
+- [x] Crear warehouse con nombre.
+- [x] Creador queda como miembro.
 
 **US-B2: Listar/seleccionar warehouses**
-- [ ] Listar warehouses donde el usuario es miembro.
-- [ ] Selección persistida en cliente.
+- [x] Listar warehouses donde el usuario es miembro.
+- [x] Selección persistida en cliente.
 
 **US-B3: Invitar usuario**
 - [ ] Generar invitación (token/link).
@@ -247,7 +248,7 @@ Secciones:
 - [ ] Aceptar → miembro.
 
 **US-B4: Ver miembros**
-- [ ] Miembros visibles para cualquier miembro.
+- [x] Miembros visibles para cualquier miembro.
 
 ---
 
@@ -556,6 +557,7 @@ Secciones:
 - `POST /auth/login`
 - `POST /auth/refresh`
 - `POST /auth/logout`
+- `POST /auth/change-password`
 - `POST /auth/forgot-password`
 - `POST /auth/reset-password`
 
@@ -738,10 +740,11 @@ El servidor persiste `processed_commands` para no duplicar.
 ### Slice 1 — Fundaciones: Auth + Warehouses + Shell Material
 - Backend: auth + modelos + migraciones base.
 - Frontend: login/signup + selección warehouse + shell responsive.
-- Estado actual (2026-02-22): **en progreso avanzado**.
-  - Implementado: `signup`, `login`, `refresh`, `logout`, `me`; `list/create/get/members` de warehouses; migración inicial Alembic; test integración auth+warehouses.
-  - Implementado frontend: pantallas login/signup/warehouses/shell, interceptor JWT, guards de ruta y persistencia local de tokens/warehouse seleccionado.
-  - Pendiente de Slice 1: forgot/reset password y refinamientos de UX responsive del shell.
+- Estado actual (2026-02-22): **completada**.
+  - Backend: `signup`, `login`, `refresh`, `logout`, `me`, `change-password`, `forgot-password`, `reset-password`; `list/create/get/members` de warehouses.
+  - Persistencia auth: refresh tokens revocados en `logout`, `reset-password` y `change-password`.
+  - Frontend: pantallas login/signup/forgot/reset/warehouses/shell, interceptor JWT, guards, selección persistida de warehouse.
+  - Responsive: shell con sidenav `over` en móvil y `side` en escritorio.
 
 ### Slice 2 — Core: Boxes + Items + Favoritos + Stock Movements
 - CRUD cajas (sin QR aún).
@@ -798,3 +801,4 @@ Para considerar una slice “Done”:
 
 - **A-001 (2026-02-22):** Para acelerar bootstrap local sin fricción de dependencias, la base inicial corre con SQLite y sesiones SQLAlchemy síncronas. Se mantiene como objetivo migrar a PostgreSQL + capa async en la evolución de slices.
 - **A-002 (2026-02-22):** La validación de email en el backend se dejó básica (string + límites) en esta fase inicial por disponibilidad de entorno; se endurecerá en siguientes pasos de Slice 1/2.
+- **A-003 (2026-02-22):** En entorno de desarrollo, `POST /auth/forgot-password` devuelve `reset_token` en la respuesta para poder probar el flujo sin SMTP. En producción debe enviarse por email y no exponerse en API.
