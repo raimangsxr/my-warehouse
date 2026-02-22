@@ -79,7 +79,7 @@ export class WarehousesComponent implements OnInit {
         this.form.reset();
         this.warehouseService.setSelectedWarehouseId(warehouse.id);
         this.loadWarehouses();
-        this.router.navigateByUrl('/app');
+        this.router.navigateByUrl('/app/home');
       },
       error: () => {
         this.loading = false;
@@ -90,7 +90,7 @@ export class WarehousesComponent implements OnInit {
 
   openWarehouse(warehouseId: string): void {
     this.warehouseService.setSelectedWarehouseId(warehouseId);
-    this.router.navigateByUrl('/app');
+    this.router.navigateByUrl('/app/home');
   }
 
   private loadWarehouses(): void {

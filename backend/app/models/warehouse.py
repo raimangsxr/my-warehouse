@@ -11,3 +11,5 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
 
     memberships = relationship("Membership", back_populates="warehouse", cascade="all, delete-orphan")
+    boxes = relationship("Box", back_populates="warehouse", cascade="all, delete-orphan")
+    items = relationship("Item", back_populates="warehouse", cascade="all, delete-orphan")

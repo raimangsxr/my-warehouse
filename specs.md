@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v0.3  
+- **Versión:** v0.4  
 - **Última actualización:** 2026-02-22  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -22,6 +22,7 @@
 - **v0.1 (2026-02-22):** Primera especificación completa (MVP + roadmap + arquitectura + sync + Gemini).
 - **v0.2 (2026-02-22):** Arranque Slice 1 implementado (backend auth + warehouses + migración inicial + tests, frontend login/signup/warehouses/shell conectado por API). Se añade CORS de desarrollo para `http://localhost:4200`. Nota temporal: entorno local inicial con SQLite para bootstrap, objetivo final sigue siendo PostgreSQL.
 - **v0.3 (2026-02-22):** Slice 1 cerrada: `forgot-password`, `reset-password` y `change-password` implementados end-to-end; shell responsive móvil/escritorio con sidenav overlay/side; migración `password_reset_tokens`; tests de auth extendidos.
+- **v0.4 (2026-02-22):** Slice 2 completada: backend con CRUD de cajas y artículos, movimiento de cajas con prevención de ciclos, favoritos por usuario, stock como `stock_movements` idempotentes, acciones en lote y soft-delete/restore; frontend con rutas `/app/home`, `/app/boxes`, `/app/boxes/:id`, `/app/items/new`, `/app/items/:id` integradas en shell Material; migración `20260222_0003_slice2_boxes_items`; tests de Slice 2 añadidos. Fix técnico adicional: refresh tokens incorporan `jti` para evitar colisiones de hash en logins consecutivos.
 
 ---
 
@@ -254,24 +255,24 @@ Secciones:
 
 ### EPIC C — Cajas (árbol)
 **US-C1: Crear caja**
-- [ ] Crear en raíz o bajo `parent_box_id`.
-- [ ] Si no nombre: “Caja N” incremental por warehouse.
-- [ ] Genera QR token + short_code único.
+- [x] Crear en raíz o bajo `parent_box_id`.
+- [x] Si no nombre: “Caja N” incremental por warehouse.
+- [x] Genera QR token + short_code único.
 
 **US-C2: Editar caja**
-- [ ] Editar nombre, descripción, ubicación física opcional.
+- [x] Editar nombre, descripción, ubicación física opcional.
 
 **US-C3: Mover caja**
-- [ ] Drag & drop cambia parent.
-- [ ] Prohibido crear ciclos (no mover dentro de un descendiente).
+- [x] Drag & drop cambia parent.
+- [x] Prohibido crear ciclos (no mover dentro de un descendiente).
 
 **US-C4: Borrado seguro**
-- [ ] Soft-delete a papelera.
-- [ ] Si contiene elementos, requiere confirmación explícita.
-- [ ] Restauración.
+- [x] Soft-delete a papelera.
+- [x] Si contiene elementos, requiere confirmación explícita.
+- [x] Restauración.
 
 **US-C5: Conteos**
-- [ ] Mostrar:
+- [x] Mostrar:
   - `total_items_recursive`
   - `total_boxes_recursive`
 
@@ -279,26 +280,26 @@ Secciones:
 
 ### EPIC D — Artículos
 **US-D1: Crear artículo**
-- [ ] Campos: name (req), desc (opt), photo (opt), box (req), ubicación física (opt).
+- [x] Campos: name (req), desc (opt), photo (opt), box (req), ubicación física (opt).
 - [ ] Enriquecimiento LLM (tags + alias) si habilitado.
 
 **US-D2: Editar artículo**
-- [ ] Cambiar name/desc/photo/box/ubicación.
+- [x] Cambiar name/desc/photo/box/ubicación.
 - [ ] Si cambia name/desc → re-LLM (si habilitado).
 
 **US-D3: Favoritos por usuario**
-- [ ] Toggle ⭐ por usuario.
-- [ ] Home muestra favoritos por defecto.
+- [x] Toggle ⭐ por usuario.
+- [x] Home muestra favoritos por defecto.
 
 **US-D4: Stock rápido**
-- [ ] +/-1 crea `StockMovement` idempotente (command_id).
-- [ ] Stock mostrado = suma movimientos.
+- [x] +/-1 crea `StockMovement` idempotente (command_id).
+- [x] Stock mostrado = suma movimientos.
 
 **US-D5: Borrado seguro**
-- [ ] Soft-delete + restauración.
+- [x] Soft-delete + restauración.
 
 **US-D6: Acciones en lote**
-- [ ] Selección múltiple + acciones:
+- [x] Selección múltiple + acciones:
   - mover a caja
   - marcar/desmarcar favoritos
   - borrar
@@ -570,28 +571,28 @@ Secciones:
 - `POST /invites/{token}/accept`
 
 ### Boxes
-- `GET /boxes?warehouse_id=...&parent_id=...`
-- `POST /boxes`
-- `GET /boxes/{id}`
-- `PATCH /boxes/{id}`
-- `POST /boxes/{id}/move` (new_parent_id)
-- `DELETE /boxes/{id}` (soft)
-- `POST /boxes/{id}/restore`
+- `GET /warehouses/{warehouse_id}/boxes/tree?include_deleted=...`
+- `POST /warehouses/{warehouse_id}/boxes`
+- `GET /warehouses/{warehouse_id}/boxes/{box_id}`
+- `PATCH /warehouses/{warehouse_id}/boxes/{box_id}`
+- `POST /warehouses/{warehouse_id}/boxes/{box_id}/move` (new_parent_box_id)
+- `DELETE /warehouses/{warehouse_id}/boxes/{box_id}` (soft, body `{force}`)
+- `POST /warehouses/{warehouse_id}/boxes/{box_id}/restore`
 - `GET /boxes/by-qr/{qr_token}` → devuelve box_id + warehouse_id
-- `GET /boxes/{id}/items?recursive=true` → lista plana con ruta
+- `GET /warehouses/{warehouse_id}/boxes/{box_id}/items?q=...` → lista plana recursiva con ruta
 
 ### Items
-- `GET /items?warehouse_id=...&q=...&filters=...`
-- `POST /items`
-- `GET /items/{id}`
-- `PATCH /items/{id}`
-- `DELETE /items/{id}` (soft)
-- `POST /items/{id}/restore`
-- `POST /items/{id}/move` (box_id)
-- `POST /items/{id}/favorite` (toggle o set)
+- `GET /warehouses/{warehouse_id}/items?q=...&favorites_only=...&stock_zero=...&with_photo=...`
+- `POST /warehouses/{warehouse_id}/items`
+- `GET /warehouses/{warehouse_id}/items/{item_id}`
+- `PATCH /warehouses/{warehouse_id}/items/{item_id}`
+- `DELETE /warehouses/{warehouse_id}/items/{item_id}` (soft)
+- `POST /warehouses/{warehouse_id}/items/{item_id}/restore`
+- `POST /warehouses/{warehouse_id}/items/{item_id}/favorite` (toggle o set)
+- `POST /warehouses/{warehouse_id}/items/batch` (move|favorite|unfavorite|delete)
 
 Stock:
-- `POST /items/{id}/stock` body: `{ "delta": 1, "command_id": "uuid" }`
+- `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` body: `{ "delta": 1, "command_id": "uuid" }`
 
 ### Photos
 - `POST /photos` (multipart) → devuelve photo_id + url
@@ -751,6 +752,11 @@ El servidor persiste `processed_commands` para no duplicar.
 - CRUD items.
 - Favoritos por usuario.
 - Stock +/-1 como eventos.
+- Estado actual (2026-02-22): **completada**.
+  - Backend: modelos `boxes`, `items`, `item_favorites`, `stock_movements`; endpoints de tree, CRUD, move con validación de ciclos, soft-delete/restore, favoritos y batch.
+  - Frontend: vistas `home`, `boxes`, `box-detail`, `item-form`; filtros rápidos (favoritos/stock=0), acciones rápidas (+/- stock, favorito) y lote (mover/favorito/borrar).
+  - Migración: `20260222_0003_slice2_boxes_items`.
+  - Calidad: test backend de Slice 2 (`test_slice2_boxes_items.py`) y build frontend OK.
 
 ### Slice 3 — Search + filtros + nube de tags (inicial)
 - Buscador incremental.
@@ -802,3 +808,4 @@ Para considerar una slice “Done”:
 - **A-001 (2026-02-22):** Para acelerar bootstrap local sin fricción de dependencias, la base inicial corre con SQLite y sesiones SQLAlchemy síncronas. Se mantiene como objetivo migrar a PostgreSQL + capa async en la evolución de slices.
 - **A-002 (2026-02-22):** La validación de email en el backend se dejó básica (string + límites) en esta fase inicial por disponibilidad de entorno; se endurecerá en siguientes pasos de Slice 1/2.
 - **A-003 (2026-02-22):** En entorno de desarrollo, `POST /auth/forgot-password` devuelve `reset_token` en la respuesta para poder probar el flujo sin SMTP. En producción debe enviarse por email y no exponerse en API.
+- **A-004 (2026-02-22):** En Slice 2 el endpoint de stock rápido se expone como `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` (en lugar de `/stock`) para dejar explícito el comando idempotente con `command_id`; se puede simplificar en Slice 7 si se estandariza capa de sync.

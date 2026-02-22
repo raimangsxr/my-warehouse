@@ -13,3 +13,4 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     memberships = relationship("Membership", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    favorite_items = relationship("ItemFavorite", back_populates="user", cascade="all, delete-orphan")

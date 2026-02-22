@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from jose import jwt
@@ -27,7 +28,14 @@ def build_access_token(user_id: str) -> str:
 def build_refresh_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(days=settings.refresh_token_days)
-    payload = {"sub": user_id, "type": "refresh", "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    # Include jti to avoid collisions when issuing multiple tokens in the same second.
+    payload = {
+        "sub": user_id,
+        "type": "refresh",
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+        "jti": secrets.token_urlsafe(16),
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
