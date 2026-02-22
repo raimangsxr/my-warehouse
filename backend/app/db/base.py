@@ -1,3 +1,4 @@
+from app.models.activity_event import ActivityEvent
 from app.models.box import Box
 from app.models.item import Item
 from app.models.item_favorite import ItemFavorite
@@ -7,6 +8,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.stock_movement import StockMovement
 from app.models.user import User
 from app.models.warehouse import Warehouse
+from app.models.warehouse_invite import WarehouseInvite
 
 __all__ = [
     "User",
@@ -18,4 +20,6 @@ __all__ = [
     "Item",
     "ItemFavorite",
     "StockMovement",
+    "WarehouseInvite",
+    "ActivityEvent",
 ]

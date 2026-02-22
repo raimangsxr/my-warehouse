@@ -22,6 +22,7 @@ from app.schemas.item import (
     ItemUpdateRequest,
     StockAdjustRequest,
 )
+from app.services.activity import record_activity
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/items", tags=["items"])
 
@@ -234,6 +235,15 @@ def create_item(
         aliases=payload.aliases,
     )
     db.add(item)
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type="item.created",
+        entity_type="item",
+        entity_id=item.id,
+        metadata={"name": item.name},
+    )
     db.commit()
     db.refresh(item)
     boxes_by_id = _active_boxes_map(db, warehouse_id)
@@ -306,11 +316,21 @@ def delete_item(
     warehouse_id: str,
     item_id: str,
     _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     item = _get_item(db, warehouse_id, item_id)
     item.deleted_at = utcnow()
     item.version += 1
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type="item.deleted",
+        entity_type="item",
+        entity_id=item.id,
+        metadata={"name": item.name},
+    )
     db.commit()
     return MessageResponse(message="Item moved to trash")
 
@@ -329,6 +349,15 @@ def restore_item(
     if item.deleted_at is not None:
         item.deleted_at = None
         item.version += 1
+        record_activity(
+            db,
+            warehouse_id=warehouse_id,
+            actor_user_id=current_user.id,
+            event_type="item.restored",
+            entity_type="item",
+            entity_id=item.id,
+            metadata={"name": item.name},
+        )
         db.commit()
         db.refresh(item)
 
@@ -397,6 +426,17 @@ def adjust_stock(
             db.commit()
         except IntegrityError:
             db.rollback()
+        else:
+            record_activity(
+                db,
+                warehouse_id=warehouse_id,
+                actor_user_id=current_user.id,
+                event_type="stock.adjusted",
+                entity_type="item",
+                entity_id=item.id,
+                metadata={"delta": payload.delta},
+            )
+            db.commit()
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
@@ -459,5 +499,13 @@ def batch_action(
             item.deleted_at = now
             item.version += 1
 
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type=f"items.batch.{payload.action.value}",
+        entity_type="item",
+        metadata={"count": len(unique_ids)},
+    )
     db.commit()
     return MessageResponse(message=f"Batch action '{payload.action.value}' applied to {len(unique_ids)} items")

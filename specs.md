@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v0.6  
+- **Versión:** v0.7  
 - **Última actualización:** 2026-02-22  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -25,6 +25,7 @@
 - **v0.4 (2026-02-22):** Slice 2 completada: backend con CRUD de cajas y artículos, movimiento de cajas con prevención de ciclos, favoritos por usuario, stock como `stock_movements` idempotentes, acciones en lote y soft-delete/restore; frontend con rutas `/app/home`, `/app/boxes`, `/app/boxes/:id`, `/app/items/new`, `/app/items/:id` integradas en shell Material; migración `20260222_0003_slice2_boxes_items`; tests de Slice 2 añadidos. Fix técnico adicional: refresh tokens incorporan `jti` para evitar colisiones de hash en logins consecutivos.
 - **v0.5 (2026-02-22):** Slice 3 completada (fase inicial): búsqueda incremental en Home con debounce, orden por relevancia en backend, búsqueda por ruta de cajas, filtro por tag y nube de tags por warehouse (`/warehouses/{warehouse_id}/tags/cloud`) con chips en UI. Se añaden tests backend de búsqueda/tags.
 - **v0.6 (2026-02-22):** Slice 4 completada: endpoint `GET /boxes/by-qr/{qr_token}` con control de acceso por membresía, vista `/app/scan` integrada en el header con escaneo por cámara (BarcodeDetector) y fallback por token manual, redirect post-login conservando deep link, y detalle de caja con breadcrumbs navegables por tramo. Se añaden tests backend para lookup QR y permisos.
+- **v0.7 (2026-02-22):** Slice 5 completada: invitaciones por token con expiración (`POST /warehouses/{id}/invites`, `POST /invites/{token}/accept`), papelera/restauración expuesta en UI (`/app/trash`) y actividad mínima (`/warehouses/{id}/activity`, `/app/activity`) con eventos clave (create/delete/restore/stock/batch/invite). Se añade migración `20260222_0004_slice5_invites_activity` y tests de invites/activity.
 
 ---
 
@@ -148,6 +149,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - `/login`
 - `/signup`
 - `/forgot-password`
+- `/invites/:token` (aceptar invitación)
 - `/warehouses` (lista + crear + seleccionar)
 - `/app` (shell)
   - `/app/home` (buscador + favoritos)
@@ -157,6 +159,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - `/app/boxes/:id` (detalle de caja)
   - `/app/scan` (escaneo QR)
   - `/app/scan/:qrToken` (deep link con token)
+  - `/app/trash` (papelera + restauración)
+  - `/app/activity` (actividad mínima)
   - `/app/settings` (configuración)
   - `/app/conflicts` (lista + resolución)
 
@@ -246,10 +250,10 @@ Secciones:
 - [x] Selección persistida en cliente.
 
 **US-B3: Invitar usuario**
-- [ ] Generar invitación (token/link).
+- [x] Generar invitación (token/link).
 - [ ] Opcional: enviar por email (SMTP).
-- [ ] Expira.
-- [ ] Aceptar → miembro.
+- [x] Expira.
+- [x] Aceptar → miembro.
 
 **US-B4: Ver miembros**
 - [x] Miembros visibles para cualquier miembro.
@@ -570,8 +574,9 @@ Secciones:
 - `POST /warehouses`
 - `GET /warehouses/{id}`
 - `GET /warehouses/{id}/members`
-- `POST /warehouses/{id}/invites`
+- `POST /warehouses/{warehouse_id}/invites`
 - `POST /invites/{token}/accept`
+- `GET /warehouses/{warehouse_id}/activity?limit=50`
 
 ### Boxes
 - `GET /warehouses/{warehouse_id}/boxes/tree?include_deleted=...`
@@ -785,6 +790,11 @@ El servidor persiste `processed_commands` para no duplicar.
 - invitaciones.
 - soft delete + restore.
 - actividad básica.
+- Estado actual (2026-02-22): **completada**.
+  - Backend: invitaciones por token con expiración y aceptación (`POST /warehouses/{warehouse_id}/invites`, `POST /invites/{token}/accept`), endpoint de actividad (`GET /warehouses/{warehouse_id}/activity`) y registro de eventos básicos.
+  - Frontend: aceptación de invitación (`/invites/:token`), papelera con restauración (`/app/trash`) y lista de actividad (`/app/activity`), además de creación de invites desde la vista de warehouses.
+  - Migración: `20260222_0004_slice5_invites_activity`.
+  - Calidad: test backend `test_slice5_invites_activity.py`.
 
 ### Slice 6 — Settings: SMTP + Gemini + autogen tags/alias
 - settings SMTP + test.
@@ -824,3 +834,4 @@ Para considerar una slice “Done”:
 - **A-004 (2026-02-22):** En Slice 2 el endpoint de stock rápido se expone como `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` (en lugar de `/stock`) para dejar explícito el comando idempotente con `command_id`; se puede simplificar en Slice 7 si se estandariza capa de sync.
 - **A-005 (2026-02-22):** En Slice 3 la relevancia de búsqueda usa un ranking heurístico en backend (exacto nombre > prefijo/contains nombre > alias > tag > descripción/ruta/ubicación) compatible con SQLite bootstrap; al migrar a PostgreSQL se podrá reemplazar por full-text/trigram conservando la misma semántica de orden.
 - **A-006 (2026-02-22):** En Slice 4 el escaneo QR en web usa `BarcodeDetector` nativo cuando existe soporte del navegador; si no está disponible o no hay permisos de cámara, la UI habilita fallback por token manual para mantener el flujo funcional sin dependencias nuevas.
+- **A-007 (2026-02-22):** En Slice 5, `POST /warehouses/{warehouse_id}/invites` devuelve `invite_url` calculada con `frontend_url` del backend y expone `invite_token` en respuesta para uso manual/QA; cuando SMTP esté activo (Slice 6), la entrega por email podrá hacerse sin cambiar el contrato base de aceptación.

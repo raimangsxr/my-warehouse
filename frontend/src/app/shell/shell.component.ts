@@ -31,6 +31,8 @@ import { WarehouseService } from '../services/warehouse.service';
           <a mat-list-item routerLink="/app/home" (click)="closeIfMobile()">Home</a>
           <a mat-list-item routerLink="/app/boxes" (click)="closeIfMobile()">Cajas</a>
           <a mat-list-item routerLink="/app/scan" (click)="closeIfMobile()">Scan QR</a>
+          <a mat-list-item routerLink="/app/trash" (click)="closeIfMobile()">Papelera</a>
+          <a mat-list-item routerLink="/app/activity" (click)="closeIfMobile()">Actividad</a>
           <a mat-list-item routerLink="/app/settings" (click)="closeIfMobile()">Settings</a>
           <a mat-list-item routerLink="/warehouses" (click)="closeIfMobile()">Warehouses</a>
         </mat-nav-list>

@@ -29,9 +29,12 @@ import { Warehouse, WarehouseService } from '../services/warehouse.service';
         <mat-card-content>
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
           <mat-list>
-            <button mat-list-item *ngFor="let warehouse of warehouses" (click)="openWarehouse(warehouse.id)">
-              {{ warehouse.name }}
-            </button>
+            <div class="row gap center-y" *ngFor="let warehouse of warehouses" style="margin-bottom: 8px">
+              <button mat-stroked-button (click)="openWarehouse(warehouse.id)" class="grow">
+                {{ warehouse.name }}
+              </button>
+              <button mat-button type="button" (click)="createInvite(warehouse.id)">Invitar</button>
+            </div>
           </mat-list>
           <form [formGroup]="form" (ngSubmit)="createWarehouse()">
             <mat-form-field class="full-width">
@@ -91,6 +94,21 @@ export class WarehousesComponent implements OnInit {
   openWarehouse(warehouseId: string): void {
     this.warehouseService.setSelectedWarehouseId(warehouseId);
     this.router.navigateByUrl('/app/home');
+  }
+
+  createInvite(warehouseId: string): void {
+    const emailRaw = prompt('Email a invitar (opcional, dejar vacío para link genérico)');
+    const email = emailRaw?.trim() || null;
+
+    this.warehouseService.createInvite(warehouseId, { email }).subscribe({
+      next: (invite) => {
+        const message = `Invitación creada.\n\nLink:\n${invite.invite_url}\n\nToken:\n${invite.invite_token}`;
+        alert(message);
+      },
+      error: () => {
+        this.errorMessage = 'No se pudo crear la invitación.';
+      }
+    });
   }
 
   private loadWarehouses(): void {

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 30
     refresh_token_days: int = 30
+    frontend_url: str = "http://localhost:4200"
 
 
 settings = Settings()

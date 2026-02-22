@@ -23,6 +23,7 @@ from app.schemas.box import (
     BoxUpdateRequest,
 )
 from app.schemas.common import MessageResponse
+from app.services.activity import record_activity
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/boxes", tags=["boxes"])
 qr_router = APIRouter(prefix="/boxes", tags=["boxes"])
@@ -192,6 +193,7 @@ def create_box(
     warehouse_id: str,
     payload: BoxCreateRequest,
     _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BoxResponse:
     if payload.parent_box_id:
@@ -208,6 +210,15 @@ def create_box(
         short_code=_new_short_code(),
     )
     db.add(box)
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type="box.created",
+        entity_type="box",
+        entity_id=box.id,
+        metadata={"name": box.name},
+    )
     db.commit()
     db.refresh(box)
     return BoxResponse.model_validate(box)
@@ -325,6 +336,7 @@ def delete_box(
     box_id: str,
     payload: BoxDeleteRequest,
     _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     _get_box(db, warehouse_id, box_id)
@@ -359,6 +371,15 @@ def delete_box(
         item.deleted_at = now
         item.version += 1
 
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type="box.deleted",
+        entity_type="box",
+        entity_id=box_id,
+        metadata={"recursive_boxes": len(subtree_ids), "recursive_items": len(items)},
+    )
     db.commit()
     return MessageResponse(message="Box moved to trash")
 
@@ -368,6 +389,7 @@ def restore_box(
     warehouse_id: str,
     box_id: str,
     _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BoxResponse:
     box = _get_box(db, warehouse_id, box_id, include_deleted=True)
@@ -384,6 +406,15 @@ def restore_box(
 
     box.deleted_at = None
     box.version += 1
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type="box.restored",
+        entity_type="box",
+        entity_id=box.id,
+        metadata={"name": box.name},
+    )
     db.commit()
     db.refresh(box)
     return BoxResponse.model_validate(box)
