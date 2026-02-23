@@ -5,7 +5,9 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { BoxService } from '../services/box.service';
 import { WarehouseService } from '../services/warehouse.service';
@@ -17,37 +19,62 @@ type BarcodeDetectorLike = {
 @Component({
   selector: 'app-scan',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatCardModule, MatFormFieldModule, MatInputModule, MatButtonModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressBarModule
+  ],
   template: `
-    <div class="page-wide">
-      <mat-card>
-        <mat-card-title>Escanear QR de caja</mat-card-title>
+    <div class="app-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Escáner QR</h1>
+          <p class="page-subtitle">Escanea con cámara o resuelve el token manualmente</p>
+        </div>
+      </header>
+
+      <mat-card class="surface-card">
+        <mat-progress-bar *ngIf="scanning" mode="indeterminate" />
         <mat-card-content>
-          <p class="muted">
-            Si tu navegador soporta escaneo nativo, usa cámara. Si no, pega el token QR manualmente.
+          <p class="status-line">
+            Si el navegador soporta escaneo nativo, activa cámara. Si no, pega el token QR manual.
           </p>
 
-          <div class="row gap" style="margin-bottom: 12px">
+          <div class="inline-actions" style="margin-top: 10px">
             <button mat-flat-button color="primary" type="button" (click)="startCameraScan()" [disabled]="scanning">
+              <mat-icon>videocam</mat-icon>
               Iniciar cámara
             </button>
-            <button mat-stroked-button type="button" (click)="stopCameraScan()" [disabled]="!scanning">Detener</button>
-          </div>
-
-          <video #videoEl autoplay playsinline muted style="width: 100%; max-width: 480px; border-radius: 8px"></video>
-
-          <div style="margin-top: 16px">
-            <mat-form-field class="full-width">
-              <mat-label>Token QR (manual)</mat-label>
-              <input matInput [(ngModel)]="manualToken" />
-            </mat-form-field>
-            <button mat-flat-button color="primary" type="button" (click)="resolveManualToken()" [disabled]="!manualToken.trim()">
-              Abrir caja
+            <button mat-stroked-button type="button" (click)="stopCameraScan()" [disabled]="!scanning">
+              <mat-icon>videocam_off</mat-icon>
+              Detener
             </button>
           </div>
 
-          <div class="error" *ngIf="errorMessage" style="margin-top: 12px">{{ errorMessage }}</div>
-          <div *ngIf="statusMessage" style="margin-top: 12px">{{ statusMessage }}</div>
+          <div class="item-card" style="margin-top: 12px; padding: 10px">
+            <video #videoEl autoplay playsinline muted style="width: 100%; max-width: 560px; border-radius: 10px"></video>
+          </div>
+
+          <div class="form-row" style="margin-top: 14px">
+            <mat-form-field class="grow">
+              <mat-label>Token QR (manual)</mat-label>
+              <mat-icon matPrefix>qr_code_2</mat-icon>
+              <input matInput [(ngModel)]="manualToken" />
+            </mat-form-field>
+            <div class="inline-actions">
+              <button mat-flat-button color="primary" type="button" (click)="resolveManualToken()" [disabled]="!manualToken.trim()">
+                Abrir caja
+              </button>
+            </div>
+          </div>
+
+          <div class="error" *ngIf="errorMessage" style="margin-top: 10px">{{ errorMessage }}</div>
+          <div class="status-message" *ngIf="statusMessage" style="margin-top: 10px">{{ statusMessage }}</div>
         </mat-card-content>
       </mat-card>
     </div>
@@ -102,7 +129,7 @@ export class ScanComponent implements OnInit, OnDestroy {
 
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: { facingMode: { ideal: 'environment' } }
       });
       video.srcObject = this.mediaStream;
       this.scanning = true;
@@ -174,7 +201,7 @@ export class ScanComponent implements OnInit, OnDestroy {
           return;
         }
         this.errorMessage = 'No se pudo resolver el QR.';
-      },
+      }
     });
   }
 }

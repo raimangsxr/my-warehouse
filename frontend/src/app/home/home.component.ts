@@ -9,13 +9,14 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 import { Box, BoxService } from '../services/box.service';
 import { Item, ItemService, TagCloudEntry } from '../services/item.service';
+import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -34,83 +35,156 @@ import { WarehouseService } from '../services/warehouse.service';
     MatCheckboxModule,
     MatChipsModule,
     MatSelectModule,
-    MatListModule
+    MatProgressBarModule
   ],
   template: `
-    <div class="page-wide">
-      <mat-card>
-        <mat-card-title>Home</mat-card-title>
-        <mat-card-content>
-          <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
-          <form [formGroup]="filtersForm" class="row gap" (ngSubmit)="loadItems()">
-            <mat-form-field class="grow">
-              <mat-label>Buscar</mat-label>
-              <input matInput formControlName="q" placeholder="nombre, tags, alias, ubicación" />
-            </mat-form-field>
-            <mat-checkbox formControlName="favoritesOnly">Favoritos</mat-checkbox>
-            <mat-checkbox formControlName="stockZero">Stock = 0</mat-checkbox>
-            <button mat-flat-button color="primary">Buscar</button>
-            <button mat-stroked-button type="button" (click)="clearFilters()">Limpiar</button>
-          </form>
+    <div class="app-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Inicio</h1>
+          <p class="page-subtitle">Consulta rápida de artículos, favoritos y stock por warehouse</p>
+        </div>
+        <button mat-flat-button color="primary" [routerLink]="['/app/items/new']">
+          <mat-icon>add</mat-icon>
+          Nuevo artículo
+        </button>
+      </header>
 
-          <div class="row gap center-y" style="margin: 8px 0 12px" *ngIf="tagsCloud.length > 0">
-            <span class="muted">Tags:</span>
-            <mat-chip-set>
-              <mat-chip-option
-                *ngFor="let tag of tagsCloud"
-                [selected]="activeTag === tag.tag"
-                (click)="toggleTag(tag.tag)"
-              >
-                {{ tag.tag }} ({{ tag.count }})
-              </mat-chip-option>
-            </mat-chip-set>
-            <button mat-button type="button" *ngIf="activeTag" (click)="toggleTag(activeTag)">Quitar tag</button>
+      <mat-card class="surface-card">
+        <mat-card-content>
+          <div class="card-header-row">
+            <div>
+              <h2 class="card-title">Búsqueda y filtros</h2>
+              <p class="card-subtitle">Filtra por texto, estado de stock, favoritos y tags</p>
+            </div>
           </div>
 
-          <div class="row gap" style="margin: 12px 0">
+          <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
+
+          <form [formGroup]="filtersForm" class="form-stack" (ngSubmit)="loadItems()">
+            <div class="form-row">
+              <mat-form-field class="grow">
+                <mat-label>Buscar artículo</mat-label>
+                <mat-icon matPrefix>search</mat-icon>
+                <input matInput formControlName="q" placeholder="nombre, tags, alias, ubicación" />
+              </mat-form-field>
+              <div class="inline-actions">
+                <mat-checkbox class="filter-checkbox" formControlName="favoritesOnly">Solo favoritos</mat-checkbox>
+                <mat-checkbox class="filter-checkbox" formControlName="stockZero">Stock = 0</mat-checkbox>
+              </div>
+            </div>
+
+            <div class="inline-actions">
+              <button mat-flat-button color="primary" type="submit">Buscar</button>
+              <button mat-stroked-button type="button" (click)="clearFilters()">Limpiar</button>
+            </div>
+
+            <div class="inline-actions" *ngIf="tagsCloud.length > 0">
+              <span class="muted">Tags:</span>
+              <mat-chip-set>
+                <mat-chip-option
+                  *ngFor="let tag of tagsCloud"
+                  [selected]="activeTag === tag.tag"
+                  (click)="toggleTag(tag.tag)"
+                >
+                  {{ tag.tag }} ({{ tag.count }})
+                </mat-chip-option>
+              </mat-chip-set>
+              <button mat-button type="button" *ngIf="activeTag" (click)="toggleTag(activeTag)">Quitar tag</button>
+            </div>
+          </form>
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card class="surface-card">
+        <mat-card-content>
+          <div class="card-header-row">
+            <div>
+              <h2 class="card-title">Acciones por lote</h2>
+              <p class="card-subtitle">Seleccionados: {{ selectedItemIds.size }}</p>
+            </div>
+          </div>
+
+          <div class="form-row">
             <mat-form-field>
               <mat-label>Mover seleccionados a caja</mat-label>
               <mat-select [(ngModel)]="targetBoxId" [ngModelOptions]="{ standalone: true }">
                 <mat-option *ngFor="let box of boxes" [value]="box.id">{{ box.name }}</mat-option>
               </mat-select>
             </mat-form-field>
-            <button mat-stroked-button (click)="batchMove()" [disabled]="selectedItemIds.size === 0 || !targetBoxId">
-              Mover lote
-            </button>
-            <button mat-stroked-button (click)="batchFavorite(true)" [disabled]="selectedItemIds.size === 0">
-              Favorito lote
-            </button>
-            <button mat-stroked-button (click)="batchFavorite(false)" [disabled]="selectedItemIds.size === 0">
-              Quitar favorito lote
-            </button>
-            <button mat-flat-button color="warn" (click)="batchDelete()" [disabled]="selectedItemIds.size === 0">
-              Borrar lote
-            </button>
-            <button mat-flat-button color="primary" [routerLink]="['/app/items/new']">Nuevo artículo</button>
-          </div>
 
-          <mat-list>
-            <mat-list-item *ngFor="let item of items" class="item-row">
-              <mat-checkbox [checked]="selectedItemIds.has(item.id)" (change)="toggleSelected(item.id)"></mat-checkbox>
-              <div class="grow" style="margin-left: 10px">
-                <div class="row gap center-y">
-                  <strong>{{ item.name }}</strong>
-                  <span class="muted">{{ item.box_path.join(' > ') }}</span>
-                  <span class="muted">Stock: {{ item.stock }}</span>
-                </div>
-                <div class="muted">{{ item.description || 'Sin descripción' }}</div>
-              </div>
-              <button mat-icon-button (click)="toggleFavorite(item)" [attr.aria-label]="'Favorito ' + item.name">
-                <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
+            <div class="inline-actions">
+              <button mat-stroked-button type="button" (click)="batchMove()" [disabled]="selectedItemIds.size === 0 || !targetBoxId">
+                Mover
               </button>
-              <button mat-mini-fab color="primary" (click)="adjustStock(item, 1)">+</button>
-              <button mat-mini-fab color="basic" (click)="adjustStock(item, -1)">-</button>
-              <button mat-button [routerLink]="['/app/items', item.id]">Editar</button>
-              <button mat-button color="warn" (click)="deleteItem(item)">Borrar</button>
-            </mat-list-item>
-          </mat-list>
+              <button mat-stroked-button type="button" (click)="batchFavorite(true)" [disabled]="selectedItemIds.size === 0">
+                Marcar favorito
+              </button>
+              <button mat-stroked-button type="button" (click)="batchFavorite(false)" [disabled]="selectedItemIds.size === 0">
+                Quitar favorito
+              </button>
+              <button mat-flat-button color="warn" type="button" (click)="batchDelete()" [disabled]="selectedItemIds.size === 0">
+                Borrar
+              </button>
+            </div>
+          </div>
         </mat-card-content>
       </mat-card>
+
+      <mat-progress-bar *ngIf="loadingItems" mode="indeterminate" />
+
+      <div class="items-grid" *ngIf="items.length > 0; else emptyItems" style="margin-top: 14px">
+        <article class="item-card" *ngFor="let item of items">
+          <div class="list-row">
+            <mat-checkbox
+              class="item-select-checkbox"
+              [checked]="selectedItemIds.has(item.id)"
+              (change)="toggleSelected(item.id)"
+            ></mat-checkbox>
+            <div class="grow">
+              <p class="item-card-title">{{ item.name }}</p>
+              <div class="item-card-meta">
+                <span class="inline-chip">Stock: {{ item.stock }}</span>
+                <span class="inline-chip" *ngIf="item.is_favorite">Favorito</span>
+              </div>
+            </div>
+            <button mat-icon-button (click)="toggleFavorite(item)" [attr.aria-label]="'Favorito ' + item.name">
+              <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
+            </button>
+          </div>
+
+          <p class="status-line">{{ item.description || 'Sin descripción' }}</p>
+          <p class="status-line">{{ item.box_path.join(' > ') }}</p>
+
+          <div class="inline-actions">
+            <button
+              mat-mini-fab
+              color="primary"
+              type="button"
+              (click)="adjustStock(item, 1)"
+              [attr.aria-label]="'Incrementar stock de ' + item.name"
+            >
+              +
+            </button>
+            <button
+              mat-mini-fab
+              type="button"
+              (click)="adjustStock(item, -1)"
+              [attr.aria-label]="'Reducir stock de ' + item.name"
+            >
+              -
+            </button>
+            <button mat-button type="button" [routerLink]="['/app/items', item.id]">Editar</button>
+            <button mat-button color="warn" type="button" (click)="deleteItem(item)">Borrar</button>
+          </div>
+        </article>
+      </div>
+
+      <ng-template #emptyItems>
+        <div class="empty-state" style="margin-top: 14px">
+          No hay artículos para los filtros seleccionados.
+        </div>
+      </ng-template>
     </div>
   `
 })
@@ -119,6 +193,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   private readonly destroy$ = new Subject<void>();
 
   errorMessage = '';
+  loadingItems = false;
   items: Item[] = [];
   boxes: Box[] = [];
   tagsCloud: TagCloudEntry[] = [];
@@ -136,6 +211,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     private readonly fb: FormBuilder,
     private readonly itemService: ItemService,
     private readonly boxService: BoxService,
+    private readonly syncService: SyncService,
     private readonly warehouseService: WarehouseService,
     private readonly router: Router
   ) {}
@@ -170,6 +246,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     }
 
     const raw = this.filtersForm.getRawValue();
+    this.loadingItems = true;
     this.itemService
       .list(this.selectedWarehouseId, {
         q: raw.q,
@@ -179,10 +256,12 @@ export class HomeComponent implements OnInit, OnDestroy {
       })
       .subscribe({
         next: (items) => {
+          this.loadingItems = false;
           this.items = items;
           this.selectedItemIds.clear();
         },
         error: () => {
+          this.loadingItems = false;
           this.errorMessage = 'No se pudieron cargar los artículos.';
         }
       });
@@ -204,12 +283,21 @@ export class HomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.itemService.setFavorite(this.selectedWarehouseId, item.id, !item.is_favorite).subscribe({
+    const nextFavorite = !item.is_favorite;
+    const commandId = crypto.randomUUID();
+    this.itemService.setFavorite(this.selectedWarehouseId, item.id, nextFavorite).subscribe({
       next: (updated) => {
         this.upsertItem(updated);
       },
-      error: () => {
-        this.errorMessage = 'No se pudo actualizar favorito.';
+      error: async () => {
+        await this.syncService.enqueueCommand(this.selectedWarehouseId!, {
+          command_id: commandId,
+          type: nextFavorite ? 'item.favorite' : 'item.unfavorite',
+          entity_id: item.id,
+          payload: {},
+        });
+        this.upsertItem({ ...item, is_favorite: nextFavorite });
+        this.errorMessage = 'Sin conexión: favorito en cola para sincronizar.';
       }
     });
   }
@@ -219,16 +307,22 @@ export class HomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.itemService
-      .adjustStock(this.selectedWarehouseId, item.id, delta, crypto.randomUUID())
-      .subscribe({
-        next: (updated) => {
-          this.upsertItem(updated);
-        },
-        error: () => {
-          this.errorMessage = 'No se pudo ajustar stock.';
-        }
-      });
+    const commandId = crypto.randomUUID();
+    this.itemService.adjustStock(this.selectedWarehouseId, item.id, delta, commandId).subscribe({
+      next: (updated) => {
+        this.upsertItem(updated);
+      },
+      error: async () => {
+        await this.syncService.enqueueCommand(this.selectedWarehouseId!, {
+          command_id: commandId,
+          type: 'stock.adjust',
+          entity_id: item.id,
+          payload: { delta },
+        });
+        this.upsertItem({ ...item, stock: item.stock + delta });
+        this.errorMessage = 'Sin conexión: ajuste de stock en cola para sincronizar.';
+      }
+    });
   }
 
   deleteItem(item: Item): void {
@@ -320,13 +414,9 @@ export class HomeComponent implements OnInit, OnDestroy {
     if (!this.selectedWarehouseId) {
       return;
     }
-
     this.boxService.tree(this.selectedWarehouseId).subscribe({
       next: (nodes) => {
-        this.boxes = nodes.map((n) => n.box);
-      },
-      error: () => {
-        this.errorMessage = 'No se pudieron cargar las cajas.';
+        this.boxes = nodes.map((node) => node.box);
       }
     });
   }
@@ -335,24 +425,14 @@ export class HomeComponent implements OnInit, OnDestroy {
     if (!this.selectedWarehouseId) {
       return;
     }
-
     this.itemService.tagsCloud(this.selectedWarehouseId).subscribe({
-      next: (cloud) => {
-        this.tagsCloud = cloud;
-      },
-      error: () => {
-        this.errorMessage = 'No se pudo cargar la nube de tags.';
+      next: (tags) => {
+        this.tagsCloud = tags;
       }
     });
   }
 
-  private upsertItem(item: Item): void {
-    const idx = this.items.findIndex((it) => it.id === item.id);
-    if (idx === -1) {
-      this.items = [item, ...this.items];
-      return;
-    }
-    this.items[idx] = item;
-    this.items = [...this.items];
+  private upsertItem(updated: Item): void {
+    this.items = this.items.map((it) => (it.id === updated.id ? updated : it));
   }
 }

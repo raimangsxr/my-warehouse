@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v0.8  
-- **Última actualización:** 2026-02-22  
+- **Versión:** v1.0  
+- **Última actualización:** 2026-02-23  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -27,6 +27,9 @@
 - **v0.6 (2026-02-22):** Slice 4 completada: endpoint `GET /boxes/by-qr/{qr_token}` con control de acceso por membresía, vista `/app/scan` integrada en el header con escaneo por cámara (BarcodeDetector) y fallback por token manual, redirect post-login conservando deep link, y detalle de caja con breadcrumbs navegables por tramo. Se añaden tests backend para lookup QR y permisos.
 - **v0.7 (2026-02-22):** Slice 5 completada: invitaciones por token con expiración (`POST /warehouses/{id}/invites`, `POST /invites/{token}/accept`), papelera/restauración expuesta en UI (`/app/trash`) y actividad mínima (`/warehouses/{id}/activity`, `/app/activity`) con eventos clave (create/delete/restore/stock/batch/invite). Se añade migración `20260222_0004_slice5_invites_activity` y tests de invites/activity.
 - **v0.8 (2026-02-22):** Slice 6 completada: configuración SMTP y Gemini por warehouse con secretos cifrados en backend (`smtp_settings`, `llm_settings`), endpoint de test SMTP, toggles `auto-tags/auto-alias`, reprocesado manual de item y autogeneración de tags/aliases al crear/editar items cuando LLM está habilitado. UI de Settings ampliada y migración `20260222_0005_slice6_settings_smtp_llm`.
+- **v0.9 (2026-02-22):** Refactor transversal de UI/UX en frontend para alineación Material Design: sistema visual global (tokens de superficie, bordes, sombras y spacing), shell con navegación lateral y estados activos, rediseño responsive de auth/warehouses y pantallas core (`home`, `boxes`, `box-detail`, `item-form`, `scan`, `trash`, `activity`, `settings`) con jerarquía visual y estados de carga/vacío/error consistentes.
+- **v0.9.1 (2026-02-22):** Ajuste de densidad visual en vistas operativas: `boxes` pasa a layout más compacto (menos altura por card y mejor uso de ancho), reducción global de spacing en listados/cards y corrección de alineación de checkboxes en `home`.
+- **v1.0 (2026-02-23):** Slice 7 y Slice 8 completadas. Backend: tablas `change_log`, `processed_commands`, `sync_conflicts`; endpoints `/sync/push`, `/sync/pull`, `/sync/resolve`; export/import JSON de warehouse (`GET /warehouses/{warehouse_id}/export`, `POST /warehouses/{warehouse_id}/import`) con validación y remapeo de IDs en import cross-warehouse. Frontend: cola offline en IndexedDB (comandos), force sync en Settings, vista `/app/conflicts` para resolución, y UI de export/import en Settings. Migración `20260222_0006_slice7_slice8_sync_transfer` y tests backend `test_slice7_sync_conflicts.py`, `test_slice8_export_import.py`.
 
 ---
 
@@ -170,6 +173,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - selector de warehouse (si aplica)
   - icono escáner/cámara (QR)
   - acceso a settings
+- navegación lateral con iconografía y estado activo por sección
 - Responsive:
   - móvil: navegación compacta (sidenav overlay)
   - tablet/escritorio: sidenav persistente
@@ -625,6 +629,10 @@ Stock:
 - `GET /sync/pull?warehouse_id=...&since_seq=...`
 - `POST /sync/resolve`
 
+### Export / Import
+- `GET /warehouses/{warehouse_id}/export` → snapshot JSON del warehouse (boxes/items/stock_movements).
+- `POST /warehouses/{warehouse_id}/import` → upsert validado de snapshot JSON en warehouse destino.
+
 ---
 
 ## Búsqueda, tags, alias
@@ -725,6 +733,7 @@ El servidor persiste `processed_commands` para no duplicar.
 - Material Design estricto (Angular Material).
 - Responsive: móvil, tablet, escritorio.
 - Acciones rápidas con targets grandes (uso en garaje).
+- Sistema visual consistente: superficies con contraste suave, bordes y elevación sutiles, tipografía jerárquica y estados de UI homogéneos (loading/empty/error/success).
 
 ### Seguridad
 - Hash de passwords: Argon2 (preferible).
@@ -813,10 +822,20 @@ El servidor persiste `processed_commands` para no duplicar.
 - IndexedDB + cola.
 - /sync push/pull + change_log + processed_commands.
 - UI de conflictos.
+- Estado actual (2026-02-23): **completada**.
+  - Backend: tablas `change_log`, `processed_commands`, `sync_conflicts`; endpoints `/sync/push`, `/sync/pull`, `/sync/resolve`; registro de `change_log` también en mutaciones online de boxes/items.
+  - Frontend: servicio `SyncService` con IndexedDB (cola + `since_seq` + conflictos), fallback offline para comandos `item.favorite/unfavorite` y `stock.adjust`, sección de sync en Settings (estado/cola/forzar sync), y pantalla `/app/conflicts` para resolver con server/client.
+  - Migración: `20260222_0006_slice7_slice8_sync_transfer`.
+  - Calidad: test backend `test_slice7_sync_conflicts.py`.
 
 ### Slice 8 — Export/Import
 - export JSON (y opcional CSV).
 - import JSON con validación.
+- Estado actual (2026-02-23): **completada**.
+  - Backend: `GET /warehouses/{warehouse_id}/export` y `POST /warehouses/{warehouse_id}/import` con validación de referencias (parent/box/item) y remapeo de IDs/tokens cuando el snapshot se importa en otro warehouse.
+  - Frontend: acciones de Export/Import JSON en Settings.
+  - Migración: `20260222_0006_slice7_slice8_sync_transfer`.
+  - Calidad: test backend `test_slice8_export_import.py`.
 
 ---
 
@@ -844,3 +863,5 @@ Para considerar una slice “Done”:
 - **A-006 (2026-02-22):** En Slice 4 el escaneo QR en web usa `BarcodeDetector` nativo cuando existe soporte del navegador; si no está disponible o no hay permisos de cámara, la UI habilita fallback por token manual para mantener el flujo funcional sin dependencias nuevas.
 - **A-007 (2026-02-22):** En Slice 5, `POST /warehouses/{warehouse_id}/invites` devuelve `invite_url` calculada con `frontend_url` del backend y expone `invite_token` en respuesta para uso manual/QA; cuando SMTP esté activo (Slice 6), la entrega por email podrá hacerse sin cambiar el contrato base de aceptación.
 - **A-008 (2026-02-22):** En Slice 6, el endpoint `POST /settings/smtp/test` valida configuración y responde en modo simulado (sin envío real) para mantener bootstrap local sin dependencia de servidor SMTP externo; la verificación de entrega real se completará cuando se integre transporte SMTP productivo.
+- **A-009 (2026-02-23):** En la primera iteración de Slice 7, la cola offline del frontend cubre de forma explícita los comandos de uso rápido (`item.favorite/unfavorite` y `stock.adjust`); el resto de operaciones mantiene modo online-first y puede ampliarse por comando sin romper el contrato `/sync`.
+- **A-010 (2026-02-23):** En Slice 8, al importar un snapshot en un warehouse distinto, backend remapea IDs (`boxes`, `items`, `stock_movements`) y `qr_token` cuando detecta colisión global para preservar integridad sin exigir preprocesado del JSON en cliente.

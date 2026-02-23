@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatListModule } from '@angular/material/list';
+import { MatIconModule } from '@angular/material/icon';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
 import { Item, ItemService } from '../services/item.service';
@@ -11,33 +11,65 @@ import { WarehouseService } from '../services/warehouse.service';
 @Component({
   selector: 'app-trash',
   standalone: true,
-  imports: [CommonModule, MatCardModule, MatButtonModule, MatListModule],
+  imports: [CommonModule, MatCardModule, MatButtonModule, MatIconModule],
   template: `
-    <div class="page-wide">
-      <mat-card>
-        <mat-card-title>Papelera</mat-card-title>
-        <mat-card-content>
-          <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
+    <div class="app-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Papelera</h1>
+          <p class="page-subtitle">Restaura cajas y artículos eliminados</p>
+        </div>
+      </header>
 
-          <h3>Cajas eliminadas</h3>
-          <mat-list>
-            <mat-list-item *ngFor="let node of deletedBoxes">
-              <div class="grow">{{ node.box.name }}</div>
-              <button mat-button color="primary" (click)="restoreBox(node.box.id)">Restaurar</button>
-            </mat-list-item>
-          </mat-list>
-          <div class="muted" *ngIf="deletedBoxes.length === 0">No hay cajas eliminadas.</div>
+      <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
 
-          <h3 style="margin-top: 16px">Artículos eliminados</h3>
-          <mat-list>
-            <mat-list-item *ngFor="let item of deletedItems">
-              <div class="grow">{{ item.name }}</div>
-              <button mat-button color="primary" (click)="restoreItem(item.id)">Restaurar</button>
-            </mat-list-item>
-          </mat-list>
-          <div class="muted" *ngIf="deletedItems.length === 0">No hay artículos eliminados.</div>
-        </mat-card-content>
-      </mat-card>
+      <div class="form-row">
+        <mat-card class="surface-card">
+          <mat-card-content>
+            <h2 class="card-title">Cajas eliminadas</h2>
+            <p class="card-subtitle">{{ deletedBoxes.length }} elementos</p>
+
+            <div class="list-grid" *ngIf="deletedBoxes.length > 0; else noDeletedBoxes" style="margin-top: 10px">
+              <article class="item-card" *ngFor="let node of deletedBoxes">
+                <div class="list-row">
+                  <mat-icon>inventory_2</mat-icon>
+                  <p class="item-card-title grow">{{ node.box.name }}</p>
+                  <button mat-stroked-button color="primary" type="button" (click)="restoreBox(node.box.id)">
+                    Restaurar
+                  </button>
+                </div>
+              </article>
+            </div>
+
+            <ng-template #noDeletedBoxes>
+              <div class="empty-state">No hay cajas eliminadas.</div>
+            </ng-template>
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card class="surface-card">
+          <mat-card-content>
+            <h2 class="card-title">Artículos eliminados</h2>
+            <p class="card-subtitle">{{ deletedItems.length }} elementos</p>
+
+            <div class="list-grid" *ngIf="deletedItems.length > 0; else noDeletedItems" style="margin-top: 10px">
+              <article class="item-card" *ngFor="let item of deletedItems">
+                <div class="list-row">
+                  <mat-icon>inventory</mat-icon>
+                  <p class="item-card-title grow">{{ item.name }}</p>
+                  <button mat-stroked-button color="primary" type="button" (click)="restoreItem(item.id)">
+                    Restaurar
+                  </button>
+                </div>
+              </article>
+            </div>
+
+            <ng-template #noDeletedItems>
+              <div class="empty-state">No hay artículos eliminados.</div>
+            </ng-template>
+          </mat-card-content>
+        </mat-card>
+      </div>
     </div>
   `
 })

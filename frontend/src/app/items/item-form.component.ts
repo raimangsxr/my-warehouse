@@ -5,7 +5,9 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
@@ -23,51 +25,74 @@ import { WarehouseService } from '../services/warehouse.service';
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
-    MatButtonModule
+    MatButtonModule,
+    MatIconModule,
+    MatProgressBarModule
   ],
   template: `
-    <div class="page">
-      <mat-card>
-        <mat-card-title>{{ itemId ? 'Editar artículo' : 'Nuevo artículo' }}</mat-card-title>
+    <div class="app-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">{{ itemId ? 'Editar artículo' : 'Nuevo artículo' }}</h1>
+          <p class="page-subtitle">Completa metadatos, ubicación y señales de búsqueda</p>
+        </div>
+      </header>
+
+      <mat-card class="surface-card">
+        <mat-progress-bar *ngIf="loading" mode="indeterminate" />
         <mat-card-content>
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
-          <form [formGroup]="form" (ngSubmit)="save()">
-            <mat-form-field class="full-width">
-              <mat-label>Nombre</mat-label>
-              <input matInput formControlName="name" />
-            </mat-form-field>
-            <mat-form-field class="full-width">
-              <mat-label>Caja</mat-label>
-              <mat-select formControlName="boxId">
-                <mat-option *ngFor="let node of boxes" [value]="node.box.id">{{ node.box.name }}</mat-option>
-              </mat-select>
-            </mat-form-field>
+
+          <form [formGroup]="form" (ngSubmit)="save()" class="form-stack">
+            <div class="form-row">
+              <mat-form-field class="grow">
+                <mat-label>Nombre</mat-label>
+                <mat-icon matPrefix>inventory</mat-icon>
+                <input matInput formControlName="name" />
+              </mat-form-field>
+
+              <mat-form-field>
+                <mat-label>Caja</mat-label>
+                <mat-select formControlName="boxId">
+                  <mat-option *ngFor="let node of boxes" [value]="node.box.id">{{ node.box.name }}</mat-option>
+                </mat-select>
+              </mat-form-field>
+            </div>
+
             <mat-form-field class="full-width">
               <mat-label>Descripción</mat-label>
               <textarea matInput rows="3" formControlName="description"></textarea>
             </mat-form-field>
-            <mat-form-field class="full-width">
-              <mat-label>Ubicación física</mat-label>
-              <input matInput formControlName="physicalLocation" />
-            </mat-form-field>
-            <mat-form-field class="full-width">
-              <mat-label>URL foto</mat-label>
-              <input matInput formControlName="photoUrl" />
-            </mat-form-field>
-            <mat-form-field class="full-width">
-              <mat-label>Tags (coma separada)</mat-label>
-              <input matInput formControlName="tags" />
-            </mat-form-field>
-            <mat-form-field class="full-width">
-              <mat-label>Aliases (coma separada)</mat-label>
-              <input matInput formControlName="aliases" />
-            </mat-form-field>
 
-            <div class="row gap">
+            <div class="form-row">
+              <mat-form-field>
+                <mat-label>Ubicación física</mat-label>
+                <input matInput formControlName="physicalLocation" />
+              </mat-form-field>
+
+              <mat-form-field>
+                <mat-label>URL foto</mat-label>
+                <input matInput formControlName="photoUrl" />
+              </mat-form-field>
+            </div>
+
+            <div class="form-row">
+              <mat-form-field>
+                <mat-label>Tags (coma separada)</mat-label>
+                <input matInput formControlName="tags" />
+              </mat-form-field>
+
+              <mat-form-field>
+                <mat-label>Aliases (coma separada)</mat-label>
+                <input matInput formControlName="aliases" />
+              </mat-form-field>
+            </div>
+
+            <div class="inline-actions">
               <button mat-flat-button color="primary" [disabled]="loading || form.invalid">
                 {{ loading ? 'Guardando...' : 'Guardar' }}
               </button>
-              <button mat-button type="button" [routerLink]="['/app/home']">Volver</button>
+              <button mat-stroked-button type="button" [routerLink]="['/app/home']">Volver</button>
               <button mat-button color="warn" type="button" *ngIf="itemId" (click)="remove()">Borrar</button>
               <button mat-button type="button" *ngIf="itemId" (click)="restore()">Restaurar</button>
             </div>

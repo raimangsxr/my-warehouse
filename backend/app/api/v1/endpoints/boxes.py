@@ -24,6 +24,7 @@ from app.schemas.box import (
 )
 from app.schemas.common import MessageResponse
 from app.services.activity import record_activity
+from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/boxes", tags=["boxes"])
 qr_router = APIRouter(prefix="/boxes", tags=["boxes"])
@@ -210,6 +211,7 @@ def create_box(
         short_code=_new_short_code(),
     )
     db.add(box)
+    db.flush()
     record_activity(
         db,
         warehouse_id=warehouse_id,
@@ -218,6 +220,15 @@ def create_box(
         entity_type="box",
         entity_id=box.id,
         metadata={"name": box.name},
+    )
+    append_change_log(
+        db,
+        warehouse_id=warehouse_id,
+        entity_type="box",
+        entity_id=box.id,
+        action="create",
+        entity_version=box.version,
+        payload={"name": box.name, "parent_box_id": box.parent_box_id},
     )
     db.commit()
     db.refresh(box)
@@ -296,6 +307,19 @@ def update_box(
 
     if changed:
         box.version += 1
+        append_change_log(
+            db,
+            warehouse_id=warehouse_id,
+            entity_type="box",
+            entity_id=box.id,
+            action="update",
+            entity_version=box.version,
+            payload={
+                "name": box.name,
+                "description": box.description,
+                "physical_location": box.physical_location,
+            },
+        )
         db.commit()
         db.refresh(box)
 
@@ -325,6 +349,15 @@ def move_box(
 
     box.parent_box_id = payload.new_parent_box_id
     box.version += 1
+    append_change_log(
+        db,
+        warehouse_id=warehouse_id,
+        entity_type="box",
+        entity_id=box.id,
+        action="move",
+        entity_version=box.version,
+        payload={"new_parent_box_id": payload.new_parent_box_id},
+    )
     db.commit()
     db.refresh(box)
     return BoxResponse.model_validate(box)
@@ -363,6 +396,14 @@ def delete_box(
         if sub_box.deleted_at is None:
             sub_box.deleted_at = now
             sub_box.version += 1
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="box",
+                entity_id=sub_box.id,
+                action="delete",
+                entity_version=sub_box.version,
+            )
 
     items = db.scalars(
         select(Item).where(Item.warehouse_id == warehouse_id, Item.box_id.in_(subtree_ids), Item.deleted_at.is_(None))
@@ -370,6 +411,14 @@ def delete_box(
     for item in items:
         item.deleted_at = now
         item.version += 1
+        append_change_log(
+            db,
+            warehouse_id=warehouse_id,
+            entity_type="item",
+            entity_id=item.id,
+            action="delete",
+            entity_version=item.version,
+        )
 
     record_activity(
         db,
@@ -414,6 +463,14 @@ def restore_box(
         entity_type="box",
         entity_id=box.id,
         metadata={"name": box.name},
+    )
+    append_change_log(
+        db,
+        warehouse_id=warehouse_id,
+        entity_type="box",
+        entity_id=box.id,
+        action="restore",
+        entity_version=box.version,
     )
     db.commit()
     db.refresh(box)

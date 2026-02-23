@@ -3,26 +3,44 @@ import { Component, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatIconModule } from '@angular/material/icon';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
   selector: 'app-accept-invite',
   standalone: true,
-  imports: [CommonModule, MatCardModule, MatButtonModule],
+  imports: [CommonModule, MatCardModule, MatButtonModule, MatIconModule, MatProgressBarModule],
   template: `
-    <div class="page">
-      <mat-card>
-        <mat-card-title>Aceptar invitación</mat-card-title>
-        <mat-card-content>
-          <div *ngIf="loading">Procesando invitación...</div>
-          <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
-          <div *ngIf="successMessage">{{ successMessage }}</div>
-        </mat-card-content>
-        <mat-card-actions>
-          <button mat-flat-button color="primary" (click)="goWarehouses()">Ir a warehouses</button>
-        </mat-card-actions>
-      </mat-card>
+    <div class="auth-layout">
+      <div class="auth-shell">
+        <section class="auth-panel">
+          <h1>Invitación de warehouse</h1>
+          <p>
+            Confirma la invitación para unirte al espacio compartido y empezar a trabajar con el inventario.
+          </p>
+        </section>
+
+        <mat-card class="auth-card">
+          <mat-card-header>
+            <mat-card-title>Aceptar invitación</mat-card-title>
+            <mat-card-subtitle>Alta de membresía</mat-card-subtitle>
+          </mat-card-header>
+          <mat-progress-bar *ngIf="loading" mode="indeterminate" />
+          <mat-card-content>
+            <div class="list-row" *ngIf="loading">
+              <mat-icon>hourglass_top</mat-icon>
+              <span>Procesando invitación...</span>
+            </div>
+            <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
+            <div class="status-message" *ngIf="successMessage">{{ successMessage }}</div>
+          </mat-card-content>
+          <mat-card-actions>
+            <button mat-flat-button color="primary" (click)="goWarehouses()">Ir a warehouses</button>
+          </mat-card-actions>
+        </mat-card>
+      </div>
     </div>
   `
 })
@@ -49,7 +67,7 @@ export class AcceptInviteComponent implements OnInit {
       next: (res) => {
         this.loading = false;
         this.warehouseService.setSelectedWarehouseId(res.warehouse_id);
-        this.successMessage = 'Invitación aceptada.';
+        this.successMessage = 'Invitación aceptada correctamente.';
       },
       error: (err) => {
         this.loading = false;

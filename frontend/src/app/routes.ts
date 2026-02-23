@@ -7,6 +7,7 @@ import { SignupComponent } from './auth/signup.component';
 import { ActivityComponent } from './activity/activity.component';
 import { BoxDetailComponent } from './boxes/box-detail.component';
 import { BoxesComponent } from './boxes/boxes.component';
+import { ConflictsComponent } from './conflicts/conflicts.component';
 import { authGuard, guestGuard } from './core/auth.guard';
 import { HomeComponent } from './home/home.component';
 import { AcceptInviteComponent } from './invites/accept-invite.component';
@@ -38,6 +39,7 @@ export const routes: Routes = [
       { path: 'scan/:qrToken', component: ScanComponent },
       { path: 'trash', component: TrashComponent },
       { path: 'activity', component: ActivityComponent },
+      { path: 'conflicts', component: ConflictsComponent },
       { path: 'settings', component: SettingsComponent },
       { path: '', pathMatch: 'full', redirectTo: 'home' }
     ]

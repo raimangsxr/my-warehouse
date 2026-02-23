@@ -25,6 +25,7 @@ from app.schemas.item import (
 )
 from app.services.activity import record_activity
 from app.services.llm_enrichment import generate_tags_and_aliases
+from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/items", tags=["items"])
 
@@ -252,6 +253,7 @@ def create_item(
     )
     _apply_llm_autogen_if_enabled(db, warehouse_id, item, changed_text=True)
     db.add(item)
+    db.flush()
     record_activity(
         db,
         warehouse_id=warehouse_id,
@@ -260,6 +262,15 @@ def create_item(
         entity_type="item",
         entity_id=item.id,
         metadata={"name": item.name},
+    )
+    append_change_log(
+        db,
+        warehouse_id=warehouse_id,
+        entity_type="item",
+        entity_id=item.id,
+        action="create",
+        entity_version=item.version,
+        payload={"name": item.name, "box_id": item.box_id},
     )
     db.commit()
     db.refresh(item)
@@ -323,6 +334,23 @@ def update_item(
     if changed:
         _apply_llm_autogen_if_enabled(db, warehouse_id, item, changed_text=changed_text)
         item.version += 1
+        append_change_log(
+            db,
+            warehouse_id=warehouse_id,
+            entity_type="item",
+            entity_id=item.id,
+            action="update",
+            entity_version=item.version,
+            payload={
+                "box_id": item.box_id,
+                "name": item.name,
+                "description": item.description,
+                "physical_location": item.physical_location,
+                "photo_url": item.photo_url,
+                "tags": item.tags or [],
+                "aliases": item.aliases or [],
+            },
+        )
         db.commit()
         db.refresh(item)
 
@@ -343,6 +371,14 @@ def delete_item(
     item = _get_item(db, warehouse_id, item_id)
     item.deleted_at = utcnow()
     item.version += 1
+    append_change_log(
+        db,
+        warehouse_id=warehouse_id,
+        entity_type="item",
+        entity_id=item.id,
+        action="delete",
+        entity_version=item.version,
+    )
     record_activity(
         db,
         warehouse_id=warehouse_id,
@@ -370,6 +406,14 @@ def restore_item(
     if item.deleted_at is not None:
         item.deleted_at = None
         item.version += 1
+        append_change_log(
+            db,
+            warehouse_id=warehouse_id,
+            entity_type="item",
+            entity_id=item.id,
+            action="restore",
+            entity_version=item.version,
+        )
         record_activity(
             db,
             warehouse_id=warehouse_id,
@@ -406,6 +450,14 @@ def set_favorite(
         db.add(ItemFavorite(user_id=current_user.id, item_id=item_id))
     if not payload.is_favorite and existing is not None:
         db.delete(existing)
+    append_change_log(
+        db,
+        warehouse_id=warehouse_id,
+        entity_type="favorite",
+        entity_id=item.id,
+        action="set",
+        payload={"user_id": current_user.id, "is_favorite": payload.is_favorite},
+    )
     db.commit()
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
@@ -448,6 +500,14 @@ def adjust_stock(
         except IntegrityError:
             db.rollback()
         else:
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="stock",
+                entity_id=item.id,
+                action="adjust",
+                payload={"delta": payload.delta, "command_id": payload.command_id},
+            )
             record_activity(
                 db,
                 warehouse_id=warehouse_id,
@@ -492,6 +552,15 @@ def batch_action(
         for item in items:
             item.box_id = payload.target_box_id
             item.version += 1
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="item",
+                entity_id=item.id,
+                action="move",
+                entity_version=item.version,
+                payload={"box_id": payload.target_box_id},
+            )
 
     elif payload.action == ItemBatchAction.favorite:
         existing = set(
@@ -505,6 +574,15 @@ def batch_action(
         for item_id in unique_ids:
             if item_id not in existing:
                 db.add(ItemFavorite(user_id=current_user.id, item_id=item_id))
+        for item_id in unique_ids:
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="favorite",
+                entity_id=item_id,
+                action="set",
+                payload={"user_id": current_user.id, "is_favorite": True},
+            )
 
     elif payload.action == ItemBatchAction.unfavorite:
         db.execute(
@@ -513,12 +591,29 @@ def batch_action(
                 ItemFavorite.item_id.in_(unique_ids),
             )
         )
+        for item_id in unique_ids:
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="favorite",
+                entity_id=item_id,
+                action="set",
+                payload={"user_id": current_user.id, "is_favorite": False},
+            )
 
     elif payload.action == ItemBatchAction.delete:
         now = utcnow()
         for item in items:
             item.deleted_at = now
             item.version += 1
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="item",
+                entity_id=item.id,
+                action="delete",
+                entity_version=item.version,
+            )
 
     record_activity(
         db,
