@@ -46,7 +46,7 @@ import { WarehouseService } from '../services/warehouse.service';
         </div>
         <button mat-flat-button color="primary" [routerLink]="['/app/items/new']">
           <mat-icon>add</mat-icon>
-          Nuevo artículo
+          Nuevo elemento
         </button>
       </header>
 

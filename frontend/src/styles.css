@@ -159,6 +159,10 @@ a:hover {
   margin-top: 12px;
 }
 
+.surface-card.compact-card mat-card-content {
+  padding: 12px !important;
+}
+
 .card-header-row {
   display: flex;
   align-items: center;
@@ -335,6 +339,76 @@ a.shell-link-active {
   font-size: 0.82rem;
 }
 
+.tree-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.tree-option-level {
+  color: var(--text-3);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.box-tree-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.box-tree-row {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface-2);
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.box-tree-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.box-tree-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.box-tree-title-wrap .item-card-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.box-level-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--brand-strong);
+  background: rgba(57, 73, 171, 0.12);
+  border: 1px solid rgba(57, 73, 171, 0.2);
+}
+
+.box-tree-actions {
+  justify-content: flex-end;
+}
+
+.box-tree-meta {
+  row-gap: 4px;
+}
+
 .inline-actions {
   display: flex;
   flex-wrap: wrap;
@@ -415,5 +489,15 @@ mat-divider {
 
   .shell-toolbar-title {
     font-size: 0.95rem;
+  }
+
+  .box-tree-main {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .box-tree-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }

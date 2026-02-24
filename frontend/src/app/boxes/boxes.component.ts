@@ -13,6 +13,10 @@ import { MatSelectModule } from '@angular/material/select';
 import { BoxService, BoxTreeNode } from '../services/box.service';
 import { WarehouseService } from '../services/warehouse.service';
 
+interface BoxTreeViewNode extends BoxTreeNode {
+  path_label: string;
+}
+
 @Component({
   selector: 'app-boxes',
   standalone: true,
@@ -38,7 +42,7 @@ import { WarehouseService } from '../services/warehouse.service';
         </div>
       </header>
 
-      <mat-card class="surface-card">
+      <mat-card class="surface-card compact-card">
         <mat-card-content>
           <h2 class="card-title">Nueva caja</h2>
           <p class="card-subtitle">Crea cajas raíz o subcajas dentro del árbol</p>
@@ -54,7 +58,12 @@ import { WarehouseService } from '../services/warehouse.service';
               <mat-label>Caja padre</mat-label>
               <mat-select formControlName="parentBoxId">
                 <mat-option [value]="null">Raíz</mat-option>
-                <mat-option *ngFor="let node of tree" [value]="node.box.id">{{ node.box.name }}</mat-option>
+                <mat-option *ngFor="let node of tree" [value]="node.box.id">
+                  <span class="tree-option-label" [style.paddingLeft.px]="node.level * 12">
+                    <span class="tree-option-level">N{{ node.level }}</span>
+                    {{ node.box.name }}
+                  </span>
+                </mat-option>
               </mat-select>
             </mat-form-field>
 
@@ -65,7 +74,7 @@ import { WarehouseService } from '../services/warehouse.service';
         </mat-card-content>
       </mat-card>
 
-      <mat-card class="surface-card">
+      <mat-card class="surface-card compact-card">
         <mat-progress-bar *ngIf="loading" mode="indeterminate" />
         <mat-card-content>
           <div class="card-header-row">
@@ -77,24 +86,26 @@ import { WarehouseService } from '../services/warehouse.service';
 
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
 
-          <div class="list-grid" *ngIf="tree.length > 0; else noBoxes">
-            <article class="item-card box-node-card" *ngFor="let node of tree" [style.marginLeft.px]="node.level * 10">
-              <div class="list-row">
-                <mat-icon>inventory_2</mat-icon>
-                <div class="grow">
+          <div class="box-tree-list" *ngIf="tree.length > 0; else noBoxes">
+            <article class="box-tree-row" *ngFor="let node of tree" [style.marginLeft.px]="node.level * 12">
+              <div class="box-tree-main">
+                <div class="box-tree-title-wrap">
+                  <span class="box-level-pill">N{{ node.level }}</span>
+                  <mat-icon>inventory_2</mat-icon>
                   <p class="item-card-title">{{ node.box.name }}</p>
-                  <div class="item-card-meta">
-                    <span>Items: {{ node.total_items_recursive }}</span>
-                    <span>Subcajas: {{ node.total_boxes_recursive }}</span>
-                    <span>Código: {{ node.box.short_code }}</span>
-                  </div>
                 </div>
-                <div class="inline-actions">
+                <div class="inline-actions box-tree-actions">
                   <button mat-button type="button" [routerLink]="['/app/boxes', node.box.id]">Ver</button>
                   <button mat-button type="button" (click)="startRename(node)">Renombrar</button>
                   <button mat-button type="button" (click)="startMove(node)">Mover</button>
                   <button mat-button color="warn" type="button" (click)="deleteBox(node.box.id)">Papelera</button>
                 </div>
+              </div>
+              <div class="item-card-meta box-tree-meta">
+                <span class="inline-chip">Ruta: {{ node.path_label }}</span>
+                <span>Items: {{ node.total_items_recursive }}</span>
+                <span>Subcajas: {{ node.total_boxes_recursive }}</span>
+                <span>Código: {{ node.box.short_code }}</span>
               </div>
 
               <div class="form-row" *ngIf="renameBoxId === node.box.id">
@@ -118,7 +129,10 @@ import { WarehouseService } from '../services/warehouse.service';
                       [value]="candidate.box.id"
                       [disabled]="candidate.box.id === node.box.id"
                     >
-                      {{ candidate.box.name }}
+                      <span class="tree-option-label" [style.paddingLeft.px]="candidate.level * 12">
+                        <span class="tree-option-level">N{{ candidate.level }}</span>
+                        {{ candidate.box.name }}
+                      </span>
                     </mat-option>
                   </mat-select>
                 </mat-form-field>
@@ -143,7 +157,7 @@ export class BoxesComponent implements OnInit {
 
   loading = false;
   errorMessage = '';
-  tree: BoxTreeNode[] = [];
+  tree: BoxTreeViewNode[] = [];
 
   renameBoxId: string | null = null;
   renameValue = '';
@@ -274,12 +288,24 @@ export class BoxesComponent implements OnInit {
     this.boxService.tree(this.selectedWarehouseId).subscribe({
       next: (nodes) => {
         this.loading = false;
-        this.tree = nodes;
+        this.tree = this.toViewNodes(nodes);
       },
       error: () => {
         this.loading = false;
         this.errorMessage = 'No se pudo cargar el árbol de cajas.';
       }
+    });
+  }
+
+  private toViewNodes(nodes: BoxTreeNode[]): BoxTreeViewNode[] {
+    const pathByLevel: string[] = [];
+    return nodes.map((node) => {
+      pathByLevel[node.level] = node.box.name;
+      pathByLevel.length = node.level + 1;
+      return {
+        ...node,
+        path_label: pathByLevel.join(' > ')
+      };
     });
   }
 }

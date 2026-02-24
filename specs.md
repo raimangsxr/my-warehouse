@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.2  
+- **Versión:** v1.3  
 - **Última actualización:** 2026-02-24  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -32,6 +32,7 @@
 - **v1.0 (2026-02-23):** Slice 7 y Slice 8 completadas. Backend: tablas `change_log`, `processed_commands`, `sync_conflicts`; endpoints `/sync/push`, `/sync/pull`, `/sync/resolve`; export/import JSON de warehouse (`GET /warehouses/{warehouse_id}/export`, `POST /warehouses/{warehouse_id}/import`) con validación y remapeo de IDs en import cross-warehouse. Frontend: cola offline en IndexedDB (comandos), force sync en Settings, vista `/app/conflicts` para resolución, y UI de export/import en Settings. Migración `20260222_0006_slice7_slice8_sync_transfer` y tests backend `test_slice7_sync_conflicts.py`, `test_slice8_export_import.py`.
 - **v1.1 (2026-02-23):** Infraestructura de despliegue añadida: `Dockerfile` para backend y frontend (Nginx SPA), manifests Kubernetes en `deploy/k8s` (namespace, config, secrets plantilla, PostgreSQL, job de migración Alembic, deployments/services e ingress Traefik por path `/` + `/api`). Ajustes de runtime: frontend usa `/api/v1` fuera de `localhost:4200`, backend permite `CORS_ORIGINS` configurable y Alembic acepta `DATABASE_URL` por entorno.
 - **v1.2 (2026-02-24):** Nueva feature de sesión expirada/no válida: el frontend detecta respuestas `401` en peticiones autenticadas, limpia tokens locales y redirige automáticamente a `/login` preservando `redirect` a la ruta actual.
+- **v1.3 (2026-02-24):** Refactor UX de inventario para densidad y jerarquía: vista de cajas en formato compacto (filas de baja altura con acciones inline), indicación jerárquica reforzada (nivel y ruta visible), y creación unificada en `/app/items/new` con selector de tipo para crear **artículo** o **caja** desde el mismo flujo.
 
 ---
 
@@ -185,6 +186,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Estado inicial: favoritos del usuario + chips de filtros rápidos.
 - Al escribir: filtra y ordena por relevancia.
 - Acciones rápidas en cada card: ⭐, +/- stock, mover, borrar.
+- Acción principal: **Nuevo elemento** (desde ahí se elige crear artículo o caja).
 
 ### Árbol de cajas
 - Árbol con expand/collapse (Material Tree).
@@ -194,6 +196,9 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Mostrar contadores por caja:
   - total artículos recursivo
   - total cajas recursivo
+- Presentación compacta:
+  - filas densas (menor altura por nodo, sin desperdicio de espacio)
+  - jerarquía explícita con nivel y ruta (breadcrumb textual)
 
 ### Detalle de caja (clave)
 - Header: nombre caja + QR + código corto (pequeño bajo QR).
@@ -295,6 +300,11 @@ Secciones:
   - `total_items_recursive`
   - `total_boxes_recursive`
 
+**US-C6: Jerarquía visible y compacta**
+- [x] Listado de cajas en formato compacto (optimizado para más nodos visibles).
+- [x] Diferenciación clara de nivel jerárquico por nodo.
+- [x] Ruta de caja visible para reducir ambigüedad de contexto.
+
 ---
 
 ### EPIC D — Artículos
@@ -322,6 +332,11 @@ Secciones:
   - mover a caja
   - marcar/desmarcar favoritos
   - borrar
+
+**US-D7: Alta unificada de elemento**
+- [x] En `/app/items/new`, el usuario elige tipo de alta: **Artículo** o **Caja**.
+- [x] Si selecciona Caja, se crea `box` con padre opcional usando el mismo flujo.
+- [x] El acceso principal se etiqueta como “Nuevo elemento”.
 
 ---
 
