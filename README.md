@@ -78,6 +78,18 @@ cd /Users/rromanit/workspace/my-warehouse/frontend
 npm run build
 ```
 
+## Deploy en Kubernetes (Traefik)
+
+Se han añadido artefactos de despliegue en:
+
+- `/Users/rromanit/workspace/my-warehouse/backend/Dockerfile`
+- `/Users/rromanit/workspace/my-warehouse/frontend/Dockerfile`
+- `/Users/rromanit/workspace/my-warehouse/deploy/k8s`
+
+Guía rápida en:
+
+- `/Users/rromanit/workspace/my-warehouse/deploy/k8s/README.md`
+
 ## Próximas slices (resumen)
 
 1. Slice 1: Auth + Warehouses + Shell

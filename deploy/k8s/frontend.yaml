@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-warehouse-frontend
+  namespace: my-warehouse
+  labels:
+    app.kubernetes.io/name: my-warehouse-frontend
+spec:
+  selector:
+    app.kubernetes.io/name: my-warehouse-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-warehouse-frontend
+  namespace: my-warehouse
+  labels:
+    app.kubernetes.io/name: my-warehouse-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: my-warehouse-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: my-warehouse-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/your-org/my-warehouse-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi

@@ -4,10 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api import api_router
 from app.core.config import settings
 
+cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+if not cors_origins:
+    cors_origins = [settings.frontend_url]
+
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4200"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

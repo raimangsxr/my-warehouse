@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-warehouse-config
+  namespace: my-warehouse
+data:
+  FRONTEND_URL: "https://my-warehouse.example.com"
+  CORS_ORIGINS: "https://my-warehouse.example.com,http://localhost:4200"

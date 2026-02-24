@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v1.0  
-- **Última actualización:** 2026-02-23  
+- **Versión:** v1.2  
+- **Última actualización:** 2026-02-24  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -30,6 +30,8 @@
 - **v0.9 (2026-02-22):** Refactor transversal de UI/UX en frontend para alineación Material Design: sistema visual global (tokens de superficie, bordes, sombras y spacing), shell con navegación lateral y estados activos, rediseño responsive de auth/warehouses y pantallas core (`home`, `boxes`, `box-detail`, `item-form`, `scan`, `trash`, `activity`, `settings`) con jerarquía visual y estados de carga/vacío/error consistentes.
 - **v0.9.1 (2026-02-22):** Ajuste de densidad visual en vistas operativas: `boxes` pasa a layout más compacto (menos altura por card y mejor uso de ancho), reducción global de spacing en listados/cards y corrección de alineación de checkboxes en `home`.
 - **v1.0 (2026-02-23):** Slice 7 y Slice 8 completadas. Backend: tablas `change_log`, `processed_commands`, `sync_conflicts`; endpoints `/sync/push`, `/sync/pull`, `/sync/resolve`; export/import JSON de warehouse (`GET /warehouses/{warehouse_id}/export`, `POST /warehouses/{warehouse_id}/import`) con validación y remapeo de IDs en import cross-warehouse. Frontend: cola offline en IndexedDB (comandos), force sync en Settings, vista `/app/conflicts` para resolución, y UI de export/import en Settings. Migración `20260222_0006_slice7_slice8_sync_transfer` y tests backend `test_slice7_sync_conflicts.py`, `test_slice8_export_import.py`.
+- **v1.1 (2026-02-23):** Infraestructura de despliegue añadida: `Dockerfile` para backend y frontend (Nginx SPA), manifests Kubernetes en `deploy/k8s` (namespace, config, secrets plantilla, PostgreSQL, job de migración Alembic, deployments/services e ingress Traefik por path `/` + `/api`). Ajustes de runtime: frontend usa `/api/v1` fuera de `localhost:4200`, backend permite `CORS_ORIGINS` configurable y Alembic acepta `DATABASE_URL` por entorno.
+- **v1.2 (2026-02-24):** Nueva feature de sesión expirada/no válida: el frontend detecta respuestas `401` en peticiones autenticadas, limpia tokens locales y redirige automáticamente a `/login` preservando `redirect` a la ruta actual.
 
 ---
 
@@ -243,6 +245,11 @@ Secciones:
 - [x] Token caduca, un solo uso.
 - [x] Tras reset, refresh tokens previos quedan invalidados.
 
+**US-A5: Expiración/invalidación de sesión**
+- [x] Si el backend responde `401` en una petición autenticada, el cliente invalida sesión local.
+- [x] Redirección automática a `/login`.
+- [x] Conserva `redirect` para volver a la ruta previa tras login.
+
 ---
 
 ### EPIC B — Warehouses (multiusuario sin roles)
@@ -406,6 +413,16 @@ Secciones:
   - comandos idempotentes (processed_commands)
   - pull incremental (change_log con `seq`)
   - control concurrencia (`version` + `updated_at`)
+
+### Despliegue (contenedores + Kubernetes)
+- Imágenes Docker:
+  - Backend: `backend/Dockerfile` (FastAPI + Uvicorn)
+  - Frontend: `frontend/Dockerfile` (build Angular + serving estático con Nginx SPA)
+- Kubernetes (base en `deploy/k8s`):
+  - `StatefulSet` + `Service` para PostgreSQL
+  - `Job` de migraciones (`alembic upgrade head`)
+  - `Deployment` + `Service` para backend y frontend
+  - `Ingress` con clase `traefik`, rutas `/api`→backend y `/`→frontend
 
 ### Seguridad (principios)
 - Nada de secretos en el navegador:
@@ -865,3 +882,4 @@ Para considerar una slice “Done”:
 - **A-008 (2026-02-22):** En Slice 6, el endpoint `POST /settings/smtp/test` valida configuración y responde en modo simulado (sin envío real) para mantener bootstrap local sin dependencia de servidor SMTP externo; la verificación de entrega real se completará cuando se integre transporte SMTP productivo.
 - **A-009 (2026-02-23):** En la primera iteración de Slice 7, la cola offline del frontend cubre de forma explícita los comandos de uso rápido (`item.favorite/unfavorite` y `stock.adjust`); el resto de operaciones mantiene modo online-first y puede ampliarse por comando sin romper el contrato `/sync`.
 - **A-010 (2026-02-23):** En Slice 8, al importar un snapshot en un warehouse distinto, backend remapea IDs (`boxes`, `items`, `stock_movements`) y `qr_token` cuando detecta colisión global para preservar integridad sin exigir preprocesado del JSON en cliente.
+- **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
