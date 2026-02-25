@@ -311,8 +311,8 @@ a.shell-link-active {
 
 .items-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
 }
 
 .item-card {
@@ -339,6 +339,100 @@ a.shell-link-active {
   font-size: 0.82rem;
 }
 
+.item-card-compact {
+  background: linear-gradient(180deg, #f7f9ff 0%, #f2f6fd 100%);
+  border-radius: 12px;
+  padding: 8px 10px;
+  gap: 6px;
+}
+
+.item-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item-card-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.item-card-headings {
+  min-width: 0;
+}
+
+.item-card-headings .item-card-title {
+  font-size: 1rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-card-path {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-card-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.stock-chip {
+  padding: 2px 8px;
+  font-size: 0.77rem;
+}
+
+.item-card-description {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.item-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.item-card-compact .item-select-checkbox {
+  margin-top: 1px;
+}
+
+.compact-icon-action {
+  width: 30px !important;
+  height: 30px !important;
+  padding: 2px !important;
+}
+
+.compact-icon-action .mat-icon {
+  font-size: 18px;
+}
+
+.compact-text-action {
+  min-width: auto !important;
+  padding: 0 6px !important;
+  line-height: 30px !important;
+  font-size: 0.88rem;
+}
+
+.compact-text-action .mat-icon {
+  font-size: 17px;
+  margin-right: 2px;
+}
+
 .tree-option-label {
   display: inline-flex;
   align-items: center;
@@ -352,39 +446,96 @@ a.shell-link-active {
   letter-spacing: 0.02em;
 }
 
-.box-tree-list {
+.box-tree-shell {
+  margin-top: 8px;
+}
+
+.box-tree-branch {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 1px dashed rgba(75, 85, 99, 0.28);
   display: grid;
   gap: 6px;
-  margin-top: 8px;
+}
+
+.box-tree-branch.root-branch {
+  padding-left: 0;
+  border-left: none;
+}
+
+.box-tree-node {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+
+.box-tree-node:not(.root-node)::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: -18px;
+  width: 12px;
+  border-top: 1px dashed rgba(75, 85, 99, 0.28);
+}
+
+.box-tree-node.last-node > .box-tree-branch {
+  border-left-color: transparent;
 }
 
 .box-tree-row {
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  background: var(--surface-2);
+  background: linear-gradient(180deg, #f8faff 0%, #f1f5fc 100%);
   padding: 8px 10px;
-  display: grid;
-  gap: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
 }
 
-.box-tree-main {
+.box-tree-leading {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.box-toggle {
+  width: 28px !important;
+  height: 28px !important;
+  padding: 2px !important;
+}
+
+.box-toggle-spacer {
+  width: 28px;
+  height: 28px;
+  display: inline-block;
+}
+
+.box-node-icon {
+  font-size: 18px;
+  color: var(--text-2);
+}
+
+.box-tree-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.box-tree-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-}
-
-.box-tree-title-wrap {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  min-width: 0;
 }
 
-.box-tree-title-wrap .item-card-title {
+.box-tree-header .item-card-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 1rem;
 }
 
 .box-level-pill {
@@ -407,6 +558,11 @@ a.shell-link-active {
 
 .box-tree-meta {
   row-gap: 4px;
+  font-size: 0.8rem;
+}
+
+.box-tree-inline-form {
+  margin-left: 44px;
 }
 
 .inline-actions {
@@ -414,15 +570,6 @@ a.shell-link-active {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-}
-
-.box-node-card .inline-actions button {
-  min-width: auto;
-  padding: 0 8px;
-}
-
-.box-node-card .mat-mdc-form-field-subscript-wrapper {
-  display: none;
 }
 
 .filter-checkbox .mdc-form-field,
@@ -491,13 +638,25 @@ mat-divider {
     font-size: 0.95rem;
   }
 
-  .box-tree-main {
+  .items-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .item-card-right {
+    gap: 0;
+  }
+
+  .box-tree-row {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
   }
 
   .box-tree-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .box-tree-inline-form {
+    margin-left: 0;
   }
 }

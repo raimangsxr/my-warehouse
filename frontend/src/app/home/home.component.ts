@@ -14,10 +14,16 @@ import { MatSelectModule } from '@angular/material/select';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
-import { Box, BoxService } from '../services/box.service';
+import { BoxService } from '../services/box.service';
 import { Item, ItemService, TagCloudEntry } from '../services/item.service';
 import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
+
+interface BoxMoveOption {
+  id: string;
+  level: number;
+  path_label: string;
+}
 
 @Component({
   selector: 'app-home',
@@ -106,12 +112,17 @@ import { WarehouseService } from '../services/warehouse.service';
           </div>
 
           <div class="form-row">
-            <mat-form-field>
-              <mat-label>Mover seleccionados a caja</mat-label>
-              <mat-select [(ngModel)]="targetBoxId" [ngModelOptions]="{ standalone: true }">
-                <mat-option *ngFor="let box of boxes" [value]="box.id">{{ box.name }}</mat-option>
-              </mat-select>
-            </mat-form-field>
+              <mat-form-field>
+                <mat-label>Mover seleccionados a caja</mat-label>
+                <mat-select [(ngModel)]="targetBoxId" [ngModelOptions]="{ standalone: true }">
+                  <mat-option *ngFor="let box of boxes" [value]="box.id">
+                    <span class="tree-option-label">
+                      <span class="tree-option-level">N{{ box.level }}</span>
+                      {{ box.path_label }}
+                    </span>
+                  </mat-option>
+                </mat-select>
+              </mat-form-field>
 
             <div class="inline-actions">
               <button mat-stroked-button type="button" (click)="batchMove()" [disabled]="selectedItemIds.size === 0 || !targetBoxId">
@@ -134,48 +145,62 @@ import { WarehouseService } from '../services/warehouse.service';
       <mat-progress-bar *ngIf="loadingItems" mode="indeterminate" />
 
       <div class="items-grid" *ngIf="items.length > 0; else emptyItems" style="margin-top: 14px">
-        <article class="item-card" *ngFor="let item of items">
-          <div class="list-row">
-            <mat-checkbox
-              class="item-select-checkbox"
-              [checked]="selectedItemIds.has(item.id)"
-              (change)="toggleSelected(item.id)"
-            ></mat-checkbox>
-            <div class="grow">
-              <p class="item-card-title">{{ item.name }}</p>
-              <div class="item-card-meta">
-                <span class="inline-chip">Stock: {{ item.stock }}</span>
-                <span class="inline-chip" *ngIf="item.is_favorite">Favorito</span>
+        <article class="item-card item-card-compact" *ngFor="let item of items">
+          <div class="item-card-top">
+            <div class="item-card-left">
+              <mat-checkbox
+                class="item-select-checkbox"
+                [checked]="selectedItemIds.has(item.id)"
+                (change)="toggleSelected(item.id)"
+              ></mat-checkbox>
+              <div class="item-card-headings">
+                <p class="item-card-title">{{ item.name }}</p>
+                <p class="item-card-path">{{ item.box_path.join(' > ') }}</p>
               </div>
             </div>
-            <button mat-icon-button (click)="toggleFavorite(item)" [attr.aria-label]="'Favorito ' + item.name">
-              <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
-            </button>
+            <div class="item-card-right">
+              <span class="inline-chip stock-chip">Stock: {{ item.stock }}</span>
+              <button
+                mat-icon-button
+                class="compact-icon-action"
+                (click)="toggleFavorite(item)"
+                [attr.aria-label]="'Favorito ' + item.name"
+              >
+                <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
+              </button>
+            </div>
           </div>
 
-          <p class="status-line">{{ item.description || 'Sin descripción' }}</p>
-          <p class="status-line">{{ item.box_path.join(' > ') }}</p>
+          <p class="status-line item-card-description">{{ item.description || 'Sin descripción' }}</p>
 
-          <div class="inline-actions">
+          <div class="item-card-actions">
             <button
-              mat-mini-fab
+              mat-icon-button
               color="primary"
+              class="compact-icon-action"
               type="button"
               (click)="adjustStock(item, 1)"
               [attr.aria-label]="'Incrementar stock de ' + item.name"
             >
-              +
+              <mat-icon>add</mat-icon>
             </button>
             <button
-              mat-mini-fab
+              mat-icon-button
+              class="compact-icon-action"
               type="button"
               (click)="adjustStock(item, -1)"
               [attr.aria-label]="'Reducir stock de ' + item.name"
             >
-              -
+              <mat-icon>remove</mat-icon>
             </button>
-            <button mat-button type="button" [routerLink]="['/app/items', item.id]">Editar</button>
-            <button mat-button color="warn" type="button" (click)="deleteItem(item)">Borrar</button>
+            <button mat-button type="button" class="compact-text-action" [routerLink]="['/app/items', item.id]">
+              <mat-icon>edit</mat-icon>
+              Editar
+            </button>
+            <button mat-button color="warn" type="button" class="compact-text-action" (click)="deleteItem(item)">
+              <mat-icon>delete</mat-icon>
+              Borrar
+            </button>
           </div>
         </article>
       </div>
@@ -195,7 +220,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   errorMessage = '';
   loadingItems = false;
   items: Item[] = [];
-  boxes: Box[] = [];
+  boxes: BoxMoveOption[] = [];
   tagsCloud: TagCloudEntry[] = [];
   activeTag: string | null = null;
   targetBoxId: string | null = null;
@@ -416,7 +441,16 @@ export class HomeComponent implements OnInit, OnDestroy {
     }
     this.boxService.tree(this.selectedWarehouseId).subscribe({
       next: (nodes) => {
-        this.boxes = nodes.map((node) => node.box);
+        const pathByLevel: string[] = [];
+        this.boxes = nodes.map((node) => {
+          pathByLevel[node.level] = node.box.name;
+          pathByLevel.length = node.level + 1;
+          return {
+            id: node.box.id,
+            level: node.level,
+            path_label: pathByLevel.join(' > ')
+          };
+        });
       }
     });
   }

@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.3  
+- **Versión:** v1.5  
 - **Última actualización:** 2026-02-24  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -33,6 +33,8 @@
 - **v1.1 (2026-02-23):** Infraestructura de despliegue añadida: `Dockerfile` para backend y frontend (Nginx SPA), manifests Kubernetes en `deploy/k8s` (namespace, config, secrets plantilla, PostgreSQL, job de migración Alembic, deployments/services e ingress Traefik por path `/` + `/api`). Ajustes de runtime: frontend usa `/api/v1` fuera de `localhost:4200`, backend permite `CORS_ORIGINS` configurable y Alembic acepta `DATABASE_URL` por entorno.
 - **v1.2 (2026-02-24):** Nueva feature de sesión expirada/no válida: el frontend detecta respuestas `401` en peticiones autenticadas, limpia tokens locales y redirige automáticamente a `/login` preservando `redirect` a la ruta actual.
 - **v1.3 (2026-02-24):** Refactor UX de inventario para densidad y jerarquía: vista de cajas en formato compacto (filas de baja altura con acciones inline), indicación jerárquica reforzada (nivel y ruta visible), y creación unificada en `/app/items/new` con selector de tipo para crear **artículo** o **caja** desde el mismo flujo.
+- **v1.4 (2026-02-24):** Refinamiento visual de cards de artículos en Home: layout más compacto y legible (menos altura, menor peso visual), acciones de stock en iconos discretos y jerarquía de información reforzada (nombre + ruta + stock + acciones) manteniendo todas las operaciones existentes.
+- **v1.5 (2026-02-24):** Refactor completo de jerarquía de cajas en UI: árbol realmente anidado con ramas visuales, expand/collapse por nodo, rutas completas en nodos y selects (crear/mover/alta de elemento/lote) para distinguir claramente contención padre→hijo sin ambigüedad.
 
 ---
 
@@ -187,6 +189,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Al escribir: filtra y ordena por relevancia.
 - Acciones rápidas en cada card: ⭐, +/- stock, mover, borrar.
 - Acción principal: **Nuevo elemento** (desde ahí se elige crear artículo o caja).
+- Cards de artículos compactas: prioridad a densidad (más elementos visibles) y claridad operativa (acciones inline sin botones flotantes grandes).
 
 ### Árbol de cajas
 - Árbol con expand/collapse (Material Tree).
@@ -199,6 +202,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Presentación compacta:
   - filas densas (menor altura por nodo, sin desperdicio de espacio)
   - jerarquía explícita con nivel y ruta (breadcrumb textual)
+  - ramas anidadas visuales (padre/hijos) con connectors
+  - selectors de caja con ruta completa (`Raíz > ... > Caja`) para evitar homónimos
 
 ### Detalle de caja (clave)
 - Header: nombre caja + QR + código corto (pequeño bajo QR).
@@ -304,6 +309,7 @@ Secciones:
 - [x] Listado de cajas en formato compacto (optimizado para más nodos visibles).
 - [x] Diferenciación clara de nivel jerárquico por nodo.
 - [x] Ruta de caja visible para reducir ambigüedad de contexto.
+- [x] Árbol anidado con expand/collapse y líneas de rama para identificar contención.
 
 ---
 

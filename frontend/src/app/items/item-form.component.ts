@@ -72,9 +72,9 @@ type CreateEntityType = 'item' | 'box';
                 <mat-select formControlName="boxId">
                   <mat-option *ngIf="createEntityType === 'box' && !itemId" [value]="null">Raíz</mat-option>
                   <mat-option *ngFor="let node of boxes" [value]="node.box.id">
-                    <span class="tree-option-label" [style.paddingLeft.px]="node.level * 12">
+                    <span class="tree-option-label">
                       <span class="tree-option-level">N{{ node.level }}</span>
-                      {{ node.box.name }}
+                      {{ boxPathLabel(node) }}
                     </span>
                   </mat-option>
                 </mat-select>
@@ -131,6 +131,7 @@ export class ItemFormComponent implements OnInit {
   loading = false;
   errorMessage = '';
   boxes: BoxTreeNode[] = [];
+  private readonly boxPathById = new Map<string, string>();
 
   readonly form = this.fb.group({
     name: ['', [Validators.required, Validators.maxLength(160)]],
@@ -284,6 +285,13 @@ export class ItemFormComponent implements OnInit {
     this.boxService.tree(this.selectedWarehouseId).subscribe({
       next: (nodes) => {
         this.boxes = nodes;
+        this.boxPathById.clear();
+        const pathByLevel: string[] = [];
+        nodes.forEach((node) => {
+          pathByLevel[node.level] = node.box.name;
+          pathByLevel.length = node.level + 1;
+          this.boxPathById.set(node.box.id, pathByLevel.join(' > '));
+        });
         if (!this.form.controls.boxId.value && nodes.length > 0 && (this.itemId || this.createEntityType === 'item')) {
           this.form.controls.boxId.setValue(nodes[0].box.id);
         }
@@ -318,6 +326,10 @@ export class ItemFormComponent implements OnInit {
     if (!this.form.controls.boxId.value && this.boxes.length > 0) {
       this.form.controls.boxId.setValue(this.boxes[0].box.id);
     }
+  }
+
+  boxPathLabel(node: BoxTreeNode): string {
+    return this.boxPathById.get(node.box.id) || node.box.name;
   }
 
   get pageTitle(): string {
