@@ -9,6 +9,7 @@ from app.api.deps import get_current_user, require_warehouse_membership
 from app.db.session import get_db
 from app.models.box import Box
 from app.models.item import Item
+from app.models.item_favorite import ItemFavorite
 from app.models.membership import Membership
 from app.models.stock_movement import StockMovement
 from app.models.user import User
@@ -122,6 +123,18 @@ def _stock_map(db: Session, item_ids: list[str]) -> dict[str, int]:
         .group_by(StockMovement.item_id)
     ).all()
     return {item_id: int(stock) for item_id, stock in rows}
+
+
+def _favorite_set(db: Session, user_id: str, item_ids: list[str]) -> set[str]:
+    if not item_ids:
+        return set()
+    rows = db.scalars(
+        select(ItemFavorite.item_id).where(
+            ItemFavorite.user_id == user_id,
+            ItemFavorite.item_id.in_(item_ids),
+        )
+    ).all()
+    return set(rows)
 
 
 def _box_path(warehouse_boxes: dict[str, Box], box_id: str) -> list[str]:
@@ -252,6 +265,7 @@ def get_box_items_recursive(
     box_id: str,
     q: str | None = None,
     _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[BoxItemResponse]:
     _get_box(db, warehouse_id, box_id)
@@ -267,18 +281,30 @@ def get_box_items_recursive(
         needle = f"%{q.strip().lower()}%"
         query = query.where(func.lower(Item.name).like(needle))
     items = db.scalars(query.order_by(Item.name.asc())).all()
-    stocks = _stock_map(db, [item.id for item in items])
+    item_ids = [item.id for item in items]
+    stocks = _stock_map(db, item_ids)
+    favorites = _favorite_set(db, current_user.id, item_ids)
 
     return [
         BoxItemResponse(
             id=item.id,
+            warehouse_id=item.warehouse_id,
             box_id=item.box_id,
             name=item.name,
             description=item.description,
+            photo_url=item.photo_url,
             physical_location=item.physical_location,
+            tags=item.tags or [],
+            aliases=item.aliases or [],
+            version=item.version,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            deleted_at=item.deleted_at,
             stock=stocks.get(item.id, 0),
+            is_favorite=item.id in favorites,
             box_path=_box_path(boxes, item.box_id),
             box_path_ids=_box_path_ids(boxes, item.box_id),
+            box_is_inbound=bool(boxes.get(item.box_id).is_inbound) if boxes.get(item.box_id) else False,
         )
         for item in items
     ]

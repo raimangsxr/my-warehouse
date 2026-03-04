@@ -29,9 +29,9 @@ import { WarehouseService } from '../services/warehouse.service';
             <h2 class="card-title">Cajas eliminadas</h2>
             <p class="card-subtitle">{{ deletedBoxes.length }} elementos</p>
 
-            <div class="list-grid" *ngIf="deletedBoxes.length > 0; else noDeletedBoxes" style="margin-top: 10px">
+            <div class="list-grid mt-10" *ngIf="deletedBoxes.length > 0; else noDeletedBoxes">
               <article class="item-card" *ngFor="let node of deletedBoxes">
-                <div class="list-row">
+                <div class="list-row trash-row">
                   <mat-icon>inventory_2</mat-icon>
                   <p class="item-card-title grow">{{ node.box.name }}</p>
                   <button mat-stroked-button color="primary" type="button" (click)="restoreBox(node.box.id)">
@@ -52,9 +52,9 @@ import { WarehouseService } from '../services/warehouse.service';
             <h2 class="card-title">Artículos eliminados</h2>
             <p class="card-subtitle">{{ deletedItems.length }} elementos</p>
 
-            <div class="list-grid" *ngIf="deletedItems.length > 0; else noDeletedItems" style="margin-top: 10px">
+            <div class="list-grid mt-10" *ngIf="deletedItems.length > 0; else noDeletedItems">
               <article class="item-card" *ngFor="let item of deletedItems">
-                <div class="list-row">
+                <div class="list-row trash-row">
                   <mat-icon>inventory</mat-icon>
                   <p class="item-card-title grow">{{ item.name }}</p>
                   <button mat-stroked-button color="primary" type="button" (click)="restoreItem(item.id)">
@@ -71,7 +71,21 @@ import { WarehouseService } from '../services/warehouse.service';
         </mat-card>
       </div>
     </div>
-  `
+  `,
+  styles: [
+    `
+      @media (max-width: 600px) {
+        .trash-row {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .trash-row .mat-mdc-button-base {
+          flex: 1 1 100%;
+        }
+      }
+    `
+  ]
 })
 export class TrashComponent implements OnInit {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();

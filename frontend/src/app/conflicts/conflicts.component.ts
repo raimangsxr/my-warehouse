@@ -40,12 +40,13 @@ import { WarehouseService } from '../services/warehouse.service';
               </div>
             </div>
 
-            <div class="item-card" style="margin-top: 8px">
+            <div class="item-card mt-8">
               <div class="status-line"><strong>Command:</strong> {{ conflict.command_id }}</div>
-              <div class="status-line"><strong>Payload:</strong> {{ conflict.client_payload | json }}</div>
+              <div class="status-line"><strong>Payload:</strong></div>
+              <pre class="status-json">{{ conflict.client_payload | json }}</pre>
             </div>
 
-            <div class="inline-actions" style="margin-top: 10px">
+            <div class="actions-mobile-full mt-10">
               <button mat-stroked-button color="primary" type="button" (click)="resolve(conflict, 'keep_server')">
                 Mantener servidor
               </button>

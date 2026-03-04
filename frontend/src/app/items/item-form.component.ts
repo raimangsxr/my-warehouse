@@ -51,9 +51,12 @@ type CreateEntityType = 'item' | 'box';
           <div class="status-line" *ngIf="photoDraftWarnings.length > 0">
             {{ photoDraftWarnings.join(' · ') }}
           </div>
+          <div class="status-line" *ngIf="isBoxSelectionLocked">
+            Caja fijada por alta contextual desde detalle de caja.
+          </div>
 
           <form [formGroup]="form" (ngSubmit)="save()" class="form-stack">
-            <div class="inline-actions" *ngIf="!itemId">
+            <div class="inline-actions" *ngIf="!itemId && !isBoxSelectionLocked">
               <mat-button-toggle-group
                 [value]="createEntityType"
                 (change)="setCreateEntityType($event.value)"
@@ -73,7 +76,7 @@ type CreateEntityType = 'item' | 'box';
 
               <mat-form-field>
                 <mat-label>{{ createEntityType === 'box' && !itemId ? 'Caja padre' : 'Caja' }}</mat-label>
-                <mat-select formControlName="boxId">
+                <mat-select formControlName="boxId" [disabled]="isBoxSelectionLocked && !itemId">
                   <mat-option *ngIf="createEntityType === 'box' && !itemId" [value]="null">Raíz</mat-option>
                   <mat-option *ngFor="let node of boxes" [value]="node.box.id">
                     <span class="tree-option-label">
@@ -137,6 +140,7 @@ export class ItemFormComponent implements OnInit {
   boxes: BoxTreeNode[] = [];
   photoDraftMessage = '';
   photoDraftWarnings: string[] = [];
+  lockedBoxId: string | null = null;
   private readonly boxPathById = new Map<string, string>();
 
   readonly form = this.fb.group({
@@ -165,19 +169,25 @@ export class ItemFormComponent implements OnInit {
     }
 
     this.itemId = this.route.snapshot.paramMap.get('id');
+    const queryBoxId = this.route.snapshot.queryParamMap.get('boxId');
+    const lockBox = this.route.snapshot.queryParamMap.get('lockBox');
+    if (!this.itemId && queryBoxId && (lockBox === '1' || lockBox === 'true')) {
+      this.lockedBoxId = queryBoxId;
+      this.createEntityType = 'item';
+    }
 
     if (!this.itemId) {
       const requestedType = this.route.snapshot.queryParamMap.get('type');
-      if (requestedType === 'box' || requestedType === 'item') {
+      if (!this.lockedBoxId && (requestedType === 'box' || requestedType === 'item')) {
         this.createEntityType = requestedType;
       }
       this.tryApplyPhotoDraftState();
     }
 
     this.updateValidatorsByType();
+    this.applyBoxLockControlState();
     this.loadBoxes();
 
-    const queryBoxId = this.route.snapshot.queryParamMap.get('boxId');
     if (queryBoxId) {
       this.form.controls.boxId.setValue(queryBoxId);
     }
@@ -211,8 +221,9 @@ export class ItemFormComponent implements OnInit {
 
     this.loading = true;
     const raw = this.form.getRawValue();
+    const enforcedBoxId = this.lockedBoxId || raw.boxId || '';
     const itemPayload = {
-      box_id: raw.boxId || '',
+      box_id: enforcedBoxId,
       name: raw.name?.trim() || '',
       description: raw.description || null,
       physical_location: raw.physicalLocation || null,
@@ -299,7 +310,18 @@ export class ItemFormComponent implements OnInit {
           pathByLevel.length = node.level + 1;
           this.boxPathById.set(node.box.id, pathByLevel.join(' > '));
         });
-        if (!this.form.controls.boxId.value && nodes.length > 0 && (this.itemId || this.createEntityType === 'item')) {
+        if (this.lockedBoxId) {
+          const lockedExists = nodes.some((node) => node.box.id === this.lockedBoxId);
+          if (!lockedExists) {
+            this.errorMessage = 'La caja fijada ya no existe o no está disponible.';
+            this.lockedBoxId = null;
+            this.applyBoxLockControlState();
+          }
+        }
+        if (this.lockedBoxId) {
+          this.form.controls.boxId.setValue(this.lockedBoxId);
+          this.applyBoxLockControlState();
+        } else if (!this.form.controls.boxId.value && nodes.length > 0 && (this.itemId || this.createEntityType === 'item')) {
           this.form.controls.boxId.setValue(nodes[0].box.id);
         }
       },
@@ -310,7 +332,7 @@ export class ItemFormComponent implements OnInit {
   }
 
   setCreateEntityType(type: CreateEntityType): void {
-    if (this.itemId || this.createEntityType === type) {
+    if (this.itemId || this.createEntityType === type || this.isBoxSelectionLocked) {
       return;
     }
 
@@ -350,6 +372,9 @@ export class ItemFormComponent implements OnInit {
     if (this.itemId) {
       return 'Actualiza metadatos, ubicación y señales de búsqueda';
     }
+    if (this.isBoxSelectionLocked) {
+      return 'Alta guiada por foto con caja fija de destino';
+    }
     return this.createEntityType === 'box'
       ? 'Crea una caja raíz o subcaja y ubícala en la jerarquía'
       : 'Completa metadatos, ubicación y señales de búsqueda';
@@ -383,8 +408,12 @@ export class ItemFormComponent implements OnInit {
     if (draft) {
       this.photoDraftWarnings = draft.warnings || [];
       this.photoDraftMessage = draft.llm_used
-        ? `Datos sugeridos por IA (confianza ${Math.round(draft.confidence * 100)}%). Revisa y elige caja.`
-        : 'No hubo inferencia LLM; se aplicó un borrador base para acelerar el alta.';
+        ? this.isBoxSelectionLocked
+          ? `Datos sugeridos por IA (confianza ${Math.round(draft.confidence * 100)}%). Revisa y confirma el alta.`
+          : `Datos sugeridos por IA (confianza ${Math.round(draft.confidence * 100)}%). Revisa y elige caja.`
+        : this.isBoxSelectionLocked
+          ? 'No hubo inferencia LLM; se aplicó un borrador base para acelerar el alta en la caja actual.'
+          : 'No hubo inferencia LLM; se aplicó un borrador base para acelerar el alta.';
       this.form.patchValue({
         name: draft.name || '',
         description: draft.description || '',
@@ -392,12 +421,26 @@ export class ItemFormComponent implements OnInit {
         aliases: (draft.aliases || []).join(', ')
       });
     } else {
-      this.photoDraftMessage = 'Imagen subida correctamente. Completa datos y elige caja para guardar.';
+      this.photoDraftMessage = this.isBoxSelectionLocked
+        ? 'Imagen subida correctamente. Completa datos y guarda en la caja actual.'
+        : 'Imagen subida correctamente. Completa datos y elige caja para guardar.';
     }
 
     if (uploadedPhotoUrl) {
       this.form.controls.photoUrl.setValue(uploadedPhotoUrl);
     }
+  }
+
+  get isBoxSelectionLocked(): boolean {
+    return !!this.lockedBoxId && !this.itemId;
+  }
+
+  private applyBoxLockControlState(): void {
+    if (this.isBoxSelectionLocked) {
+      this.form.controls.boxId.disable({ emitEvent: false });
+      return;
+    }
+    this.form.controls.boxId.enable({ emitEvent: false });
   }
 }
 

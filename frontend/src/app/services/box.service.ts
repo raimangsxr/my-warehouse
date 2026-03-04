@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../core/environment';
+import type { Item } from './item.service';
 
 export interface Box {
   id: string;
@@ -27,14 +28,7 @@ export interface BoxTreeNode {
   total_boxes_recursive: number;
 }
 
-export interface BoxItem {
-  id: string;
-  box_id: string;
-  name: string;
-  description: string | null;
-  physical_location: string | null;
-  stock: number;
-  box_path: string[];
+export interface BoxItem extends Item {
   box_path_ids: string[];
 }
 

@@ -228,7 +228,7 @@ import { WarehouseService } from '../services/warehouse.service';
             <div class="status-line"><strong>Conflictos abiertos:</strong> {{ syncConflictsCount }}</div>
           </div>
 
-          <div class="inline-actions" style="margin-top: 10px">
+          <div class="actions-mobile-full mt-10">
             <button mat-flat-button color="primary" type="button" (click)="forceSync()" [disabled]="syncLoading">
               Forzar sync
             </button>
@@ -252,9 +252,9 @@ import { WarehouseService } from '../services/warehouse.service';
             </div>
           </div>
 
-          <div class="inline-actions">
+          <div class="actions-mobile-full">
             <button mat-flat-button color="primary" type="button" (click)="exportWarehouse()">Exportar JSON</button>
-            <input #importInput type="file" accept="application/json" (change)="importWarehouse($event)" />
+            <input #importInput class="import-input" type="file" accept="application/json" (change)="importWarehouse($event)" />
           </div>
 
           <div class="error" *ngIf="transferError">{{ transferError }}</div>
@@ -262,7 +262,20 @@ import { WarehouseService } from '../services/warehouse.service';
         </mat-card-content>
       </mat-card>
     </div>
-  `
+  `,
+  styles: [
+    `
+      .import-input {
+        max-width: 100%;
+      }
+
+      @media (max-width: 600px) {
+        .import-input {
+          width: 100%;
+        }
+      }
+    `
+  ]
 })
 export class SettingsComponent implements OnInit, OnDestroy {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();

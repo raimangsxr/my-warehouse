@@ -51,13 +51,23 @@ class BoxTreeNode(BaseModel):
 
 class BoxItemResponse(BaseModel):
     id: str
+    warehouse_id: str
     box_id: str
     name: str
     description: str | None
+    photo_url: str | None
     physical_location: str | None
+    tags: list[str]
+    aliases: list[str]
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None
     stock: int
+    is_favorite: bool
     box_path: list[str]
     box_path_ids: list[str]
+    box_is_inbound: bool
 
 
 class BoxByQrResponse(BaseModel):

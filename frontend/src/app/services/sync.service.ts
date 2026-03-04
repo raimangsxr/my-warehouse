@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 
 import { environment } from '../core/environment';
+import { generateUuid } from '../core/uuid';
 
 export interface SyncCommand {
   command_id: string;
@@ -244,7 +245,7 @@ export class SyncService {
     if (existing) {
       return existing;
     }
-    const created = crypto.randomUUID();
+    const created = generateUuid();
     localStorage.setItem(key, created);
     return created;
   }

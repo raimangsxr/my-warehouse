@@ -45,7 +45,7 @@ type BarcodeDetectorLike = {
             Si el navegador soporta escaneo nativo, activa cámara. Si no, pega el token QR manual.
           </p>
 
-          <div class="inline-actions" style="margin-top: 10px">
+          <div class="actions-mobile-full mt-10">
             <button mat-flat-button color="primary" type="button" (click)="startCameraScan()" [disabled]="scanning">
               <mat-icon>videocam</mat-icon>
               Iniciar cámara
@@ -56,11 +56,11 @@ type BarcodeDetectorLike = {
             </button>
           </div>
 
-          <div class="item-card" style="margin-top: 12px; padding: 10px">
-            <video #videoEl autoplay playsinline muted style="width: 100%; max-width: 560px; border-radius: 10px"></video>
+          <div class="item-card media-panel mt-12">
+            <video #videoEl autoplay playsinline muted class="media-frame scan-video"></video>
           </div>
 
-          <div class="form-row" style="margin-top: 14px">
+          <div class="form-row mt-14">
             <mat-form-field class="grow">
               <mat-label>Token QR (manual)</mat-label>
               <mat-icon matPrefix>qr_code_2</mat-icon>
@@ -73,12 +73,22 @@ type BarcodeDetectorLike = {
             </div>
           </div>
 
-          <div class="error" *ngIf="errorMessage" style="margin-top: 10px">{{ errorMessage }}</div>
-          <div class="status-message" *ngIf="statusMessage" style="margin-top: 10px">{{ statusMessage }}</div>
+          <div class="error mt-10" *ngIf="errorMessage">{{ errorMessage }}</div>
+          <div class="status-message mt-10" *ngIf="statusMessage">{{ statusMessage }}</div>
         </mat-card-content>
       </mat-card>
     </div>
-  `
+  `,
+  styles: [
+    `
+      .scan-video {
+        max-width: 560px;
+        max-height: min(58vh, 460px);
+        object-fit: cover;
+        background: #0f172a;
+      }
+    `
+  ]
 })
 export class ScanComponent implements OnInit, OnDestroy {
   @ViewChild('videoEl') videoEl?: ElementRef<HTMLVideoElement>;

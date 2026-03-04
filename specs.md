@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v1.19  
-- **Última actualización:** 2026-03-04  
+- **Versión:** v1.29
+- **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -49,6 +49,16 @@
 - **v1.16 (2026-03-04):** Ajuste UX de Settings LLM: `provider` pasa a selector con opción única `Gemini`, el campo `API key` se precarga con valor guardado (oculto por defecto con toggle mostrar/ocultar), y se elimina el bloque de reprocesado manual por `item_id` de la pantalla de configuración (la acción rápida en cards de Home se mantiene).
 - **v1.18 (2026-03-04):** Mejora de inspección visual en Home: al pasar el ratón sobre el avatar de un artículo (desktop) se muestra preview ampliada de la imagen, y en móvil/táctil se abre al pulsar (tap) con cierre por backdrop o `Esc`.
 - **v1.19 (2026-03-04):** Caja especial de entrada por warehouse: al crear un almacén se crea automáticamente una caja raíz `Entrada de mercancias` (`is_inbound=true`) para altas masivas pendientes de ubicación final. Esta caja se resalta en rojo en Árbol de cajas y la ruta del artículo en Home se muestra en rojo cuando el artículo está dentro de ella. Backend añade migración `20260304_0008_inbound_box` y bloquea el borrado de la caja especial.
+- **v1.20 (2026-03-04):** Refactor de usabilidad móvil en frontend: toolbar del shell simplificada en móvil (acciones clave + menú `more`), mejora global de safe areas/targets táctiles/stacking de formularios y cabeceras, y Home adaptada a mobile-first (filtros apilados, rail de acciones táctil en cards, preview de foto anclada en pantalla y forzado de vista `Cards` en pantallas pequeñas).
+- **v1.21 (2026-03-04):** Fix crítico de compatibilidad móvil/webview en Home: se elimina dependencia rígida de `crypto.randomUUID()` (fallback UUID con `getRandomValues`/Math) para evitar crash en clientes sin soporte completo; además, el título de toolbar móvil se trunca por ancho para impedir solapes en pantallas estrechas.
+- **v1.22 (2026-03-04):** Segunda pasada responsive transversal en frontend: se eliminan estilos inline en pantallas operativas (`scan`, `items/from-photo`, `settings`, `conflicts`, `trash`, `box-detail`, `warehouses`) y se consolidan utilidades responsive globales (espaciado, acciones full-width en móvil, bloques multimedia y render seguro de payload JSON largo) para asegurar consistencia de uso en móvil/tablet.
+- **v1.23 (2026-03-05):** Refactor responsive de `Árbol de cajas` en móvil: se elimina el desbordamiento horizontal en nodos (cabecera y acciones apiladas/en grid), se compacta la indentación de ramas para pantallas estrechas y se fuerza wrapping de rutas/textos largos para mantener la vista usable sin scroll lateral.
+- **v1.24 (2026-03-05):** Ajuste de acciones en `Árbol de cajas`: los botones de texto de acciones por nodo se reemplazan por iconos representativos con `tooltip` descriptivo (`Ver`, `Etiqueta`, `Renombrar`, `Mover`, `Papelera`) para reducir ruido visual y mantener claridad operativa.
+- **v1.25 (2026-03-05):** Ajuste de layout desktop dentro de la shell: las vistas operativas (`.app-page`/`.page-wide`) amplían su ancho máximo cuando hay espacio horizontal disponible, reduciendo márgenes laterales vacíos en pantallas grandes sin alterar comportamiento en móvil/tablet.
+- **v1.26 (2026-03-05):** Refactor de detalle de caja alineado con Home: se extraen componentes reutilizables `item-card` y `item-list`, el detalle de caja renderiza artículos con los mismos componentes visuales/operativos que Home (cards/lista), cabecera de detalle pasa a acciones iconográficas con `tooltip` (`print`, `add`, `photo_camera`), y el flujo `/app/items/from-photo` soporta contexto de caja (`boxId` + `lockBox`) para fijar la caja destino al crear desde foto en detalle. Backend amplía `GET /warehouses/{warehouse_id}/boxes/{box_id}/items` con payload compatible con Home (+ `box_path_ids`).
+- **v1.27 (2026-03-05):** Ajuste de legibilidad en vista `Lista` de artículos: la columna `Ruta` aumenta su ancho mínimo/máximo para reducir truncados agresivos de nombres de cajas largas en Home y detalle de caja.
+- **v1.28 (2026-03-05):** Refinamiento UX en móvil para detalle de caja: el bloque de acciones de cabecera (`print`, `add`, `photo_camera`) deja de usar layout heredado de botones full-width y pasa a una banda compacta de 3 acciones en una sola fila, con targets táctiles claros y proporciones estables.
+- **v1.29 (2026-03-05):** Ajuste de acciones de producto en móvil: se elimina el modo “rail scrollable” en cards (`product-actions-mobile`) y se reemplaza por distribución con wrapping sin contenedor con overflow, evitando scroll vertical/artefactos visuales en Home y detalle de caja.
 
 ---
 
@@ -192,14 +202,20 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 
 ### Shell (Material)
 - Toolbar superior con:
-  - selector de warehouse (si aplica)
-  - icono escáner QR
-  - icono cámara para alta asistida por foto de artículo
-  - acceso a settings
+  - escritorio: chip de warehouse activo + accesos directos (QR, cámara, settings, salir)
+  - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal
 - navegación lateral con iconografía y estado activo por sección
 - Responsive:
-  - móvil: navegación compacta (sidenav overlay)
+  - móvil: navegación compacta (sidenav overlay), toolbar optimizada para notch/safe-area y targets táctiles amplios
   - tablet/escritorio: sidenav persistente
+  - escritorio ancho (`>=1200px`): el contenido principal de la ruta activa se expande hasta un máximo mayor para aprovechar mejor el área útil disponible junto al sidenav
+
+### Reglas responsive transversales
+- Se evita `style` inline en vistas de producto; el layout responsive se centraliza en clases reutilizables para mantener coherencia entre pantallas.
+- En móvil (`<=600px`), acciones primarias/secundarias en bloques operativos se apilan a ancho completo cuando compiten por espacio horizontal.
+- Contenedores multimedia (video/preview de foto) usan ancho fluido y límites de alto para no romper el flujo vertical.
+- Contenido técnico largo (p. ej., payload JSON de conflictos, tokens y enlaces) fuerza `word-break`/`pre-wrap` para evitar desbordes.
+- En móvil no se permite overflow horizontal de la página en vistas operativas; cuando una sección tiene alta densidad (árboles, metadatos, acciones), la prioridad es reflow vertical (stack/grid) antes que scroll lateral.
 
 ### Home
 - Buscador arriba (input fijo).
@@ -207,14 +223,15 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Al escribir: filtra y ordena por relevancia.
 - Acciones rápidas en cada card/lista con iconografía consistente (favorito, +/- stock, editar, reprocesar, borrar) y `tooltip` descriptivo por acción para mantener claridad sin perder densidad visual.
 - Acción principal: **Nuevo elemento** (desde ahí se elige crear artículo o caja).
-- Visualización conmutable entre `Cards` y `Lista` mediante selector en la propia Home (preferencia persistida en cliente).
+- Visualización conmutable entre `Cards` y `Lista` mediante selector en la propia Home (preferencia persistida en cliente) en escritorio/tablet; en móvil se prioriza siempre `Cards` para legibilidad y operación táctil.
 - Cards de artículos compactas: prioridad a densidad (más elementos visibles por fila), miniatura de producto y jerarquía clara (nombre, ruta, stock, tags y acciones inline).
-- El avatar de artículo permite preview ampliada de foto para inspección rápida: hover en escritorio y tap/click en móvil, sin salir de Home.
+- El avatar de artículo permite preview ampliada de foto para inspección rápida: hover contextual en escritorio y panel fijo inferior en móvil/táctil, sin salir de Home.
 - La ruta del artículo se resalta en rojo si su caja actual es la caja especial de entrada.
 - Vista lista: filas densas para escaneo rápido de muchos artículos con las mismas acciones operativas (favorito, stock, editar, reprocesar tags, borrar).
 - En escritorio, la vista lista usa tabla densa con encabezados por columna para maximizar comparación visual entre artículos; en pantallas pequeñas mantiene legibilidad mediante contenedor con scroll horizontal.
 - El panel de acciones por lote está colapsado por defecto y al activarlo habilita selección visual por checkbox en cards/lista; al cerrarlo limpia selección para evitar estado oculto.
 - La descripción en cards/lista mantiene truncado visual y expone el contenido completo mediante tooltip.
+- En móvil, filtros/checkboxes/tags de Home se apilan en una sola columna y las acciones rápidas de cada card usan carril horizontal táctil para evitar botones diminutos o saltos de línea confusos.
 
 ### Árbol de cajas
 - Árbol con expand/collapse (Material Tree).
@@ -228,17 +245,20 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - filas densas (menor altura por nodo, sin desperdicio de espacio)
   - jerarquía explícita con nivel y ruta (breadcrumb textual)
   - ramas anidadas visuales (padre/hijos) con connectors
+  - en móvil, ramas con indentación reducida y conectores compactos para evitar overflow por profundidad
+  - en móvil, cabecera del nodo y acciones se apilan con wrapping (sin carriles horizontales por nodo)
   - selectors de caja con ruta completa (`Raíz > ... > Caja`) para evitar homónimos
 - La caja especial de entrada se muestra visualmente destacada en rojo y con badge `Entrada`.
-- Acción rápida por nodo: `Etiqueta` para abrir vista de impresión de etiqueta QR de la caja.
+- Acciones por nodo en formato iconográfico (Material Icons) con tooltip textual para mantener densidad y descubribilidad (`Ver`, `Etiqueta`, `Renombrar`, `Mover`, `Papelera`).
 
 ### Detalle de caja (clave)
 - Header: nombre caja + QR + código corto (pequeño bajo QR).
-- Acción de cabecera: `Imprimir etiqueta` para generar etiqueta imprimible de la caja actual (nombre + código + QR).
+- Acciones de cabecera en iconos con tooltip: `print` (imprimir etiqueta), `add` (nuevo elemento) y `photo_camera` (alta por foto contextual).
 - Buscador interno.
-- Lista plana de artículos recursivos:
-  - Cada fila muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`
-  - La ruta es navegable (tocar un tramo navega a esa caja).
+- Lista de artículos recursivos renderizada con los mismos componentes reutilizables que Home (`item-card` / `item-list`) para mantener consistencia visual y funcional.
+- Cada fila/card muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`.
+- La ruta es navegable por tramo en detalle de caja (navega a la caja correspondiente).
+- En alta por foto iniciada desde detalle, tras la inferencia IA la caja destino queda fijada a la caja actual (`lockBox`) en `/app/items/new`.
 
 ### Scanner QR
 - Icono en header → vista escáner.
@@ -674,7 +694,7 @@ Secciones:
 - `DELETE /warehouses/{warehouse_id}/boxes/{box_id}` (soft, body `{force}`)
 - `POST /warehouses/{warehouse_id}/boxes/{box_id}/restore`
 - `GET /boxes/by-qr/{qr_token}` → devuelve box_id + warehouse_id
-- `GET /warehouses/{warehouse_id}/boxes/{box_id}/items?q=...` → lista plana recursiva con ruta
+- `GET /warehouses/{warehouse_id}/boxes/{box_id}/items?q=...` → lista plana recursiva con payload compatible con cards/lista de Home (`photo_url`, `tags`, `aliases`, `is_favorite`, `stock`, `box_is_inbound`, etc.) y `box_path_ids` para breadcrumb navegable
 
 ### Items
 - `GET /warehouses/{warehouse_id}/items?q=...&favorites_only=...&stock_zero=...&with_photo=...`
@@ -949,7 +969,7 @@ El servidor persiste `processed_commands` para no duplicar.
 - Prefill de `/app/items/new` para reducir fricción de alta.
 - Estado actual (2026-03-04): **completada (iteración inicial)**.
   - Backend: endpoint `POST /warehouses/{warehouse_id}/items/draft-from-photo`, validación de membresía/imagen y respuesta estructurada (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`, `llm_used`).
-  - Frontend: ruta `/app/items/from-photo`, captura/subida de foto (móvil/escritorio), análisis y navegación a formulario de alta pre-rellenado.
+  - Frontend: ruta `/app/items/from-photo`, captura/subida de foto (móvil/escritorio), análisis y navegación a formulario de alta pre-rellenado; en flujo contextual desde detalle de caja se propagan `boxId` + `lockBox` para fijar caja destino en `/app/items/new`.
   - Seguridad: la API key Gemini permanece cifrada en backend; ante error o falta de configuración se aplica fallback heurístico no bloqueante.
   - Migración: no requerida (sin cambios de modelo en esta iteración).
   - Calidad: test backend `test_slice9_item_photo_draft.py` y build frontend OK.

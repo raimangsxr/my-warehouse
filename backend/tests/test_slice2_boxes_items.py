@@ -175,3 +175,61 @@ def test_inbound_box_cannot_be_deleted(client):
         headers=headers,
     )
     assert delete_inbound.status_code == 400
+
+
+def test_box_recursive_items_include_home_payload(client):
+    headers = auth_headers(client)
+    warehouse_id = create_warehouse(client, headers)
+
+    parent_box = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        json={"name": "Herramientas"},
+        headers=headers,
+    ).json()
+    child_box = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        json={"name": "Electricas", "parent_box_id": parent_box["id"]},
+        headers=headers,
+    ).json()
+
+    item_res = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/items",
+        json={
+            "box_id": child_box["id"],
+            "name": "Atornillador",
+            "description": "Bateria 18V",
+            "photo_url": "https://example.com/screwdriver.jpg",
+            "tags": ["herramienta", "bateria"],
+            "aliases": ["screwdriver"],
+        },
+        headers=headers,
+    )
+    assert item_res.status_code == 201
+    item = item_res.json()
+
+    fav_res = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/items/{item['id']}/favorite",
+        json={"is_favorite": True},
+        headers=headers,
+    )
+    assert fav_res.status_code == 200
+
+    recursive_res = client.get(
+        f"/api/v1/warehouses/{warehouse_id}/boxes/{parent_box['id']}/items",
+        headers=headers,
+    )
+    assert recursive_res.status_code == 200
+    rows = recursive_res.json()
+    assert len(rows) == 1
+    row = rows[0]
+
+    assert row["id"] == item["id"]
+    assert row["warehouse_id"] == warehouse_id
+    assert row["box_id"] == child_box["id"]
+    assert row["photo_url"] == "https://example.com/screwdriver.jpg"
+    assert row["tags"] == ["herramienta", "bateria"]
+    assert row["aliases"] == ["screwdriver"]
+    assert row["is_favorite"] is True
+    assert row["box_path_ids"] == [parent_box["id"], child_box["id"]]
+    assert row["box_path"] == ["Herramientas", "Electricas"]
+    assert row["box_is_inbound"] is False

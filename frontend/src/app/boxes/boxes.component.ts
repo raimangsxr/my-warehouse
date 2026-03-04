@@ -9,6 +9,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
 import { BoxLabelPrintService } from '../services/box-label-print.service';
@@ -34,6 +35,7 @@ interface BoxTreeViewNode extends BoxTreeNode {
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
+    MatTooltipModule,
   ],
   template: `
     <div class="app-page">
@@ -49,7 +51,7 @@ interface BoxTreeViewNode extends BoxTreeNode {
           <h2 class="card-title">Nueva caja</h2>
           <p class="card-subtitle">Crea cajas raíz o subcajas dentro del árbol</p>
 
-          <form [formGroup]="createForm" (ngSubmit)="createBox()" class="form-row" style="margin-top: 8px">
+          <form [formGroup]="createForm" (ngSubmit)="createBox()" class="form-row mt-8">
             <mat-form-field class="grow">
               <mat-label>Nombre de caja (opcional)</mat-label>
               <mat-icon matPrefix>inventory_2</mat-icon>
@@ -125,21 +127,57 @@ interface BoxTreeViewNode extends BoxTreeNode {
                     <p class="item-card-title">{{ node.box.name }}</p>
                     <span class="inbound-badge" *ngIf="node.box.is_inbound">Entrada</span>
                     <div class="inline-actions box-tree-actions">
-                      <button mat-button type="button" [routerLink]="['/app/boxes', node.box.id]">Ver</button>
-                      <button mat-button type="button" (click)="printLabel(node.box)">
-                        <mat-icon>print</mat-icon>
-                        Etiqueta
-                      </button>
-                      <button mat-button type="button" (click)="startRename(node)">Renombrar</button>
-                      <button mat-button type="button" (click)="startMove(node)">Mover</button>
                       <button
-                        mat-button
+                        mat-icon-button
+                        type="button"
+                        class="box-tree-action-icon"
+                        [routerLink]="['/app/boxes', node.box.id]"
+                        matTooltip="Ver"
+                        aria-label="Ver caja"
+                      >
+                        <mat-icon>visibility</mat-icon>
+                      </button>
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="box-tree-action-icon"
+                        (click)="printLabel(node.box)"
+                        matTooltip="Etiqueta"
+                        aria-label="Imprimir etiqueta"
+                      >
+                        <mat-icon>print</mat-icon>
+                      </button>
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="box-tree-action-icon"
+                        (click)="startRename(node)"
+                        matTooltip="Renombrar"
+                        aria-label="Renombrar caja"
+                      >
+                        <mat-icon>edit</mat-icon>
+                      </button>
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="box-tree-action-icon"
+                        (click)="startMove(node)"
+                        matTooltip="Mover"
+                        aria-label="Mover caja"
+                      >
+                        <mat-icon>drive_file_move</mat-icon>
+                      </button>
+                      <button
+                        mat-icon-button
                         color="warn"
                         type="button"
+                        class="box-tree-action-icon"
                         (click)="deleteBox(node.box.id)"
                         [disabled]="node.box.is_inbound"
+                        matTooltip="Papelera"
+                        aria-label="Enviar a papelera"
                       >
-                        Papelera
+                        <mat-icon>delete</mat-icon>
                       </button>
                     </div>
                   </div>

@@ -17,6 +17,9 @@ import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 import { BoxService } from '../services/box.service';
+import { generateUuid } from '../core/uuid';
+import { ItemCardComponent } from '../items/item-card.component';
+import { ItemListComponent } from '../items/item-list.component';
 import { Item, ItemService, TagCloudEntry } from '../services/item.service';
 import { SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
@@ -48,16 +51,18 @@ type HomeViewMode = 'cards' | 'list';
     MatChipsModule,
     MatSelectModule,
     MatProgressBarModule,
-    MatTooltipModule
+    MatTooltipModule,
+    ItemCardComponent,
+    ItemListComponent
   ],
   template: `
-    <div class="app-page">
-      <header class="page-header">
+    <div class="app-page home-page">
+      <header class="page-header home-header">
         <div>
           <h1 class="page-title">Inicio</h1>
           <p class="page-subtitle">Consulta rápida de artículos, favoritos y stock por warehouse</p>
         </div>
-        <button mat-flat-button color="primary" [routerLink]="['/app/items/new']">
+        <button mat-flat-button color="primary" class="home-primary-action" [routerLink]="['/app/items/new']">
           <mat-icon>add</mat-icon>
           Nuevo elemento
         </button>
@@ -75,13 +80,13 @@ type HomeViewMode = 'cards' | 'list';
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
 
           <form [formGroup]="filtersForm" class="form-stack" (ngSubmit)="loadItems()">
-            <div class="form-row">
+            <div class="form-row home-filter-row">
               <mat-form-field class="grow">
                 <mat-label>Buscar artículo</mat-label>
                 <mat-icon matPrefix>search</mat-icon>
                 <input matInput formControlName="q" placeholder="nombre, tags, alias, ubicación" />
               </mat-form-field>
-              <div class="inline-actions">
+              <div class="inline-actions home-filter-switches">
                 <mat-checkbox class="filter-checkbox" formControlName="favoritesOnly">Solo favoritos</mat-checkbox>
                 <mat-checkbox class="filter-checkbox" formControlName="stockZero">Stock = 0</mat-checkbox>
               </div>
@@ -92,9 +97,9 @@ type HomeViewMode = 'cards' | 'list';
               <button mat-stroked-button type="button" (click)="clearFilters()">Limpiar</button>
             </div>
 
-            <div class="inline-actions" *ngIf="tagsCloud.length > 0">
+            <div class="inline-actions home-tags-row" *ngIf="tagsCloud.length > 0">
               <span class="muted">Tags:</span>
-              <mat-chip-set>
+              <mat-chip-set class="home-chip-set">
                 <mat-chip-option
                   *ngFor="let tag of tagsCloud"
                   [selected]="activeTag === tag.tag"
@@ -162,6 +167,7 @@ type HomeViewMode = 'cards' | 'list';
             <p class="results-count">{{ items.length }} artículos</p>
           </div>
           <mat-button-toggle-group
+            *ngIf="!isMobileView"
             [ngModel]="viewMode"
             (ngModelChange)="setViewMode($event)"
             [ngModelOptions]="{ standalone: true }"
@@ -179,243 +185,49 @@ type HomeViewMode = 'cards' | 'list';
           </mat-button-toggle-group>
         </section>
 
-        <div class="cards-grid" *ngIf="viewMode === 'cards'; else listView">
-          <article class="product-card" *ngFor="let item of items">
-            <div class="product-card-main">
-              <mat-checkbox
-                *ngIf="batchActionsExpanded"
-                class="item-select-checkbox"
-                [checked]="selectedItemIds.has(item.id)"
-                (change)="toggleSelected(item.id)"
-              ></mat-checkbox>
-
-              <div
-                class="product-avatar"
-                [class.product-avatar-clickable]="!!item.photo_url"
-                [attr.aria-hidden]="item.photo_url ? null : true"
-                [attr.role]="item.photo_url ? 'button' : null"
-                [attr.tabindex]="item.photo_url ? 0 : null"
-                (mouseenter)="onAvatarMouseEnter(item, $event)"
-                (mouseleave)="onAvatarMouseLeave()"
-                (click)="onAvatarClick(item, $event)"
-                (keydown.enter)="onAvatarKey(item, $event)"
-                (keydown.space)="onAvatarKey(item, $event)"
-              >
-                <img *ngIf="item.photo_url" [src]="item.photo_url" [alt]="'Foto de ' + item.name" loading="lazy" />
-                <mat-icon *ngIf="!item.photo_url">inventory_2</mat-icon>
-              </div>
-
-              <div class="product-copy">
-                <p class="product-title">{{ item.name }}</p>
-                <p class="product-meta" [matTooltip]="item.description || 'Sin descripción'">{{ item.description || 'Sin descripción' }}</p>
-                <p class="product-path" [class.product-path-inbound]="item.box_is_inbound">{{ item.box_path.join(' > ') }}</p>
-              </div>
-            </div>
-
-            <div class="product-actions">
-              <div class="product-stock-inline" matTooltip="Stock actual">
-                <mat-icon>inventory_2</mat-icon>
-                <span>{{ item.stock }}</span>
-              </div>
-              <span class="actions-spacer"></span>
-              <button
-                mat-icon-button
-                class="compact-icon-action"
-                (click)="toggleFavorite(item)"
-                [attr.aria-label]="'Favorito ' + item.name"
-                [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
-              >
-                <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
-              </button>
-              <button
-                mat-icon-button
-                color="primary"
-                class="compact-icon-action"
-                type="button"
-                (click)="adjustStock(item, 1)"
-                [attr.aria-label]="'Incrementar stock de ' + item.name"
-                matTooltip="Incrementar stock"
-              >
-                <mat-icon>add</mat-icon>
-              </button>
-              <button
-                mat-icon-button
-                class="compact-icon-action"
-                type="button"
-                (click)="adjustStock(item, -1)"
-                [attr.aria-label]="'Reducir stock de ' + item.name"
-                matTooltip="Reducir stock"
-              >
-                <mat-icon>remove</mat-icon>
-              </button>
-              <button
-                mat-icon-button
-                class="compact-icon-action"
-                type="button"
-                [routerLink]="['/app/items', item.id]"
-                [attr.aria-label]="'Editar ' + item.name"
-                matTooltip="Editar"
-              >
-                <mat-icon>edit</mat-icon>
-              </button>
-              <button
-                mat-icon-button
-                type="button"
-                class="compact-icon-action"
-                (click)="reprocessItemTags(item)"
-                [disabled]="reprocessingItemIds.has(item.id)"
-                [attr.aria-label]="'Reprocesar tags de ' + item.name"
-                [matTooltip]="reprocessingItemIds.has(item.id) ? 'Reprocesando tags' : 'Reprocesar tags'"
-              >
-                <mat-icon>{{ reprocessingItemIds.has(item.id) ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
-              </button>
-              <button
-                mat-icon-button
-                color="warn"
-                type="button"
-                class="compact-icon-action"
-                (click)="deleteItem(item)"
-                [attr.aria-label]="'Borrar ' + item.name"
-                matTooltip="Borrar"
-              >
-                <mat-icon>delete</mat-icon>
-              </button>
-            </div>
-          </article>
+        <div class="cards-grid" *ngIf="effectiveViewMode === 'cards'; else listView">
+          <app-item-card
+            *ngFor="let item of items"
+            [item]="item"
+            [showSelection]="batchActionsExpanded"
+            [isSelected]="selectedItemIds.has(item.id)"
+            [isMobileView]="isMobileView"
+            [isReprocessing]="reprocessingItemIds.has(item.id)"
+            [enablePhotoPreview]="true"
+            (selectionToggle)="toggleSelected(item.id)"
+            (favoriteToggle)="toggleFavorite(item)"
+            (stockAdjust)="adjustStock(item, $event)"
+            (reprocess)="reprocessItemTags(item)"
+            (deleteItem)="deleteItem(item)"
+            (avatarMouseEnter)="onAvatarMouseEnter(item, $event)"
+            (avatarMouseLeave)="onAvatarMouseLeave()"
+            (avatarClick)="onAvatarClick(item, $event)"
+            (avatarKey)="onAvatarKey(item, $event)"
+          ></app-item-card>
         </div>
 
         <ng-template #listView>
-          <section class="table-shell">
-            <div class="table-scroll">
-              <table class="inventory-table" aria-label="Listado de artículos">
-                <thead>
-                  <tr>
-                    <th class="col-select" *ngIf="batchActionsExpanded"></th>
-                    <th class="col-item">Artículo</th>
-                    <th class="col-route">Ruta</th>
-                    <th class="col-stock">Stock</th>
-                    <th class="col-tags">Tags</th>
-                    <th class="col-actions">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr *ngFor="let item of items">
-                    <td class="col-select" *ngIf="batchActionsExpanded">
-                      <mat-checkbox
-                        class="item-select-checkbox"
-                        [checked]="selectedItemIds.has(item.id)"
-                        (change)="toggleSelected(item.id)"
-                      ></mat-checkbox>
-                    </td>
-                    <td class="col-item">
-                      <div class="table-item-cell">
-                        <div
-                          class="product-avatar table-avatar"
-                          [class.product-avatar-clickable]="!!item.photo_url"
-                          [attr.aria-hidden]="item.photo_url ? null : true"
-                          [attr.role]="item.photo_url ? 'button' : null"
-                          [attr.tabindex]="item.photo_url ? 0 : null"
-                          (mouseenter)="onAvatarMouseEnter(item, $event)"
-                          (mouseleave)="onAvatarMouseLeave()"
-                          (click)="onAvatarClick(item, $event)"
-                          (keydown.enter)="onAvatarKey(item, $event)"
-                          (keydown.space)="onAvatarKey(item, $event)"
-                        >
-                          <img *ngIf="item.photo_url" [src]="item.photo_url" [alt]="'Foto de ' + item.name" loading="lazy" />
-                          <mat-icon *ngIf="!item.photo_url">inventory_2</mat-icon>
-                        </div>
-                        <div class="table-item-copy">
-                          <p class="table-item-title">{{ item.name }}</p>
-                          <p class="table-item-subtitle" [matTooltip]="item.description || 'Sin descripción'">{{ item.description || 'Sin descripción' }}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="col-route route-text" [class.route-text-inbound]="item.box_is_inbound">{{ item.box_path.join(' > ') }}</td>
-                    <td class="col-stock">
-                      <span class="product-stock">{{ item.stock }}</span>
-                    </td>
-                    <td class="col-tags">
-                      <div class="table-tags">
-                        <span class="table-tag" *ngFor="let tag of item.tags | slice:0:2">{{ tag }}</span>
-                        <span class="table-tag-more" *ngIf="item.tags.length > 2">+{{ item.tags.length - 2 }}</span>
-                      </div>
-                    </td>
-                    <td class="col-actions">
-                      <div class="table-actions">
-                        <button
-                          mat-icon-button
-                          class="compact-icon-action"
-                          (click)="toggleFavorite(item)"
-                          [attr.aria-label]="'Favorito ' + item.name"
-                          [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
-                        >
-                          <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
-                        </button>
-                        <button
-                          mat-icon-button
-                          color="primary"
-                          class="compact-icon-action"
-                          type="button"
-                          (click)="adjustStock(item, 1)"
-                          [attr.aria-label]="'Incrementar stock de ' + item.name"
-                          matTooltip="Incrementar stock"
-                        >
-                          <mat-icon>add</mat-icon>
-                        </button>
-                        <button
-                          mat-icon-button
-                          class="compact-icon-action"
-                          type="button"
-                          (click)="adjustStock(item, -1)"
-                          [attr.aria-label]="'Reducir stock de ' + item.name"
-                          matTooltip="Reducir stock"
-                        >
-                          <mat-icon>remove</mat-icon>
-                        </button>
-                        <button
-                          mat-icon-button
-                          type="button"
-                          class="compact-icon-action"
-                          [routerLink]="['/app/items', item.id]"
-                          [attr.aria-label]="'Editar ' + item.name"
-                          matTooltip="Editar"
-                        >
-                          <mat-icon>edit</mat-icon>
-                        </button>
-                        <button
-                          mat-icon-button
-                          type="button"
-                          class="compact-icon-action"
-                          (click)="reprocessItemTags(item)"
-                          [disabled]="reprocessingItemIds.has(item.id)"
-                          [attr.aria-label]="'Reprocesar tags de ' + item.name"
-                          [matTooltip]="reprocessingItemIds.has(item.id) ? 'Reprocesando tags' : 'Reprocesar tags'"
-                        >
-                          <mat-icon>{{ reprocessingItemIds.has(item.id) ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
-                        </button>
-                        <button
-                          mat-icon-button
-                          color="warn"
-                          type="button"
-                          class="compact-icon-action"
-                          (click)="deleteItem(item)"
-                          [attr.aria-label]="'Borrar ' + item.name"
-                          matTooltip="Borrar"
-                        >
-                          <mat-icon>delete</mat-icon>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <app-item-list
+            [items]="items"
+            [showSelection]="batchActionsExpanded"
+            [selectedItemIds]="selectedItemIds"
+            [reprocessingItemIds]="reprocessingItemIds"
+            [enablePhotoPreview]="true"
+            (selectionToggle)="toggleSelected($event)"
+            (favoriteToggle)="toggleFavorite($event)"
+            (stockAdjust)="adjustStock($event.item, $event.delta)"
+            (reprocess)="reprocessItemTags($event)"
+            (deleteItem)="deleteItem($event)"
+            (avatarMouseEnter)="onAvatarMouseEnter($event.item, $event.event)"
+            (avatarMouseLeave)="onAvatarMouseLeave()"
+            (avatarClick)="onAvatarClick($event.item, $event.event)"
+            (avatarKey)="onAvatarKey($event.item, $event.event)"
+          ></app-item-list>
         </ng-template>
       </ng-container>
 
       <ng-template #emptyItems>
-        <div class="empty-state" style="margin-top: 14px">
+        <div class="empty-state mt-14">
           No hay artículos para los filtros seleccionados.
         </div>
       </ng-template>
@@ -443,6 +255,30 @@ type HomeViewMode = 'cards' | 'list';
     `
       :host {
         display: block;
+      }
+
+      .home-header {
+        align-items: flex-start;
+      }
+
+      .home-primary-action {
+        white-space: nowrap;
+      }
+
+      .home-filter-row {
+        align-items: flex-start;
+      }
+
+      .home-filter-switches {
+        min-width: 220px;
+      }
+
+      .home-tags-row {
+        align-items: flex-start;
+      }
+
+      .home-chip-set {
+        min-width: 0;
       }
 
       .results-toolbar {
@@ -606,6 +442,14 @@ type HomeViewMode = 'cards' | 'list';
         align-items: center;
       }
 
+      .product-actions-mobile {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: thin;
+        padding-bottom: 2px;
+      }
+
       .product-stock-inline {
         display: inline-flex;
         align-items: center;
@@ -765,9 +609,9 @@ type HomeViewMode = 'cards' | 'list';
       }
 
       .compact-icon-action {
-        width: 29px !important;
-        height: 29px !important;
-        padding: 2px !important;
+        width: 32px !important;
+        height: 32px !important;
+        padding: 4px !important;
       }
 
       .avatar-preview-backdrop {
@@ -815,9 +659,43 @@ type HomeViewMode = 'cards' | 'list';
         .table-shell {
           border-radius: 12px;
         }
+
+        .home-filter-switches {
+          min-width: 0;
+        }
       }
 
       @media (max-width: 640px) {
+        .home-header {
+          gap: 10px;
+        }
+
+        .home-primary-action {
+          width: 100%;
+        }
+
+        .home-filter-row {
+          gap: 8px;
+        }
+
+        .home-filter-switches {
+          width: 100%;
+          display: grid;
+          gap: 2px;
+        }
+
+        .home-tags-row {
+          display: grid;
+          gap: 6px;
+          align-items: stretch;
+        }
+
+        .home-chip-set {
+          max-height: 140px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
         .cards-grid {
           grid-template-columns: 1fr;
           gap: 8px;
@@ -831,9 +709,19 @@ type HomeViewMode = 'cards' | 'list';
           gap: 3px;
         }
 
+        .product-actions .actions-spacer {
+          display: none;
+        }
+
         .avatar-preview-panel {
           width: calc(100vw - 18px);
           max-width: 360px;
+        }
+
+        .compact-icon-action {
+          width: 40px !important;
+          height: 40px !important;
+          padding: 8px !important;
         }
       }
     `
@@ -855,6 +743,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   selectedItemIds = new Set<string>();
   batchActionsExpanded = false;
   viewMode: HomeViewMode = 'cards';
+  isMobileView = isNarrowViewport();
   avatarPreviewUrl: string | null = null;
   avatarPreviewName = '';
   avatarPreviewPinned = false;
@@ -884,6 +773,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     }
 
     this.viewMode = this.readStoredViewMode();
+    this.syncViewportState();
     this.loadBoxes();
     this.loadTagsCloud();
     this.loadItems();
@@ -905,6 +795,11 @@ export class HomeComponent implements OnInit, OnDestroy {
   @HostListener('window:keydown.escape')
   onEscClosePreview(): void {
     this.closeAvatarPreview(true);
+  }
+
+  @HostListener('window:resize')
+  onViewportResize(): void {
+    this.syncViewportState();
   }
 
   onAvatarMouseEnter(item: Item, event: MouseEvent): void {
@@ -978,8 +873,15 @@ export class HomeComponent implements OnInit, OnDestroy {
     if (mode !== 'cards' && mode !== 'list') {
       return;
     }
+    if (this.isMobileView && mode === 'list') {
+      return;
+    }
     this.viewMode = mode;
     localStorage.setItem(this.viewModeStorageKey, mode);
+  }
+
+  get effectiveViewMode(): HomeViewMode {
+    return this.isMobileView ? 'cards' : this.viewMode;
   }
 
   toggleBatchActions(): void {
@@ -1034,7 +936,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     }
 
     const nextFavorite = !item.is_favorite;
-    const commandId = crypto.randomUUID();
+    const commandId = generateUuid();
     this.itemService.setFavorite(this.selectedWarehouseId, item.id, nextFavorite).subscribe({
       next: (updated) => {
         this.upsertItem(updated);
@@ -1057,7 +959,7 @@ export class HomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const commandId = crypto.randomUUID();
+    const commandId = generateUuid();
     this.itemService.adjustStock(this.selectedWarehouseId, item.id, delta, commandId).subscribe({
       next: (updated) => {
         this.upsertItem(updated);
@@ -1222,9 +1124,27 @@ export class HomeComponent implements OnInit, OnDestroy {
     return 'cards';
   }
 
+  private syncViewportState(): void {
+    this.isMobileView = isNarrowViewport();
+  }
+
   private openAvatarPreview(item: Item, event: MouseEvent, pinned: boolean): void {
     const target = event.currentTarget as HTMLElement | null;
     if (!target || !item.photo_url) {
+      return;
+    }
+
+    if (this.isMobileView || isCoarsePointerDevice()) {
+      this.avatarPreviewUrl = item.photo_url;
+      this.avatarPreviewName = item.name;
+      this.avatarPreviewPinned = true;
+      this.avatarPreviewHovering = false;
+      this.avatarPreviewStyle = {
+        width: 'calc(100vw - 18px)',
+        left: '9px',
+        top: 'auto',
+        bottom: 'max(10px, env(safe-area-inset-bottom))'
+      };
       return;
     }
 
@@ -1250,5 +1170,16 @@ export class HomeComponent implements OnInit, OnDestroy {
 }
 
 function isCoarsePointerDevice(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  return mediaQueryMatches('(hover: none), (pointer: coarse)');
+}
+
+function isNarrowViewport(): boolean {
+  return mediaQueryMatches('(max-width: 700px)');
+}
+
+function mediaQueryMatches(query: string): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia(query).matches;
 }

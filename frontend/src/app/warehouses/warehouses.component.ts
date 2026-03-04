@@ -76,7 +76,7 @@ import { Warehouse, WarehouseService } from '../services/warehouse.service';
               <h2 class="card-title">Crear warehouse</h2>
               <p class="card-subtitle">Se te asignará como miembro automáticamente</p>
 
-              <form [formGroup]="form" (ngSubmit)="createWarehouse()" class="form-stack" style="margin-top: 10px">
+              <form [formGroup]="form" (ngSubmit)="createWarehouse()" class="form-stack mt-10">
                 <mat-form-field class="full-width">
                   <mat-label>Nombre</mat-label>
                   <mat-icon matPrefix>inventory_2</mat-icon>
@@ -95,7 +95,7 @@ import { Warehouse, WarehouseService } from '../services/warehouse.service';
               <h2 class="card-title">Invitar miembro</h2>
               <p class="card-subtitle">Genera un enlace de invitación por warehouse</p>
 
-              <form [formGroup]="inviteForm" (ngSubmit)="createInvite()" class="form-stack" style="margin-top: 10px">
+              <form [formGroup]="inviteForm" (ngSubmit)="createInvite()" class="form-stack mt-10">
                 <mat-form-field class="full-width">
                   <mat-label>Warehouse</mat-label>
                   <mat-select formControlName="warehouseId">
@@ -116,10 +116,10 @@ import { Warehouse, WarehouseService } from '../services/warehouse.service';
                 </button>
               </form>
 
-              <div class="error" *ngIf="inviteError" style="margin-top: 8px">{{ inviteError }}</div>
-              <div class="status-message" *ngIf="inviteMessage" style="margin-top: 8px">{{ inviteMessage }}</div>
+              <div class="error mt-8" *ngIf="inviteError">{{ inviteError }}</div>
+              <div class="status-message mt-8" *ngIf="inviteMessage">{{ inviteMessage }}</div>
 
-              <div class="item-card" *ngIf="inviteLink" style="margin-top: 10px">
+              <div class="item-card invite-link-card mt-10" *ngIf="inviteLink">
                 <div class="status-line"><strong>Link:</strong> {{ inviteLink }}</div>
                 <div class="status-line"><strong>Token:</strong> {{ inviteToken }}</div>
               </div>
@@ -128,7 +128,14 @@ import { Warehouse, WarehouseService } from '../services/warehouse.service';
         </div>
       </div>
     </div>
-  `
+  `,
+  styles: [
+    `
+      .invite-link-card .status-line {
+        word-break: break-word;
+      }
+    `
+  ]
 })
 export class WarehousesComponent implements OnInit {
   loading = false;
