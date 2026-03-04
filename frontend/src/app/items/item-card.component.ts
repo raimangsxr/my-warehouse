@@ -60,7 +60,7 @@ import { Item } from '../services/item.service';
           <button
             mat-icon-button
             type="button"
-            class="stock-step-btn"
+            class="stock-step-btn stock-step-dec"
             (click)="stockAdjust.emit(-1)"
             [attr.aria-label]="'Reducir stock de ' + item.name"
             matTooltip="Reducir stock"
@@ -75,7 +75,7 @@ import { Item } from '../services/item.service';
             mat-icon-button
             color="primary"
             type="button"
-            class="stock-step-btn"
+            class="stock-step-btn stock-step-inc"
             (click)="stockAdjust.emit(1)"
             [attr.aria-label]="'Incrementar stock de ' + item.name"
             matTooltip="Incrementar stock"
@@ -83,48 +83,49 @@ import { Item } from '../services/item.service';
             <mat-icon>add</mat-icon>
           </button>
         </div>
-        <span class="actions-spacer"></span>
-        <button
-          mat-icon-button
-          class="compact-icon-action"
-          (click)="favoriteToggle.emit()"
-          [attr.aria-label]="'Favorito ' + item.name"
-          [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
-        >
-          <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
-        </button>
-        <button
-          mat-icon-button
-          class="compact-icon-action"
-          type="button"
-          [routerLink]="['/app/items', item.id]"
-          [attr.aria-label]="'Editar ' + item.name"
-          matTooltip="Editar"
-        >
-          <mat-icon>edit</mat-icon>
-        </button>
-        <button
-          mat-icon-button
-          type="button"
-          class="compact-icon-action"
-          (click)="reprocess.emit()"
-          [disabled]="isReprocessing"
-          [attr.aria-label]="'Reprocesar tags de ' + item.name"
-          [matTooltip]="isReprocessing ? 'Reprocesando tags' : 'Reprocesar tags'"
-        >
-          <mat-icon>{{ isReprocessing ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
-        </button>
-        <button
-          mat-icon-button
-          color="warn"
-          type="button"
-          class="compact-icon-action"
-          (click)="deleteItem.emit()"
-          [attr.aria-label]="'Borrar ' + item.name"
-          matTooltip="Borrar"
-        >
-          <mat-icon>delete</mat-icon>
-        </button>
+        <div class="product-quick-actions">
+          <button
+            mat-icon-button
+            class="compact-icon-action"
+            (click)="favoriteToggle.emit()"
+            [attr.aria-label]="'Favorito ' + item.name"
+            [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
+          >
+            <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            class="compact-icon-action"
+            type="button"
+            [routerLink]="['/app/items', item.id]"
+            [attr.aria-label]="'Editar ' + item.name"
+            matTooltip="Editar"
+          >
+            <mat-icon>edit</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            type="button"
+            class="compact-icon-action"
+            (click)="reprocess.emit()"
+            [disabled]="isReprocessing"
+            [attr.aria-label]="'Reprocesar tags de ' + item.name"
+            [matTooltip]="isReprocessing ? 'Reprocesando tags' : 'Reprocesar tags'"
+          >
+            <mat-icon>{{ isReprocessing ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            color="warn"
+            type="button"
+            class="compact-icon-action"
+            (click)="deleteItem.emit()"
+            [attr.aria-label]="'Borrar ' + item.name"
+            matTooltip="Borrar"
+          >
+            <mat-icon>delete</mat-icon>
+          </button>
+        </div>
       </div>
     </article>
   `,
@@ -222,29 +223,29 @@ import { Item } from '../services/item.service';
 
       .product-actions {
         border-top: 1px solid rgba(219, 227, 239, 0.85);
-        padding-top: 7px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        align-items: center;
+        padding-top: 8px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        align-items: stretch;
       }
 
       .product-actions-mobile {
-        flex-wrap: wrap;
-        overflow: visible;
-        overscroll-behavior: contain;
-        row-gap: 6px;
+        gap: 8px;
       }
 
       .product-stock-inline {
-        display: inline-flex;
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr) 32px;
         align-items: center;
-        gap: 2px;
-        padding: 2px;
+        gap: 3px;
+        width: 100%;
+        padding: 3px 8px;
         border-radius: 999px;
         border: 1px solid rgba(191, 216, 255, 0.8);
         background: #edf4ff;
         color: #234e9c;
+        min-height: 38px;
       }
 
       .stock-display {
@@ -252,7 +253,7 @@ import { Item } from '../services/item.service';
         align-items: center;
         justify-content: center;
         gap: 4px;
-        min-width: 52px;
+        min-width: 56px;
         padding: 0 6px;
         font-size: 0.76rem;
         font-weight: 600;
@@ -271,20 +272,34 @@ import { Item } from '../services/item.service';
         padding: 0 !important;
       }
 
+      .stock-step-dec {
+        justify-self: start;
+      }
+
+      .stock-step-inc {
+        justify-self: end;
+      }
+
       .stock-step-btn .mat-icon {
         width: 14px;
         height: 14px;
         font-size: 14px;
       }
 
-      .actions-spacer {
-        flex: 1 1 auto;
+      .product-quick-actions {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
       }
 
       .compact-icon-action {
-        width: 32px !important;
-        height: 32px !important;
-        padding: 4px !important;
+        width: 100% !important;
+        max-width: none !important;
+        height: 34px !important;
+        padding: 6px !important;
+        border-radius: 9px;
+        border: 1px solid var(--border-soft);
+        background: #ffffff;
       }
 
       @media (max-width: 640px) {
@@ -292,12 +307,17 @@ import { Item } from '../services/item.service';
           padding: 7px;
         }
 
-        .product-actions {
-          gap: 3px;
+        .product-actions-mobile .product-stock-inline {
+          width: 100%;
+          grid-template-columns: 34px minmax(0, 1fr) 34px;
+          min-width: 0;
+          border-radius: 12px;
+          padding: 4px 10px;
+          justify-self: stretch;
         }
 
-        .product-actions .actions-spacer {
-          display: none;
+        .product-actions-mobile .product-quick-actions {
+          gap: 7px;
         }
 
         .stock-step-btn {
@@ -307,7 +327,8 @@ import { Item } from '../services/item.service';
         }
 
         .compact-icon-action {
-          width: 40px !important;
+          width: 100% !important;
+          max-width: none !important;
           height: 40px !important;
           padding: 8px !important;
         }

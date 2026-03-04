@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.30
+- **Versión:** v1.32
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -60,6 +60,8 @@
 - **v1.28 (2026-03-05):** Refinamiento UX en móvil para detalle de caja: el bloque de acciones de cabecera (`print`, `add`, `photo_camera`) deja de usar layout heredado de botones full-width y pasa a una banda compacta de 3 acciones en una sola fila, con targets táctiles claros y proporciones estables.
 - **v1.29 (2026-03-05):** Ajuste de acciones de producto en móvil: se elimina el modo “rail scrollable” en cards (`product-actions-mobile`) y se reemplaza por distribución con wrapping sin contenedor con overflow, evitando scroll vertical/artefactos visuales en Home y detalle de caja.
 - **v1.30 (2026-03-05):** Ajuste de comprensión en cards de artículos: los controles de stock `+/-` se integran dentro del badge de stock para vincular explícitamente la acción con el número mostrado.
+- **v1.31 (2026-03-05):** Reorganización visual del bloque `product-actions` en cards: stock y acciones rápidas pasan a layout estructurado en dos filas (badge de stock + grid estable de acciones), eliminando saltos desordenados de botones y mejorando consistencia visual en móvil.
+- **v1.32 (2026-03-05):** Ajuste fino del badge de stock en cards: `product-stock-inline` pasa a ocupar siempre todo el ancho disponible, con valor centrado y botones `-/+` anclados a los lados con separación interna consistente respecto al borde.
 
 ---
 
