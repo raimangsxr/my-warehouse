@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.32
+- **Versión:** v1.33
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -62,6 +62,7 @@
 - **v1.30 (2026-03-05):** Ajuste de comprensión en cards de artículos: los controles de stock `+/-` se integran dentro del badge de stock para vincular explícitamente la acción con el número mostrado.
 - **v1.31 (2026-03-05):** Reorganización visual del bloque `product-actions` en cards: stock y acciones rápidas pasan a layout estructurado en dos filas (badge de stock + grid estable de acciones), eliminando saltos desordenados de botones y mejorando consistencia visual en móvil.
 - **v1.32 (2026-03-05):** Ajuste fino del badge de stock en cards: `product-stock-inline` pasa a ocupar siempre todo el ancho disponible, con valor centrado y botones `-/+` anclados a los lados con separación interna consistente respecto al borde.
+- **v1.33 (2026-03-05):** Refactor de filtro de tags en Home: la fila lineal de chips se reemplaza por una **nube de tags** con peso visual por frecuencia (tamaño tipográfico y cromática variable), wrapping responsive, estado activo más destacado y contador integrado por tag, manteniendo el filtrado por click y la acción de limpiar tag.
 
 ---
 
@@ -234,7 +235,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - En escritorio, la vista lista usa tabla densa con encabezados por columna para maximizar comparación visual entre artículos; en pantallas pequeñas mantiene legibilidad mediante contenedor con scroll horizontal.
 - El panel de acciones por lote está colapsado por defecto y al activarlo habilita selección visual por checkbox en cards/lista; al cerrarlo limpia selección para evitar estado oculto.
 - La descripción en cards/lista mantiene truncado visual y expone el contenido completo mediante tooltip.
-- En móvil, filtros/checkboxes/tags de Home se apilan en una sola columna y las acciones rápidas de cada card usan carril horizontal táctil para evitar botones diminutos o saltos de línea confusos.
+- La nube de tags en Home pondera visualmente cada tag según su frecuencia (más uso = más tamaño/peso visual) para facilitar escaneo y priorización de filtros frecuentes.
+- En móvil, filtros/checkboxes/nube de tags de Home se apilan en una sola columna; la nube permite scroll vertical acotado y las acciones rápidas de cada card mantienen layout táctil con wrapping para evitar botones diminutos o saltos de línea confusos.
 
 ### Árbol de cajas
 - Árbol con expand/collapse (Material Tree).
@@ -768,7 +770,7 @@ Stock:
 ### Tags
 - No se introducen manualmente en el flujo normal.
 - Se generan por LLM al crear/editar artículo (si habilitado).
-- Nube de tags: chips discretos para filtrar.
+- Nube de tags: chips interactivos para filtrar con codificación visual por frecuencia (tamaño/color), contador por tag y estado activo resaltado.
 
 ### Alias
 - No se introducen manualmente en el flujo normal.

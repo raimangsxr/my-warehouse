@@ -6,7 +6,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -31,6 +30,10 @@ interface BoxMoveOption {
   path_label: string;
 }
 
+interface TagCloudVisualEntry extends TagCloudEntry {
+  styleVars: Record<string, string>;
+}
+
 type HomeViewMode = 'cards' | 'list';
 
 @Component({
@@ -48,7 +51,6 @@ type HomeViewMode = 'cards' | 'list';
     MatButtonToggleModule,
     MatIconModule,
     MatCheckboxModule,
-    MatChipsModule,
     MatSelectModule,
     MatProgressBarModule,
     MatTooltipModule,
@@ -97,18 +99,27 @@ type HomeViewMode = 'cards' | 'list';
               <button mat-stroked-button type="button" (click)="clearFilters()">Limpiar</button>
             </div>
 
-            <div class="inline-actions home-tags-row" *ngIf="tagsCloud.length > 0">
-              <span class="muted">Tags:</span>
-              <mat-chip-set class="home-chip-set">
-                <mat-chip-option
-                  *ngFor="let tag of tagsCloud"
-                  [selected]="activeTag === tag.tag"
+            <div class="home-tags-row" *ngIf="visualTagsCloud.length > 0">
+              <div class="home-tags-head">
+                <span class="muted">Nube de tags</span>
+                <button mat-button type="button" *ngIf="activeTag" (click)="toggleTag(activeTag)">Quitar tag</button>
+              </div>
+              <div class="home-tags-cloud" role="list" aria-label="Nube de tags para filtrar artículos">
+                <button
+                  type="button"
+                  class="home-tag-chip"
+                  role="listitem"
+                  *ngFor="let tag of visualTagsCloud; trackBy: trackTagCloud"
+                  [ngStyle]="tag.styleVars"
+                  [class.home-tag-chip-active]="activeTag === tag.tag"
+                  [attr.aria-pressed]="activeTag === tag.tag"
+                  [attr.aria-label]="'Filtrar por tag ' + tag.tag + ' con ' + tag.count + ' artículos'"
                   (click)="toggleTag(tag.tag)"
                 >
-                  {{ tag.tag }} ({{ tag.count }})
-                </mat-chip-option>
-              </mat-chip-set>
-              <button mat-button type="button" *ngIf="activeTag" (click)="toggleTag(activeTag)">Quitar tag</button>
+                  <span class="home-tag-chip-label">{{ tag.tag }}</span>
+                  <span class="home-tag-chip-count">{{ tag.count }}</span>
+                </button>
+              </div>
             </div>
           </form>
         </mat-card-content>
@@ -274,11 +285,85 @@ type HomeViewMode = 'cards' | 'list';
       }
 
       .home-tags-row {
-        align-items: flex-start;
+        display: grid;
+        gap: 8px;
       }
 
-      .home-chip-set {
-        min-width: 0;
+      .home-tags-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .home-tags-cloud {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .home-tag-chip {
+        --tag-hue: 205;
+        --tag-saturation: 56%;
+        --tag-lightness: 91%;
+        --tag-font-size: 0.78rem;
+        --tag-font-weight: 560;
+        --tag-border-alpha: 0.24;
+        --tag-shadow-alpha: 0.12;
+        border: 1px solid hsl(var(--tag-hue) 42% 40% / var(--tag-border-alpha));
+        border-radius: 999px;
+        background: linear-gradient(
+          180deg,
+          hsl(var(--tag-hue) var(--tag-saturation) calc(var(--tag-lightness) + 3%)) 0%,
+          hsl(var(--tag-hue) var(--tag-saturation) var(--tag-lightness)) 100%
+        );
+        color: hsl(var(--tag-hue) 48% 22%);
+        padding: 5px 9px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: var(--tag-font-size);
+        font-weight: var(--tag-font-weight);
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+      }
+
+      .home-tag-chip:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 16px rgba(15, 23, 42, var(--tag-shadow-alpha));
+      }
+
+      .home-tag-chip:focus-visible {
+        outline: 2px solid rgba(39, 93, 198, 0.45);
+        outline-offset: 1px;
+      }
+
+      .home-tag-chip-active {
+        border-color: #1e3f94;
+        background: linear-gradient(180deg, #2f58c5 0%, #2748a4 100%);
+        color: #f8fbff;
+        box-shadow: 0 8px 18px rgba(39, 72, 164, 0.34);
+      }
+
+      .home-tag-chip-label {
+        line-height: 1;
+      }
+
+      .home-tag-chip-count {
+        min-width: 1.6em;
+        border-radius: 999px;
+        padding: 1px 6px;
+        text-align: center;
+        font-size: 0.75em;
+        line-height: 1.2;
+        background: rgba(255, 255, 255, 0.58);
+      }
+
+      .home-tag-chip-active .home-tag-chip-count {
+        background: rgba(255, 255, 255, 0.22);
+        color: #f3f7ff;
       }
 
       .results-toolbar {
@@ -685,15 +770,17 @@ type HomeViewMode = 'cards' | 'list';
         }
 
         .home-tags-row {
-          display: grid;
-          gap: 6px;
-          align-items: stretch;
+          gap: 7px;
         }
 
-        .home-chip-set {
-          max-height: 140px;
+        .home-tags-cloud {
+          max-height: 172px;
           overflow-y: auto;
           padding-right: 4px;
+        }
+
+        .home-tag-chip {
+          padding: 6px 10px;
         }
 
         .cards-grid {
@@ -736,7 +823,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   loadingItems = false;
   items: Item[] = [];
   boxes: BoxMoveOption[] = [];
-  tagsCloud: TagCloudEntry[] = [];
+  visualTagsCloud: TagCloudVisualEntry[] = [];
   activeTag: string | null = null;
   targetBoxId: string | null = null;
   reprocessingItemIds = new Set<string>();
@@ -930,6 +1017,10 @@ export class HomeComponent implements OnInit, OnDestroy {
     this.loadItems();
   }
 
+  trackTagCloud(_index: number, entry: TagCloudVisualEntry): string {
+    return entry.tag;
+  }
+
   toggleFavorite(item: Item): void {
     if (!this.selectedWarehouseId) {
       return;
@@ -1107,9 +1198,51 @@ export class HomeComponent implements OnInit, OnDestroy {
     }
     this.itemService.tagsCloud(this.selectedWarehouseId).subscribe({
       next: (tags) => {
-        this.tagsCloud = tags;
+        this.visualTagsCloud = this.buildTagCloudVisuals(tags);
       }
     });
+  }
+
+  private buildTagCloudVisuals(tags: TagCloudEntry[]): TagCloudVisualEntry[] {
+    if (!tags.length) {
+      return [];
+    }
+
+    const counts = tags.map((tag) => tag.count);
+    const minCount = Math.min(...counts);
+    const maxCount = Math.max(...counts);
+    const range = Math.max(1, maxCount - minCount);
+
+    return tags.map((tag) => {
+      const weight = (tag.count - minCount) / range;
+      const hue = this.pickTagHue(tag.tag);
+      const saturation = 50 + Math.round(weight * 14);
+      const lightness = 93 - Math.round(weight * 15);
+      const fontSize = 0.76 + weight * 0.34;
+      const fontWeight = 520 + Math.round(weight * 160);
+
+      return {
+        ...tag,
+        styleVars: {
+          '--tag-hue': `${hue}`,
+          '--tag-saturation': `${saturation}%`,
+          '--tag-lightness': `${lightness}%`,
+          '--tag-font-size': `${fontSize.toFixed(2)}rem`,
+          '--tag-font-weight': `${fontWeight}`,
+          '--tag-border-alpha': (0.22 + weight * 0.22).toFixed(2),
+          '--tag-shadow-alpha': (0.09 + weight * 0.14).toFixed(2)
+        }
+      };
+    });
+  }
+
+  private pickTagHue(tag: string): number {
+    const palette = [206, 188, 162, 144, 124, 98, 74, 36, 18];
+    let hash = 0;
+    for (let index = 0; index < tag.length; index += 1) {
+      hash = (hash * 31 + tag.charCodeAt(index)) | 0;
+    }
+    return palette[Math.abs(hash) % palette.length];
   }
 
   private upsertItem(updated: Item): void {
