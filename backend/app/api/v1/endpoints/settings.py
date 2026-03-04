@@ -11,6 +11,7 @@ from app.models.smtp_setting import SMTPSetting
 from app.models.user import User
 from app.schemas.common import MessageResponse
 from app.schemas.setting import (
+    LLMReprocessRequest,
     LLMReprocessResponse,
     LLMSettingsResponse,
     LLMSettingsUpdateRequest,
@@ -207,6 +208,7 @@ def update_llm_settings(
 def reprocess_llm_item(
     item_id: str,
     warehouse_id: str,
+    payload: LLMReprocessRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> LLMReprocessResponse:
@@ -222,13 +224,23 @@ def reprocess_llm_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
-    if llm_setting is None:
+    if llm_setting is None or not llm_setting.api_key_encrypted:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="LLM settings not configured")
 
-    tags, aliases = generate_tags_and_aliases(item.name, item.description)
-    if llm_setting.auto_tags_enabled:
+    fields = payload.fields if payload is not None else ["tags", "aliases"]
+    if not fields:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields selected to reprocess")
+    selected_fields = set(fields)
+
+    try:
+        api_key = decrypt_secret(llm_setting.api_key_encrypted)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid LLM API key") from exc
+
+    tags, aliases = generate_tags_and_aliases(item.name, item.description, api_key=api_key)
+    if "tags" in selected_fields:
         item.tags = tags
-    if llm_setting.auto_alias_enabled:
+    if "aliases" in selected_fields:
         item.aliases = aliases
     item.version += 1
 
@@ -239,7 +251,17 @@ def reprocess_llm_item(
         event_type="llm.reprocess.item",
         entity_type="item",
         entity_id=item.id,
-        metadata={"tags_count": len(item.tags or []), "aliases_count": len(item.aliases or [])},
+        metadata={
+            "processed_fields": sorted(selected_fields),
+            "tags_count": len(item.tags or []),
+            "aliases_count": len(item.aliases or []),
+        },
     )
     db.commit()
-    return LLMReprocessResponse(message="Item reprocessed", item_id=item.id)
+    return LLMReprocessResponse(
+        message="Item reprocessed",
+        item_id=item.id,
+        processed_fields=sorted(selected_fields),
+        tags=item.tags or [],
+        aliases=item.aliases or [],
+    )

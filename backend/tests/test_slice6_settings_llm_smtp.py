@@ -91,7 +91,10 @@ def test_llm_settings_and_reprocess_item(client):
     reprocess = client.post(
         f"/api/v1/settings/llm/reprocess-item/{item['id']}",
         params={"warehouse_id": warehouse_id},
+        json={"fields": ["tags"]},
         headers=headers,
     )
     assert reprocess.status_code == 200
     assert reprocess.json()["item_id"] == item["id"]
+    assert reprocess.json()["processed_fields"] == ["tags"]
+    assert isinstance(reprocess.json()["tags"], list)

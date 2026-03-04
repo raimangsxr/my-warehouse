@@ -25,6 +25,7 @@ from app.schemas.item import (
 )
 from app.services.activity import record_activity
 from app.services.llm_enrichment import generate_tags_and_aliases
+from app.services.secret_store import decrypt_secret
 from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/items", tags=["items"])
@@ -155,7 +156,12 @@ def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *,
     if llm_setting is None or not llm_setting.api_key_encrypted:
         return
 
-    tags, aliases = generate_tags_and_aliases(item.name, item.description)
+    try:
+        api_key = decrypt_secret(llm_setting.api_key_encrypted)
+    except Exception:  # noqa: BLE001
+        return
+
+    tags, aliases = generate_tags_and_aliases(item.name, item.description, api_key=api_key)
     if llm_setting.auto_tags_enabled:
         item.tags = tags
     if llm_setting.auto_alias_enabled:

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -43,6 +45,13 @@ class LLMSettingsUpdateRequest(BaseModel):
     auto_alias_enabled: bool = True
 
 
+class LLMReprocessRequest(BaseModel):
+    fields: list[Literal["tags", "aliases"]] = Field(default_factory=lambda: ["tags", "aliases"])
+
+
 class LLMReprocessResponse(BaseModel):
     message: str
     item_id: str
+    processed_fields: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)

@@ -16,6 +16,7 @@ import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 import { BoxService } from '../services/box.service';
 import { Item, ItemService, TagCloudEntry } from '../services/item.service';
+import { SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
 
@@ -197,6 +198,16 @@ interface BoxMoveOption {
               <mat-icon>edit</mat-icon>
               Editar
             </button>
+            <button
+              mat-button
+              type="button"
+              class="compact-text-action"
+              (click)="reprocessItemTags(item)"
+              [disabled]="reprocessingItemIds.has(item.id)"
+            >
+              <mat-icon>auto_awesome</mat-icon>
+              {{ reprocessingItemIds.has(item.id) ? 'Reprocesando...' : 'Reprocesar tags' }}
+            </button>
             <button mat-button color="warn" type="button" class="compact-text-action" (click)="deleteItem(item)">
               <mat-icon>delete</mat-icon>
               Borrar
@@ -224,6 +235,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   tagsCloud: TagCloudEntry[] = [];
   activeTag: string | null = null;
   targetBoxId: string | null = null;
+  reprocessingItemIds = new Set<string>();
   selectedItemIds = new Set<string>();
 
   readonly filtersForm = this.fb.nonNullable.group({
@@ -236,6 +248,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     private readonly fb: FormBuilder,
     private readonly itemService: ItemService,
     private readonly boxService: BoxService,
+    private readonly settingsService: SettingsService,
     private readonly syncService: SyncService,
     private readonly warehouseService: WarehouseService,
     private readonly router: Router
@@ -365,6 +378,25 @@ export class HomeComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.errorMessage = 'No se pudo borrar el artículo.';
+      }
+    });
+  }
+
+  reprocessItemTags(item: Item): void {
+    if (!this.selectedWarehouseId || this.reprocessingItemIds.has(item.id)) {
+      return;
+    }
+
+    this.reprocessingItemIds.add(item.id);
+    this.settingsService.reprocessItem(this.selectedWarehouseId, item.id, ['tags']).subscribe({
+      next: (res) => {
+        this.reprocessingItemIds.delete(item.id);
+        this.upsertItem({ ...item, tags: res.tags });
+        this.loadTagsCloud();
+      },
+      error: () => {
+        this.reprocessingItemIds.delete(item.id);
+        this.errorMessage = 'No se pudieron reprocesar los tags del artículo.';
       }
     });
   }

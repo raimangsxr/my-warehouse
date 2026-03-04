@@ -25,6 +25,14 @@ export interface LLMSettings {
   api_key_masked: string | null;
 }
 
+export interface LLMReprocessResponse {
+  message: string;
+  item_id: string;
+  processed_fields: string[];
+  tags: string[];
+  aliases: string[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   constructor(private readonly http: HttpClient) {}
@@ -77,11 +85,15 @@ export class SettingsService {
     return this.http.put<LLMSettings>(`${environment.apiBaseUrl}/settings/llm`, payload, { params });
   }
 
-  reprocessItem(warehouseId: string, itemId: string): Observable<{ message: string; item_id: string }> {
+  reprocessItem(
+    warehouseId: string,
+    itemId: string,
+    fields: Array<'tags' | 'aliases'> = ['tags', 'aliases']
+  ): Observable<LLMReprocessResponse> {
     const params = new HttpParams().set('warehouse_id', warehouseId);
-    return this.http.post<{ message: string; item_id: string }>(
+    return this.http.post<LLMReprocessResponse>(
       `${environment.apiBaseUrl}/settings/llm/reprocess-item/${itemId}`,
-      {},
+      { fields },
       { params }
     );
   }

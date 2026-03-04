@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v1.5  
-- **Última actualización:** 2026-02-24  
+- **Versión:** v1.7  
+- **Última actualización:** 2026-03-04  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -35,6 +35,8 @@
 - **v1.3 (2026-02-24):** Refactor UX de inventario para densidad y jerarquía: vista de cajas en formato compacto (filas de baja altura con acciones inline), indicación jerárquica reforzada (nivel y ruta visible), y creación unificada en `/app/items/new` con selector de tipo para crear **artículo** o **caja** desde el mismo flujo.
 - **v1.4 (2026-02-24):** Refinamiento visual de cards de artículos en Home: layout más compacto y legible (menos altura, menor peso visual), acciones de stock en iconos discretos y jerarquía de información reforzada (nombre + ruta + stock + acciones) manteniendo todas las operaciones existentes.
 - **v1.5 (2026-02-24):** Refactor completo de jerarquía de cajas en UI: árbol realmente anidado con ramas visuales, expand/collapse por nodo, rutas completas en nodos y selects (crear/mover/alta de elemento/lote) para distinguir claramente contención padre→hijo sin ambigüedad.
+- **v1.6 (2026-03-04):** Etiquetas imprimibles por caja en frontend: botón `Etiqueta` en árbol de cajas y botón `Imprimir etiqueta` en detalle de caja. La etiqueta incluye nombre de caja, `short_code`, QR escaneable (contenido = `qr_token`) y token visible como fallback manual.
+- **v1.7 (2026-03-04):** Reprocesado LLM accionable desde cards de artículos (`Reprocesar tags`) y endpoint de reprocesado extensible por campos (`fields`) para soportar futuras ampliaciones. Integración de enriquecimiento con Gemini API real a partir de `name` + `description`, usando por defecto modelo costo-efectivo vigente `gemini-2.5-flash-lite` y endpoint `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` (con fallback heurístico backend ante error).
 
 ---
 
@@ -204,9 +206,11 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - jerarquía explícita con nivel y ruta (breadcrumb textual)
   - ramas anidadas visuales (padre/hijos) con connectors
   - selectors de caja con ruta completa (`Raíz > ... > Caja`) para evitar homónimos
+- Acción rápida por nodo: `Etiqueta` para abrir vista de impresión de etiqueta QR de la caja.
 
 ### Detalle de caja (clave)
 - Header: nombre caja + QR + código corto (pequeño bajo QR).
+- Acción de cabecera: `Imprimir etiqueta` para generar etiqueta imprimible de la caja actual (nombre + código + QR).
 - Buscador interno.
 - Lista plana de artículos recursivos:
   - Cada fila muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`
@@ -227,7 +231,8 @@ Secciones:
 4) LLM (Gemini):
    - API key (guardada cifrada en backend)
    - toggles: auto-tags / auto-alias
-   - reprocesar tags/alias (por artículo y/o global)
+   - reprocesar campos LLM por artículo (inicial: tags; extensible a alias y futuros campos)
+   - acceso rápido desde cards de artículos: botón `Reprocesar tags`
 5) Offline/Sync:
    - estado conexión, cola, “forzar sync”
    - acceso a conflictos
@@ -370,6 +375,11 @@ Secciones:
 - [x] QR token no adivinable.
 - [x] Login redirect.
 - [x] Control acceso por warehouse.
+
+**US-F3: Etiqueta imprimible de caja**
+- [x] Desde árbol de cajas y detalle de caja se puede lanzar impresión.
+- [x] La etiqueta imprime nombre de caja + `short_code` + QR escaneable.
+- [x] El QR codifica `qr_token` (compatible con scanner interno) y se muestra token en texto como respaldo.
 
 ---
 
@@ -661,6 +671,8 @@ Stock:
 - `GET /settings/llm?warehouse_id=...`
 - `PUT /settings/llm?warehouse_id=...`
 - `POST /settings/llm/reprocess-item/{item_id}?warehouse_id=...`
+  - body: `{ "fields": ["tags" | "aliases", ...] }` (opcional, por defecto `["tags","aliases"]`)
+  - respuesta: `{ message, item_id, processed_fields, tags, aliases }`
 
 ### Sync
 - `POST /sync/push`
@@ -709,6 +721,9 @@ Stock:
   - abre la caja por token
   - si no autenticado → login + redirect
   - si sin acceso → error
+- Impresión de etiqueta:
+  - disponible en listado de cajas y detalle de caja
+  - composición mínima: nombre caja, `short_code`, QR (`qr_token`) y token visible como fallback manual
 
 ---
 
@@ -753,6 +768,11 @@ El servidor persiste `processed_commands` para no duplicar.
 - La API key de Gemini **no** vive en frontend.
 - Se guarda cifrada en backend (por warehouse).
 
+### Modelo y endpoint
+- Modelo por defecto recomendado (costo/latencia): `gemini-2.5-flash-lite`.
+- Endpoint REST Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`.
+- La generación de tags/alias se hace a partir de `item.name` + `item.description`.
+
 ### Reglas
 - Tags: 3–10, normalizados, sin duplicados.
 - Alias: 0–5, no repetir nombre, útiles para búsqueda.
@@ -760,7 +780,8 @@ El servidor persiste `processed_commands` para no duplicar.
 
 ### Flujo
 - Al crear/editar item (si cambia name/desc):
-  - backend encola/genera tags y alias
+  - backend llama Gemini con `name + description` y genera tags/alias
+  - si Gemini no responde o devuelve formato inválido, backend aplica fallback heurístico para no bloquear la operación
   - UI refleja estado “generando tags…”
 
 ---
@@ -904,3 +925,5 @@ Para considerar una slice “Done”:
 - **A-009 (2026-02-23):** En la primera iteración de Slice 7, la cola offline del frontend cubre de forma explícita los comandos de uso rápido (`item.favorite/unfavorite` y `stock.adjust`); el resto de operaciones mantiene modo online-first y puede ampliarse por comando sin romper el contrato `/sync`.
 - **A-010 (2026-02-23):** En Slice 8, al importar un snapshot en un warehouse distinto, backend remapea IDs (`boxes`, `items`, `stock_movements`) y `qr_token` cuando detecta colisión global para preservar integridad sin exigir preprocesado del JSON en cliente.
 - **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
+- **A-012 (2026-03-04):** Para habilitar impresión de etiquetas sin añadir librerías QR al frontend en esta iteración, la imagen QR se renderiza con un servicio remoto (`api.qrserver.com`) usando como payload únicamente `qr_token` (no credenciales ni secretos). Si se requiere operación 100% offline/air-gapped, se migrará a generador QR local en frontend o endpoint backend dedicado.
+- **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias usa Gemini API (`gemini-2.5-flash-lite`) cuando hay API key válida; si hay error de red o respuesta inválida, backend aplica fallback heurístico local para mantener disponibilidad y evitar fallos en create/update/reprocess.
