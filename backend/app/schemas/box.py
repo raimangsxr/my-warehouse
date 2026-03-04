@@ -35,6 +35,7 @@ class BoxResponse(BaseModel):
     physical_location: str | None
     short_code: str
     qr_token: str
+    is_inbound: bool
     version: int
     created_at: datetime
     updated_at: datetime

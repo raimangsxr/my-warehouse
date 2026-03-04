@@ -11,6 +11,7 @@ class LLMSetting(TimestampMixin, Base):
         String(36), ForeignKey("warehouses.id"), primary_key=True
     )
     provider: Mapped[str] = mapped_column(String(32), default="gemini", nullable=False)
+    language: Mapped[str] = mapped_column(String(8), default="es", nullable=False)
     api_key_encrypted: Mapped[str | None] = mapped_column(String(4096), nullable=True)
     auto_tags_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     auto_alias_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

@@ -35,6 +35,8 @@ backend/venv/
 *.db
 *.sqlite
 *.sqlite3
+media/
+backend/media/
 
 # Alembic / logs
 alembic.log

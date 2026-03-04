@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.12  
+- **Versión:** v1.19  
 - **Última actualización:** 2026-03-04  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -43,6 +43,12 @@
 - **v1.11 (2026-03-04):** Refinamiento estético de cards en Home: stock presentado como micro-KPI independiente dentro de la card (etiqueta + valor) para mejorar jerarquía visual y evitar competición con título/descripción.
 - **v1.12 (2026-03-04):** Ajuste visual iterativo del stock en cards de Home: se sustituye micro-KPI por indicador compacto con icono integrado en la barra de acciones, priorizando limpieza del bloque de contenido y consistencia operativa.
 - **v1.13 (2026-03-04):** Alta asistida por foto (Slice 9 inicial): nuevo acceso en toolbar con icono de cámara y ruta `/app/items/from-photo` para sacar/subir imagen, endpoint backend `POST /warehouses/{warehouse_id}/items/draft-from-photo` que genera borrador de artículo (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`) usando Gemini Vision con fallback heurístico, y prefill automático en `/app/items/new` para que el usuario solo complete caja y confirme.
+- **v1.17 (2026-03-04):** Persistencia real de fotos de artículos en servidor: nuevo endpoint `POST /photos/upload?warehouse_id=...` (multipart) que guarda imagen en disco (`/media/{warehouse_id}/{filename}`) y devuelve `photo_url`; el flujo de alta por cámara sube la imagen primero y precarga `photo_url` en `/app/items/new` para persistirla en `items.photo_url` y mostrar avatar en Home/otras vistas.
+- **v1.14 (2026-03-04):** Frontend con configuración explícita por entorno (`development`/`production`) mediante archivos `environment` y `fileReplacements` de Angular CLI. En desarrollo, `apiBaseUrl` apunta a `http://localhost:8000/api/v1`; en producción, usa `/api/v1`.
+- **v1.15 (2026-03-04):** Configuración LLM ampliada con selector de idioma de salida (`es` por defecto, `en` opcional) persistido por warehouse en `llm_settings.language`. El idioma se aplica a generación LLM en create/update/reprocess de item y en borrador desde foto (`draft-from-photo`). Frontend Settings añade selector Material de idioma y backend incorpora migración `20260304_0007_llm_settings_language`.
+- **v1.16 (2026-03-04):** Ajuste UX de Settings LLM: `provider` pasa a selector con opción única `Gemini`, el campo `API key` se precarga con valor guardado (oculto por defecto con toggle mostrar/ocultar), y se elimina el bloque de reprocesado manual por `item_id` de la pantalla de configuración (la acción rápida en cards de Home se mantiene).
+- **v1.18 (2026-03-04):** Mejora de inspección visual en Home: al pasar el ratón sobre el avatar de un artículo (desktop) se muestra preview ampliada de la imagen, y en móvil/táctil se abre al pulsar (tap) con cierre por backdrop o `Esc`.
+- **v1.19 (2026-03-04):** Caja especial de entrada por warehouse: al crear un almacén se crea automáticamente una caja raíz `Entrada de mercancias` (`is_inbound=true`) para altas masivas pendientes de ubicación final. Esta caja se resalta en rojo en Árbol de cajas y la ruta del artículo en Home se muestra en rojo cuando el artículo está dentro de ella. Backend añade migración `20260304_0008_inbound_box` y bloquea el borrado de la caja especial.
 
 ---
 
@@ -132,6 +138,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Varios usuarios pueden pertenecer al mismo warehouse.
 - Un usuario puede pertenecer a varios warehouses.
 - Sin roles: todos los miembros tienen los mismos permisos.
+- Al crearse, inicializa automáticamente una caja raíz especial de entrada (`Entrada de mercancias`) para agrupar artículos recién incorporados.
 
 ### Box (Caja)
 - Nodo de un árbol: puede contener artículos y otras cajas.
@@ -140,6 +147,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - Descripción opcional
   - Ubicación física opcional
   - **QR único** + **código corto** humano (visible bajo el QR)
+  - Flag `is_inbound` (booleano): identifica la caja especial de entrada por warehouse.
 
 ### Item (Artículo)
 - Propiedades (mínimo):
@@ -201,6 +209,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Acción principal: **Nuevo elemento** (desde ahí se elige crear artículo o caja).
 - Visualización conmutable entre `Cards` y `Lista` mediante selector en la propia Home (preferencia persistida en cliente).
 - Cards de artículos compactas: prioridad a densidad (más elementos visibles por fila), miniatura de producto y jerarquía clara (nombre, ruta, stock, tags y acciones inline).
+- El avatar de artículo permite preview ampliada de foto para inspección rápida: hover en escritorio y tap/click en móvil, sin salir de Home.
+- La ruta del artículo se resalta en rojo si su caja actual es la caja especial de entrada.
 - Vista lista: filas densas para escaneo rápido de muchos artículos con las mismas acciones operativas (favorito, stock, editar, reprocesar tags, borrar).
 - En escritorio, la vista lista usa tabla densa con encabezados por columna para maximizar comparación visual entre artículos; en pantallas pequeñas mantiene legibilidad mediante contenedor con scroll horizontal.
 - El panel de acciones por lote está colapsado por defecto y al activarlo habilita selección visual por checkbox en cards/lista; al cerrarlo limpia selección para evitar estado oculto.
@@ -219,6 +229,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - jerarquía explícita con nivel y ruta (breadcrumb textual)
   - ramas anidadas visuales (padre/hijos) con connectors
   - selectors de caja con ruta completa (`Raíz > ... > Caja`) para evitar homónimos
+- La caja especial de entrada se muestra visualmente destacada en rojo y con badge `Entrada`.
 - Acción rápida por nodo: `Etiqueta` para abrir vista de impresión de etiqueta QR de la caja.
 
 ### Detalle de caja (clave)
@@ -242,10 +253,11 @@ Secciones:
 2) Seguridad (cambiar contraseña)  
 3) Email (SMTP) + test email  
 4) LLM (Gemini):
-   - API key (guardada cifrada en backend)
+   - Provider en selector (actualmente opción única: `Gemini`)
+   - API key (guardada cifrada en backend) precargada en input oculto con toggle mostrar/ocultar
+   - idioma de salida para generación (`es` por defecto, `en` opcional)
    - toggles: auto-tags / auto-alias
-   - reprocesar campos LLM por artículo (inicial: tags; extensible a alias y futuros campos)
-   - acceso rápido desde cards de artículos: botón `Reprocesar tags`
+   - acceso rápido desde cards de artículos: botón `Reprocesar tags` (sin bloque manual por `item_id` en Settings)
 5) Offline/Sync:
    - estado conexión, cola, “forzar sync”
    - acceso a conflictos
@@ -409,6 +421,7 @@ Secciones:
 
 **US-G2: Config Gemini API key**
 - [x] Guardada cifrada en backend.
+- [x] Idioma de salida configurable (`es` por defecto, `en` opcional) y persistido por warehouse.
 - [x] Toggles auto-tags/auto-alias.
 - [x] Reprocesar tags/alias.
 
@@ -446,6 +459,7 @@ Secciones:
 
 ### Frontend
 - Angular (PWA) + Angular Material (Material Design).
+- Configuración por entorno de build con Angular CLI (`fileReplacements`): `environment.ts` (dev) y `environment.prod.ts` (prod).
 - IndexedDB (recomendado: Dexie) para offline cache + cola comandos.
 - Angular Service Worker para cache de shell y assets.
 - UI: Material Tree, CDK DragDrop, virtual scroll (CDK) en listas grandes.
@@ -475,7 +489,7 @@ Secciones:
 
 ### Seguridad (principios)
 - Nada de secretos en el navegador:
-  - Gemini API key se guarda **solo** en backend (cifrada).
+  - Gemini API key se persiste **solo** en backend (cifrada); en Settings puede visualizarse para miembros autenticados del warehouse.
   - SMTP password **solo** en backend (cifrado).
 - TLS obligatorio en despliegue.
 - Rate limiting en endpoints de auth/reset.
@@ -519,6 +533,7 @@ Secciones:
 - physical_location (nullable)
 - qr_token (unique)
 - short_code (unique, humano)
+- is_inbound (bool, default false)
 - version, created_at, updated_at, deleted_at
 - created_by, updated_by
 
@@ -599,6 +614,7 @@ Secciones:
 **llm_settings** (por warehouse)
 - warehouse_id (PK/FK)
 - provider = "gemini"
+- language = "es" | "en" (default "es")
 - api_key_encrypted
 - auto_tags_enabled (bool)
 - auto_alias_enabled (bool)
@@ -642,7 +658,7 @@ Secciones:
 
 ### Warehouses
 - `GET /warehouses`
-- `POST /warehouses`
+- `POST /warehouses` (crea warehouse + caja raíz especial `Entrada de mercancias` con `is_inbound=true`)
 - `GET /warehouses/{id}`
 - `GET /warehouses/{id}/members`
 - `POST /warehouses/{warehouse_id}/invites`
@@ -662,6 +678,7 @@ Secciones:
 
 ### Items
 - `GET /warehouses/{warehouse_id}/items?q=...&favorites_only=...&stock_zero=...&with_photo=...`
+  - respuesta incluye `box_is_inbound` para señalizar si la caja actual del artículo es la caja especial de entrada
 - `POST /warehouses/{warehouse_id}/items`
 - `POST /warehouses/{warehouse_id}/items/draft-from-photo`
   - body: `{ "image_data_url": "data:image/...;base64,..." }`
@@ -677,8 +694,8 @@ Stock:
 - `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` body: `{ "delta": 1, "command_id": "uuid" }`
 
 ### Photos
-- `POST /photos` (multipart) → devuelve photo_id + url
-- `GET /photos/{photo_id}` (cacheable, immutable por hash/etag)
+- `POST /photos/upload?warehouse_id=...` (multipart) → guarda en disco backend y devuelve `{ photo_url, content_type, size_bytes }`
+- `GET /media/{warehouse_id}/{filename}` → archivo estático servible para renderizar avatar/foto de item desde `items.photo_url`
 
 ### Tags
 - `GET /warehouses/{warehouse_id}/tags`
@@ -690,7 +707,9 @@ Stock:
 - `POST /settings/smtp/test?warehouse_id=...`
 
 - `GET /settings/llm?warehouse_id=...`
+  - respuesta incluye: `{ warehouse_id, provider, language, auto_tags_enabled, auto_alias_enabled, has_api_key, api_key_value }`
 - `PUT /settings/llm?warehouse_id=...`
+  - body incluye: `{ provider, language, api_key?, auto_tags_enabled, auto_alias_enabled }`
 - `POST /settings/llm/reprocess-item/{item_id}?warehouse_id=...`
   - body: `{ "fields": ["tags" | "aliases", ...] }` (opcional, por defecto `["tags","aliases"]`)
   - respuesta: `{ message, item_id, processed_fields, tags, aliases }`
@@ -786,7 +805,7 @@ El servidor persiste `processed_commands` para no duplicar.
 ## LLM (Gemini): tags y alias automáticos
 
 ### Seguridad
-- La API key de Gemini **no** vive en frontend.
+- La API key de Gemini **no** se persiste en frontend; el valor puede solicitarse en Settings para edición/visualización por miembros autenticados.
 - Se guarda cifrada en backend (por warehouse).
 
 ### Modelo y endpoint
@@ -798,16 +817,17 @@ El servidor persiste `processed_commands` para no duplicar.
 ### Reglas
 - Tags: 3–10, normalizados, sin duplicados.
 - Alias: 0–5, no repetir nombre, útiles para búsqueda.
+- Idioma de salida configurable por warehouse (`llm_settings.language`): por defecto español (`es`), opcional inglés (`en`).
 - Preferir tags existentes (backend incluye lista al prompt).
 
 ### Flujo
 - Al crear/editar item (si cambia name/desc):
-  - backend llama Gemini con `name + description` y genera tags/alias
+  - backend llama Gemini con `name + description` y genera tags/alias en el idioma configurado
   - si Gemini no responde o devuelve formato inválido, backend aplica fallback heurístico para no bloquear la operación
   - UI refleja estado “generando tags…”
 - Al crear item desde foto:
   - frontend captura/sube imagen y llama `POST /warehouses/{warehouse_id}/items/draft-from-photo`
-  - backend intenta inferir `name/description/tags/aliases` con Gemini Vision
+  - backend intenta inferir `name/description/tags/aliases` con Gemini Vision en el idioma configurado
   - si falla Gemini o no hay API key válida, backend devuelve fallback no bloqueante con advertencias
   - frontend abre `/app/items/new` con datos pre-rellenados para confirmación del usuario
 
@@ -900,7 +920,7 @@ El servidor persiste `processed_commands` para no duplicar.
   - Backend: endpoints `/settings/smtp`, `/settings/smtp/test`, `/settings/llm`, `/settings/llm/reprocess-item/{item_id}` con validación de membresía por warehouse.
   - Seguridad: secretos SMTP y Gemini almacenados cifrados en backend y expuestos en lectura solo como máscara (`has_*`/`*_masked`).
   - Items: autogeneración de tags/aliases en create/update cuando LLM está habilitado con API key configurada.
-  - Frontend: Settings con secciones de Seguridad, SMTP, LLM y reprocesado manual por `item_id`.
+  - Frontend: Settings con secciones de Seguridad, SMTP y LLM; el reprocesado manual se acciona desde cards de Home.
   - Migración: `20260222_0005_slice6_settings_smtp_llm`.
   - Calidad: test backend `test_slice6_settings_llm_smtp.py`.
 
@@ -965,4 +985,7 @@ Para considerar una slice “Done”:
 - **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
 - **A-012 (2026-03-04):** Para habilitar impresión de etiquetas sin añadir librerías QR al frontend en esta iteración, la imagen QR se renderiza con un servicio remoto (`api.qrserver.com`) usando como payload únicamente `qr_token` (no credenciales ni secretos). Si se requiere operación 100% offline/air-gapped, se migrará a generador QR local en frontend o endpoint backend dedicado.
 - **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias usa Gemini API (`gemini-2.5-flash-lite`) cuando hay API key válida; si hay error de red o respuesta inválida, backend aplica fallback heurístico local para mantener disponibilidad y evitar fallos en create/update/reprocess.
-- **A-014 (2026-03-04):** En Slice 9 inicial, la foto capturada para inferencia se envía como `data URL` al endpoint de borrador y no se persiste automáticamente en `items.photo_url`; se prioriza flujo rápido y reversible de identificación (fase posterior podrá añadir almacenamiento persistente de foto en backend).
+- **A-014 (2026-03-04):** En la primera versión de Slice 9, la foto para inferencia no se persistía automáticamente en `items.photo_url`; esta limitación queda superada por `A-015` al añadir subida y almacenamiento en disco con URL servible.
+- **A-015 (2026-03-04):** Para esta iteración, la persistencia de fotos usa filesystem local del backend (`media_root`) y URL pública (`/media/...`) referenciada desde `items.photo_url`, sin tabla `photos` dedicada. Si se necesita almacenamiento distribuido (S3/objeto), la migración puede conservar el contrato `photo_url`.
+- **A-015 (2026-03-04):** Para simplificar edición de credenciales LLM en Settings, `GET /settings/llm` puede devolver `api_key_value` descifrada al frontend para miembros autenticados del warehouse. La clave sigue persistida únicamente cifrada en backend y no se almacena en cliente fuera del estado temporal de formulario.
+- **A-016 (2026-03-04):** En import cross-warehouse, si el snapshot trae una caja `is_inbound=true` pero el warehouse destino ya tiene su propia caja especial activa, la caja importada se conserva como caja normal (`is_inbound=false`) para mantener un único punto de entrada visual/operativo por warehouse.

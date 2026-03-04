@@ -9,6 +9,7 @@ from app.api.deps import get_current_user, require_warehouse_membership
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.activity_event import ActivityEvent
+from app.models.box import Box
 from app.models.membership import Membership
 from app.models.user import User
 from app.models.warehouse import Warehouse
@@ -24,13 +25,23 @@ from app.schemas.warehouse import (
 )
 from app.services.activity import record_activity
 from app.services.security import hash_token
+from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 invites_router = APIRouter(prefix="/invites", tags=["warehouses"])
+INBOUND_BOX_DEFAULT_NAME = "Entrada de mercancias"
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _new_short_code() -> str:
+    return f"BX-{secrets.token_hex(3).upper()}"
+
+
+def _new_qr_token() -> str:
+    return secrets.token_urlsafe(24)
 
 
 @router.get("", response_model=list[WarehouseResponse])
@@ -58,6 +69,18 @@ def create_warehouse(
 
     membership = Membership(user_id=current_user.id, warehouse_id=warehouse.id)
     db.add(membership)
+    inbound_box = Box(
+        warehouse_id=warehouse.id,
+        parent_box_id=None,
+        name=INBOUND_BOX_DEFAULT_NAME,
+        description="Caja de entrada para mercancias pendientes de ubicar",
+        physical_location=None,
+        qr_token=_new_qr_token(),
+        short_code=_new_short_code(),
+        is_inbound=True,
+    )
+    db.add(inbound_box)
+    db.flush()
     record_activity(
         db,
         warehouse_id=warehouse.id,
@@ -66,6 +89,28 @@ def create_warehouse(
         entity_type="warehouse",
         entity_id=warehouse.id,
         metadata={"name": warehouse.name},
+    )
+    record_activity(
+        db,
+        warehouse_id=warehouse.id,
+        actor_user_id=current_user.id,
+        event_type="box.created",
+        entity_type="box",
+        entity_id=inbound_box.id,
+        metadata={"name": inbound_box.name, "is_inbound": True},
+    )
+    append_change_log(
+        db,
+        warehouse_id=warehouse.id,
+        entity_type="box",
+        entity_id=inbound_box.id,
+        action="create",
+        entity_version=inbound_box.version,
+        payload={
+            "name": inbound_box.name,
+            "parent_box_id": inbound_box.parent_box_id,
+            "is_inbound": True,
+        },
     )
     db.commit()
     db.refresh(warehouse)

@@ -166,12 +166,31 @@ import { WarehouseService } from '../services/warehouse.service';
             <div class="form-row">
               <mat-form-field>
                 <mat-label>Provider</mat-label>
-                <input matInput formControlName="provider" />
+                <mat-select formControlName="provider">
+                  <mat-option value="gemini">Gemini</mat-option>
+                </mat-select>
               </mat-form-field>
 
               <mat-form-field>
-                <mat-label>API key (vacío para mantener)</mat-label>
-                <input matInput type="password" formControlName="apiKey" />
+                <mat-label>Idioma de salida</mat-label>
+                <mat-select formControlName="language">
+                  <mat-option value="es">Español</mat-option>
+                  <mat-option value="en">Inglés</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field>
+                <mat-label>API key</mat-label>
+                <input matInput [type]="llmApiKeyVisible ? 'text' : 'password'" formControlName="apiKey" />
+                <button
+                  mat-icon-button
+                  matSuffix
+                  type="button"
+                  (click)="toggleLlmApiKeyVisibility()"
+                  [attr.aria-label]="llmApiKeyVisible ? 'Ocultar API key' : 'Mostrar API key'"
+                >
+                  <mat-icon>{{ llmApiKeyVisible ? 'visibility_off' : 'visibility' }}</mat-icon>
+                </button>
               </mat-form-field>
             </div>
 
@@ -179,8 +198,6 @@ import { WarehouseService } from '../services/warehouse.service';
               <mat-checkbox formControlName="autoTagsEnabled">Auto-tags</mat-checkbox>
               <mat-checkbox formControlName="autoAliasEnabled">Auto-alias</mat-checkbox>
             </div>
-
-            <div class="status-line" *ngIf="llmApiKeyMasked">API key actual: {{ llmApiKeyMasked }}</div>
 
             <div class="inline-actions">
               <button mat-flat-button color="primary" [disabled]="llmLoading">
@@ -191,21 +208,6 @@ import { WarehouseService } from '../services/warehouse.service';
 
           <div class="error" *ngIf="llmError">{{ llmError }}</div>
           <div class="status-message" *ngIf="llmMessage">{{ llmMessage }}</div>
-
-          <div class="item-card" style="margin-top: 12px">
-            <h3 class="card-title" style="font-size: 1rem">Reprocesar tags/alias por artículo</h3>
-            <div class="form-row" style="margin-top: 8px">
-              <mat-form-field class="grow">
-                <mat-label>Item ID</mat-label>
-                <input matInput [(ngModel)]="reprocessItemId" [ngModelOptions]="{ standalone: true }" />
-              </mat-form-field>
-              <div class="inline-actions">
-                <button mat-stroked-button type="button" (click)="reprocessItem()" [disabled]="!reprocessItemId.trim()">
-                  Reprocesar
-                </button>
-              </div>
-            </div>
-          </div>
         </mat-card-content>
       </mat-card>
 
@@ -278,8 +280,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   llmLoading = false;
   llmError = '';
   llmMessage = '';
-  llmApiKeyMasked: string | null = null;
-  reprocessItemId = '';
+  llmApiKeyVisible = false;
 
   syncLoading = false;
   syncMessage = '';
@@ -311,6 +312,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   readonly llmForm = this.fb.nonNullable.group({
     provider: ['gemini', [Validators.required]],
+    language: ['es' as 'es' | 'en', [Validators.required]],
     apiKey: [''],
     autoTagsEnabled: true,
     autoAliasEnabled: true
@@ -418,6 +420,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.settingsService
       .updateLlmSettings(this.selectedWarehouseId, {
         provider: raw.provider.trim(),
+        language: raw.language,
         api_key: raw.apiKey || null,
         auto_tags_enabled: raw.autoTagsEnabled,
         auto_alias_enabled: raw.autoAliasEnabled
@@ -426,8 +429,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.llmLoading = false;
           this.llmMessage = 'LLM guardado.';
-          this.llmApiKeyMasked = res.api_key_masked;
-          this.llmForm.patchValue({ apiKey: '' });
+          this.llmForm.patchValue({ apiKey: res.api_key_value || '' });
+          this.llmApiKeyVisible = false;
         },
         error: () => {
           this.llmLoading = false;
@@ -436,18 +439,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
       });
   }
 
-  reprocessItem(): void {
-    if (!this.selectedWarehouseId || !this.reprocessItemId.trim()) {
-      return;
-    }
-    this.settingsService.reprocessItem(this.selectedWarehouseId, this.reprocessItemId.trim()).subscribe({
-      next: () => {
-        this.llmMessage = 'Artículo reprocesado.';
-      },
-      error: () => {
-        this.llmError = 'No se pudo reprocesar el artículo.';
-      }
-    });
+  toggleLlmApiKeyVisibility(): void {
+    this.llmApiKeyVisible = !this.llmApiKeyVisible;
   }
 
   async refreshSyncStatus(): Promise<void> {
@@ -571,10 +564,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
       next: (llm) => {
         this.llmForm.patchValue({
           provider: llm.provider,
+          language: llm.language,
+          apiKey: llm.api_key_value || '',
           autoTagsEnabled: llm.auto_tags_enabled,
           autoAliasEnabled: llm.auto_alias_enabled
         });
-        this.llmApiKeyMasked = llm.api_key_masked;
       }
     });
   }

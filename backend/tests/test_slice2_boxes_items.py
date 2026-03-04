@@ -158,3 +158,20 @@ def test_items_favorites_stock_and_batch(client):
     hidden_list = client.get(f"/api/v1/warehouses/{warehouse_id}/items", headers=headers)
     assert hidden_list.status_code == 200
     assert hidden_list.json() == []
+
+
+def test_inbound_box_cannot_be_deleted(client):
+    headers = auth_headers(client)
+    warehouse_id = create_warehouse(client, headers)
+
+    tree = client.get(f"/api/v1/warehouses/{warehouse_id}/boxes/tree", headers=headers)
+    assert tree.status_code == 200
+    inbound = next(node for node in tree.json() if node["box"]["is_inbound"])
+
+    delete_inbound = client.request(
+        "DELETE",
+        f"/api/v1/warehouses/{warehouse_id}/boxes/{inbound['box']['id']}",
+        json={"force": True},
+        headers=headers,
+    )
+    assert delete_inbound.status_code == 400

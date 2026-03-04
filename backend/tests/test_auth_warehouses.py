@@ -30,6 +30,13 @@ def test_signup_login_and_create_warehouse(client):
     members = members_res.json()
     assert len(members) == 1
 
+    tree_res = client.get(f"/api/v1/warehouses/{warehouse['id']}/boxes/tree", headers=headers)
+    assert tree_res.status_code == 200
+    nodes = tree_res.json()
+    assert len(nodes) == 1
+    assert nodes[0]["box"]["is_inbound"] is True
+    assert nodes[0]["box"]["name"] == "Entrada de mercancias"
+
 
 def test_forgot_reset_and_change_password_flow(client):
     client.post(

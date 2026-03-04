@@ -228,7 +228,7 @@ def create_box(
         entity_id=box.id,
         action="create",
         entity_version=box.version,
-        payload={"name": box.name, "parent_box_id": box.parent_box_id},
+        payload={"name": box.name, "parent_box_id": box.parent_box_id, "is_inbound": box.is_inbound},
     )
     db.commit()
     db.refresh(box)
@@ -335,6 +335,11 @@ def move_box(
     db: Session = Depends(get_db),
 ) -> BoxResponse:
     box = _get_box(db, warehouse_id, box_id)
+    if box.is_inbound and payload.new_parent_box_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inbound box must stay at root level",
+        )
 
     if payload.new_parent_box_id == box_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Box cannot be parent of itself")
@@ -372,7 +377,12 @@ def delete_box(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
-    _get_box(db, warehouse_id, box_id)
+    box = _get_box(db, warehouse_id, box_id)
+    if box.is_inbound:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inbound box cannot be deleted",
+        )
     boxes, children = _build_box_maps(db, warehouse_id)
     subtree_ids = _collect_descendant_ids(box_id, children)
 

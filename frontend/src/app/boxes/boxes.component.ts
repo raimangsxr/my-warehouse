@@ -100,7 +100,7 @@ interface BoxTreeViewNode extends BoxTreeNode {
 
           <ng-template #treeNodeTemplate let-node let-depth="depth" let-last="last">
             <li class="box-tree-node" [class.root-node]="depth === 0" [class.last-node]="last">
-              <div class="box-tree-row">
+              <div class="box-tree-row" [class.inbound-row]="node.box.is_inbound">
                 <div class="box-tree-leading">
                   <button
                     *ngIf="node.children.length > 0; else leafSpacer"
@@ -123,6 +123,7 @@ interface BoxTreeViewNode extends BoxTreeNode {
                 <div class="box-tree-content">
                   <div class="box-tree-header">
                     <p class="item-card-title">{{ node.box.name }}</p>
+                    <span class="inbound-badge" *ngIf="node.box.is_inbound">Entrada</span>
                     <div class="inline-actions box-tree-actions">
                       <button mat-button type="button" [routerLink]="['/app/boxes', node.box.id]">Ver</button>
                       <button mat-button type="button" (click)="printLabel(node.box)">
@@ -131,12 +132,20 @@ interface BoxTreeViewNode extends BoxTreeNode {
                       </button>
                       <button mat-button type="button" (click)="startRename(node)">Renombrar</button>
                       <button mat-button type="button" (click)="startMove(node)">Mover</button>
-                      <button mat-button color="warn" type="button" (click)="deleteBox(node.box.id)">Papelera</button>
+                      <button
+                        mat-button
+                        color="warn"
+                        type="button"
+                        (click)="deleteBox(node.box.id)"
+                        [disabled]="node.box.is_inbound"
+                      >
+                        Papelera
+                      </button>
                     </div>
                   </div>
 
                   <div class="item-card-meta box-tree-meta">
-                    <span class="inline-chip">Ruta: {{ node.path_label }}</span>
+                    <span class="inline-chip" [class.inbound-chip]="node.box.is_inbound">Ruta: {{ node.path_label }}</span>
                     <span>Items: {{ node.total_items_recursive }}</span>
                     <span>Subcajas: {{ node.total_boxes_recursive }}</span>
                     <span>Código: {{ node.box.short_code }}</span>
@@ -188,13 +197,41 @@ interface BoxTreeViewNode extends BoxTreeNode {
             </li>
           </ng-template>
 
-          <ng-template #noBoxes>
-            <div class="empty-state">No hay cajas todavía. Crea la primera para comenzar.</div>
-          </ng-template>
-        </mat-card-content>
-      </mat-card>
-    </div>
+      <ng-template #noBoxes>
+        <div class="empty-state">No hay cajas todavía. Crea la primera para comenzar.</div>
+      </ng-template>
+    </mat-card-content>
+  </mat-card>
+</div>
   `,
+  styles: [
+    `
+      .inbound-row {
+        border: 1px solid rgba(198, 40, 40, 0.18);
+        border-radius: 10px;
+        background: linear-gradient(180deg, #fff6f6 0%, #fff1f1 100%);
+      }
+
+      .inbound-badge {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #b91c1c;
+        border: 1px solid rgba(185, 28, 28, 0.25);
+        background: rgba(254, 226, 226, 0.9);
+        border-radius: 999px;
+        padding: 2px 8px;
+        margin-left: 8px;
+      }
+
+      .inbound-chip {
+        color: #b91c1c;
+        border-color: rgba(185, 28, 28, 0.35);
+        background: rgba(254, 226, 226, 0.9);
+      }
+    `,
+  ],
 })
 export class BoxesComponent implements OnInit {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();

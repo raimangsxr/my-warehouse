@@ -15,13 +15,34 @@
             "tsConfig": "tsconfig.app.json",
             "assets": ["src/public"],
             "styles": ["src/styles.css"]
+          },
+          "configurations": {
+            "production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/environment.ts",
+                  "with": "src/app/core/environment.prod.ts"
+                }
+              ]
+            },
+            "development": {}
           }
         },
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "options": {
             "buildTarget": "my-warehouse:build"
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "my-warehouse:build:production"
+            },
+            "development": {
+              "buildTarget": "my-warehouse:build:development"
+            }
           }
+          ,
+          "defaultConfiguration": "development"
         }
       }
     }

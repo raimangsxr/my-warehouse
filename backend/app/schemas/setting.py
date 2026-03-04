@@ -3,6 +3,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+LLMOutputLanguage = Literal["es", "en"]
+
+
 class SMTPSettingsResponse(BaseModel):
     warehouse_id: str
     host: str | None = None
@@ -32,14 +35,16 @@ class SMTPTestRequest(BaseModel):
 class LLMSettingsResponse(BaseModel):
     warehouse_id: str
     provider: str
+    language: LLMOutputLanguage
     auto_tags_enabled: bool
     auto_alias_enabled: bool
     has_api_key: bool
-    api_key_masked: str | None = None
+    api_key_value: str | None = None
 
 
 class LLMSettingsUpdateRequest(BaseModel):
     provider: str = Field(default="gemini", max_length=32)
+    language: LLMOutputLanguage = "es"
     api_key: str | None = Field(default=None, max_length=1024)
     auto_tags_enabled: bool = True
     auto_alias_enabled: bool = True

@@ -148,6 +148,7 @@ def _serialize_item(
         stock=stock,
         is_favorite=favorite,
         box_path=_box_path_from_map(boxes_by_id, item.box_id),
+        box_is_inbound=bool(boxes_by_id.get(item.box_id).is_inbound) if boxes_by_id.get(item.box_id) else False,
     )
 
 
@@ -163,7 +164,12 @@ def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *,
     except Exception:  # noqa: BLE001
         return
 
-    tags, aliases = generate_tags_and_aliases(item.name, item.description, api_key=api_key)
+    tags, aliases = generate_tags_and_aliases(
+        item.name,
+        item.description,
+        api_key=api_key,
+        output_language=llm_setting.language,
+    )
     if llm_setting.auto_tags_enabled:
         item.tags = tags
     if llm_setting.auto_alias_enabled:
@@ -305,8 +311,14 @@ def draft_item_from_photo(
         except Exception:  # noqa: BLE001
             pre_warnings.append("No se pudo leer la API key LLM; se usa fallback local.")
 
+    output_language = llm_setting.language if llm_setting is not None else "es"
+
     try:
-        draft = generate_item_draft_from_photo(payload.image_data_url, api_key=api_key)
+        draft = generate_item_draft_from_photo(
+            payload.image_data_url,
+            api_key=api_key,
+            output_language=output_language,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

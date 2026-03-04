@@ -65,6 +65,7 @@ def export_warehouse(
                 physical_location=box.physical_location,
                 short_code=box.short_code,
                 qr_token=box.qr_token,
+                is_inbound=box.is_inbound,
                 version=box.version,
                 deleted_at=box.deleted_at,
             )
@@ -143,6 +144,18 @@ def import_warehouse(
 
             mapped_box_id = box_id_map[box_payload.id]
             mapped_parent_id = box_id_map.get(box_payload.parent_box_id) if box_payload.parent_box_id else None
+            is_inbound = bool(box_payload.is_inbound)
+            if is_inbound:
+                existing_inbound_id = db.scalar(
+                    select(Box.id).where(
+                        Box.warehouse_id == warehouse_id,
+                        Box.is_inbound.is_(True),
+                        Box.deleted_at.is_(None),
+                        Box.id != mapped_box_id,
+                    )
+                )
+                if existing_inbound_id is not None:
+                    is_inbound = False
             existing_box = db.scalar(select(Box).where(Box.id == mapped_box_id, Box.warehouse_id == warehouse_id))
             if existing_box is None:
                 qr_token = box_payload.qr_token
@@ -163,6 +176,7 @@ def import_warehouse(
                         physical_location=box_payload.physical_location,
                         short_code=short_code,
                         qr_token=qr_token,
+                        is_inbound=is_inbound,
                         version=box_payload.version,
                         deleted_at=box_payload.deleted_at,
                     )
@@ -180,6 +194,7 @@ def import_warehouse(
                 existing_box.physical_location = box_payload.physical_location
                 existing_box.short_code = box_payload.short_code
                 existing_box.qr_token = qr_token
+                existing_box.is_inbound = is_inbound
                 existing_box.version = box_payload.version
                 existing_box.deleted_at = box_payload.deleted_at
 
@@ -190,7 +205,7 @@ def import_warehouse(
                 entity_id=mapped_box_id,
                 action="import",
                 entity_version=box_payload.version,
-                payload={"name": box_payload.name},
+                payload={"name": box_payload.name, "is_inbound": is_inbound},
             )
             boxes_upserted += 1
             pending_boxes.pop(box_id)

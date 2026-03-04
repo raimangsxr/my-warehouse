@@ -60,16 +60,25 @@ def test_smtp_settings_roundtrip_and_test_endpoint(client):
     assert "simulated" in test_mail.json()["message"]
 
 
-def test_llm_settings_and_reprocess_item(client):
+def test_llm_settings_and_reprocess_item(client, monkeypatch):
+    from app.api.v1.endpoints import items as items_endpoint
+    from app.api.v1.endpoints import settings as settings_endpoint
+
     headers = signup_and_login(client, "slice6-llm@example.com")
     warehouse_id = create_warehouse(client, headers)
     box_id = create_box(client, headers, warehouse_id)
+
+    llm_get_default = client.get("/api/v1/settings/llm", params={"warehouse_id": warehouse_id}, headers=headers)
+    assert llm_get_default.status_code == 200
+    assert llm_get_default.json()["language"] == "es"
+    assert llm_get_default.json()["api_key_value"] is None
 
     llm_put = client.put(
         "/api/v1/settings/llm",
         params={"warehouse_id": warehouse_id},
         json={
             "provider": "gemini",
+            "language": "en",
             "api_key": "gemini-secret-key",
             "auto_tags_enabled": True,
             "auto_alias_enabled": True,
@@ -78,6 +87,23 @@ def test_llm_settings_and_reprocess_item(client):
     )
     assert llm_put.status_code == 200
     assert llm_put.json()["has_api_key"] is True
+    assert llm_put.json()["language"] == "en"
+    assert llm_put.json()["api_key_value"] == "gemini-secret-key"
+
+    def fake_tags_aliases(
+        _name: str,
+        _description: str | None,
+        *,
+        api_key: str | None = None,
+        output_language: str = "es",
+        **_kwargs,
+    ):
+        assert api_key == "gemini-secret-key"
+        assert output_language == "en"
+        return ["tool", "garage", "drill"], ["drill", "cordless drill"]
+
+    monkeypatch.setattr(items_endpoint, "generate_tags_and_aliases", fake_tags_aliases)
+    monkeypatch.setattr(settings_endpoint, "generate_tags_and_aliases", fake_tags_aliases)
 
     created = client.post(
         f"/api/v1/warehouses/{warehouse_id}/items",

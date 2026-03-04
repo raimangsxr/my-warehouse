@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+DEFAULT_OUTPUT_LANGUAGE = "es"
 
 
 _STOPWORDS = {
@@ -80,7 +81,7 @@ def _parse_data_url(image_data_url: str) -> tuple[str, str]:
     mime_type = header[5:].split(";")[0].strip().lower()
     if not mime_type.startswith("image/"):
         raise ValueError("image_data_url must contain an image mime type")
-    if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+    if mime_type not in {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}:
         raise ValueError("Unsupported image mime type")
 
     try:
@@ -90,10 +91,10 @@ def _parse_data_url(image_data_url: str) -> tuple[str, str]:
     return mime_type, payload
 
 
-def _sanitize_title(raw: str) -> str:
+def _sanitize_title(raw: str, *, default_title: str) -> str:
     normalized = " ".join(raw.strip().split())
     if not normalized:
-        return "Articulo sin identificar"
+        return default_title
     return normalized[:160]
 
 
@@ -139,16 +140,38 @@ def _heuristic_tags_and_aliases(name: str, description: str | None) -> tuple[lis
     return tags[:10], aliases[:5]
 
 
-def _heuristic_photo_draft(image_mime_type: str) -> dict[str, object]:
+def _resolve_output_language(output_language: str | None) -> str:
+    normalized = (output_language or DEFAULT_OUTPUT_LANGUAGE).strip().lower()
+    if normalized not in {"es", "en"}:
+        return DEFAULT_OUTPUT_LANGUAGE
+    return normalized
+
+
+def _language_instruction(output_language: str) -> str:
+    if output_language == "en":
+        return "Write every generated value in English."
+    return "Escribe todos los valores generados en espanol."
+
+
+def _heuristic_photo_draft(image_mime_type: str, output_language: str) -> dict[str, object]:
     mime_hint = {
         "image/jpeg": "foto",
         "image/png": "imagen",
         "image/webp": "captura",
     }.get(image_mime_type, "foto")
-    tags = _normalize_output_values(
-        [mime_hint, "inventario", "pendiente", "revision"],
-        max_count=10,
-    )
+    if output_language == "en":
+        tags = _normalize_output_values(["photo", "inventory", "pending", "review"], max_count=10)
+        return {
+            "name": "Unidentified item",
+            "description": "Generated from photo. Review name, description, tags, and aliases before saving.",
+            "tags": tags,
+            "aliases": [],
+            "confidence": 0.2,
+            "warnings": ["The item could not be inferred with LLM; local fallback was used."],
+            "llm_used": False,
+        }
+
+    tags = _normalize_output_values([mime_hint, "inventario", "pendiente", "revision"], max_count=10)
     return {
         "name": "Articulo sin identificar",
         "description": "Generado desde foto. Revisa nombre, descripcion, tags y aliases antes de guardar.",
@@ -166,6 +189,7 @@ def _gemini_tags_and_aliases(
     model: str,
     name: str,
     description: str | None,
+    output_language: str,
     timeout_seconds: float,
 ) -> tuple[list[str], list[str]]:
     prompt = (
@@ -173,6 +197,7 @@ def _gemini_tags_and_aliases(
         "Return only JSON with this shape: {\"tags\": string[], \"aliases\": string[]}.\n"
         "Rules:\n"
         "- Use only the item name and description provided.\n"
+        f"- {_language_instruction(output_language)}\n"
         "- tags: 3-10 lowercase tokens, no duplicates, useful for categorization.\n"
         "- aliases: 0-5 lowercase alternatives, no duplicates, do not repeat the full item name.\n"
         "Item name: "
@@ -234,6 +259,7 @@ def _gemini_photo_draft(
     model: str,
     image_mime_type: str,
     image_b64_data: str,
+    output_language: str,
     timeout_seconds: float,
 ) -> dict[str, object]:
     prompt = (
@@ -241,6 +267,7 @@ def _gemini_photo_draft(
         "Return only JSON with shape:\n"
         "{\"name\": string, \"description\": string, \"tags\": string[], \"aliases\": string[], \"confidence\": number, \"warnings\": string[]}\n"
         "Rules:\n"
+        f"- {_language_instruction(output_language)}\n"
         "- name: short, human-readable item name.\n"
         "- description: one concise sentence for search context.\n"
         "- tags: 3-10 lowercase tokens, no duplicates.\n"
@@ -290,7 +317,8 @@ def _gemini_photo_draft(
     if not isinstance(parsed, dict):
         raise ValueError("Gemini response is not a JSON object")
 
-    name = _sanitize_title(str(parsed.get("name") or ""))
+    default_title = "Unidentified item" if output_language == "en" else "Articulo sin identificar"
+    name = _sanitize_title(str(parsed.get("name") or ""), default_title=default_title)
     description = _sanitize_description(str(parsed.get("description") or ""))
     normalized_name = _normalize_text(name)
     raw_tags = parsed.get("tags") if isinstance(parsed.get("tags"), list) else []
@@ -312,7 +340,11 @@ def _gemini_photo_draft(
 
     if len(tags) < 3:
         # Ensure minimum search hints even if the model under-returns tags.
-        tags = _normalize_output_values(tags + _tokenize(f"{name} {description or ''}") + ["inventario"], max_count=10)
+        fallback_tag = "inventory" if output_language == "en" else "inventario"
+        tags = _normalize_output_values(
+            tags + _tokenize(f"{name} {description or ''}") + [fallback_tag],
+            max_count=10,
+        )
 
     return {
         "name": name,
@@ -330,9 +362,11 @@ def generate_tags_and_aliases(
     description: str | None,
     *,
     api_key: str | None = None,
+    output_language: str = DEFAULT_OUTPUT_LANGUAGE,
     model: str = DEFAULT_GEMINI_MODEL,
     timeout_seconds: float = 8.0,
 ) -> tuple[list[str], list[str]]:
+    resolved_language = _resolve_output_language(output_language)
     if api_key:
         try:
             tags, aliases = _gemini_tags_and_aliases(
@@ -340,6 +374,7 @@ def generate_tags_and_aliases(
                 model=model,
                 name=name,
                 description=description,
+                output_language=resolved_language,
                 timeout_seconds=timeout_seconds,
             )
             if tags:
@@ -354,11 +389,13 @@ def generate_item_draft_from_photo(
     image_data_url: str,
     *,
     api_key: str | None = None,
+    output_language: str = DEFAULT_OUTPUT_LANGUAGE,
     model: str = DEFAULT_GEMINI_MODEL,
     timeout_seconds: float = 10.0,
 ) -> dict[str, object]:
+    resolved_language = _resolve_output_language(output_language)
     image_mime_type, image_b64_data = _parse_data_url(image_data_url)
-    fallback = _heuristic_photo_draft(image_mime_type)
+    fallback = _heuristic_photo_draft(image_mime_type, resolved_language)
 
     if api_key:
         try:
@@ -367,6 +404,7 @@ def generate_item_draft_from_photo(
                 model=model,
                 image_mime_type=image_mime_type,
                 image_b64_data=image_b64_data,
+                output_language=resolved_language,
                 timeout_seconds=timeout_seconds,
             )
             if draft.get("name") and draft.get("tags"):

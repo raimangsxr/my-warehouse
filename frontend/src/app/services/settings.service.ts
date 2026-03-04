@@ -19,10 +19,11 @@ export interface SMTPSettings {
 export interface LLMSettings {
   warehouse_id: string;
   provider: string;
+  language: 'es' | 'en';
   auto_tags_enabled: boolean;
   auto_alias_enabled: boolean;
   has_api_key: boolean;
-  api_key_masked: string | null;
+  api_key_value: string | null;
 }
 
 export interface LLMReprocessResponse {
@@ -76,6 +77,7 @@ export class SettingsService {
     warehouseId: string,
     payload: {
       provider: string;
+      language: 'es' | 'en';
       api_key?: string | null;
       auto_tags_enabled: boolean;
       auto_alias_enabled: boolean;

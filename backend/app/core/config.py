@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:4200"
     cors_origins: str = "http://localhost:4200"
     secret_encryption_key: str = "change-me-secret-key"
+    media_root: str = "./media"
+    media_url_path: str = "/media"
 
 
 settings = Settings()

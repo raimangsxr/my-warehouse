@@ -16,6 +16,7 @@ class ExportBox(BaseModel):
     physical_location: str | None
     short_code: str
     qr_token: str
+    is_inbound: bool = False
     version: int
     deleted_at: datetime | None
 

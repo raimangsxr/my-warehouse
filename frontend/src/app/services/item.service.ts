@@ -21,6 +21,7 @@ export interface Item {
   stock: number;
   is_favorite: boolean;
   box_path: string[];
+  box_is_inbound: boolean;
 }
 
 export interface TagCloudEntry {
@@ -36,6 +37,12 @@ export interface ItemPhotoDraft {
   confidence: number;
   warnings: string[];
   llm_used: boolean;
+}
+
+export interface UploadedPhoto {
+  photo_url: string;
+  content_type: string;
+  size_bytes: number;
 }
 
 export type BatchAction = 'move' | 'favorite' | 'unfavorite' | 'delete';
@@ -106,6 +113,12 @@ export class ItemService {
       `${environment.apiBaseUrl}/warehouses/${warehouseId}/items/draft-from-photo`,
       { image_data_url: imageDataUrl }
     );
+  }
+
+  uploadPhoto(warehouseId: string, file: File): Observable<UploadedPhoto> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<UploadedPhoto>(`${environment.apiBaseUrl}/photos/upload?warehouse_id=${warehouseId}`, formData);
   }
 
   update(

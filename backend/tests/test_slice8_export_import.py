@@ -51,7 +51,8 @@ def test_export_import_roundtrip_between_warehouses(client):
     assert exported.status_code == 200
     snapshot = exported.json()
     assert snapshot["warehouse"]["name"] == "Source"
-    assert len(snapshot["boxes"]) == 1
+    assert len(snapshot["boxes"]) == 2
+    assert len([box for box in snapshot["boxes"] if box["is_inbound"]]) == 1
     assert len(snapshot["items"]) == 1
     assert len(snapshot["stock_movements"]) == 1
 
@@ -63,7 +64,7 @@ def test_export_import_roundtrip_between_warehouses(client):
     )
     assert imported.status_code == 200
     imported_body = imported.json()
-    assert imported_body["boxes_upserted"] == 1
+    assert imported_body["boxes_upserted"] == 2
     assert imported_body["items_upserted"] == 1
     assert imported_body["stock_movements_upserted"] == 1
 
@@ -76,4 +77,6 @@ def test_export_import_roundtrip_between_warehouses(client):
 
     target_boxes = client.get(f"/api/v1/warehouses/{target_warehouse_id}/boxes/tree", headers=headers)
     assert target_boxes.status_code == 200
-    assert len(target_boxes.json()) == 1
+    boxes_payload = target_boxes.json()
+    assert len(boxes_payload) == 3
+    assert len([node for node in boxes_payload if node["box"]["is_inbound"]]) == 1

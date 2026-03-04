@@ -143,26 +143,28 @@ def get_llm_settings(
         return LLMSettingsResponse(
             warehouse_id=warehouse_id,
             provider="gemini",
+            language="es",
             auto_tags_enabled=True,
             auto_alias_enabled=True,
             has_api_key=False,
-            api_key_masked=None,
+            api_key_value=None,
         )
 
-    api_key_masked = None
+    api_key_value = None
     if setting.api_key_encrypted:
         try:
-            api_key_masked = mask_secret(decrypt_secret(setting.api_key_encrypted))
+            api_key_value = decrypt_secret(setting.api_key_encrypted)
         except Exception:  # noqa: BLE001
-            api_key_masked = "***"
+            api_key_value = None
 
     return LLMSettingsResponse(
         warehouse_id=warehouse_id,
         provider=setting.provider,
+        language=setting.language,
         auto_tags_enabled=setting.auto_tags_enabled,
         auto_alias_enabled=setting.auto_alias_enabled,
         has_api_key=bool(setting.api_key_encrypted),
-        api_key_masked=api_key_masked,
+        api_key_value=api_key_value,
     )
 
 
@@ -179,6 +181,7 @@ def update_llm_settings(
         setting = LLMSetting(
             warehouse_id=warehouse_id,
             provider=payload.provider,
+            language=payload.language,
             auto_tags_enabled=payload.auto_tags_enabled,
             auto_alias_enabled=payload.auto_alias_enabled,
             updated_by=current_user.id,
@@ -186,6 +189,7 @@ def update_llm_settings(
         db.add(setting)
 
     setting.provider = payload.provider
+    setting.language = payload.language
     setting.auto_tags_enabled = payload.auto_tags_enabled
     setting.auto_alias_enabled = payload.auto_alias_enabled
     setting.updated_by = current_user.id
@@ -237,7 +241,12 @@ def reprocess_llm_item(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid LLM API key") from exc
 
-    tags, aliases = generate_tags_and_aliases(item.name, item.description, api_key=api_key)
+    tags, aliases = generate_tags_and_aliases(
+        item.name,
+        item.description,
+        api_key=api_key,
+        output_language=llm_setting.language,
+    )
     if "tags" in selected_fields:
         item.tags = tags
     if "aliases" in selected_fields:

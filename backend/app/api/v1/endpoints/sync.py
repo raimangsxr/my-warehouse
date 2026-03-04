@@ -147,8 +147,19 @@ def _apply_sync_command(
         parent_box_id = payload.get("parent_box_id")
         if parent_box_id:
             _get_box(db, warehouse_id, parent_box_id)
-
         box_id = entity_id or payload.get("id") or str(uuid.uuid4())
+        is_inbound = bool(payload.get("is_inbound", False))
+        if is_inbound:
+            existing_inbound = db.scalar(
+                select(Box.id).where(
+                    Box.warehouse_id == warehouse_id,
+                    Box.is_inbound.is_(True),
+                    Box.deleted_at.is_(None),
+                )
+            )
+            if existing_inbound is not None and existing_inbound != box_id:
+                is_inbound = False
+
         existing = db.scalar(select(Box).where(Box.id == box_id, Box.warehouse_id == warehouse_id))
         if existing is None:
             box = Box(
@@ -160,6 +171,7 @@ def _apply_sync_command(
                 physical_location=payload.get("physical_location"),
                 qr_token=payload.get("qr_token") or secrets.token_urlsafe(24),
                 short_code=payload.get("short_code") or f"BX-{secrets.token_hex(3).upper()}",
+                is_inbound=is_inbound,
                 version=1,
             )
             db.add(box)
@@ -174,7 +186,7 @@ def _apply_sync_command(
             entity_id=box.id,
             action="create",
             entity_version=box.version,
-            payload={"name": box.name, "parent_box_id": box.parent_box_id},
+            payload={"name": box.name, "parent_box_id": box.parent_box_id, "is_inbound": box.is_inbound},
         )
         return None
 

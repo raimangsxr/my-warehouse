@@ -13,6 +13,7 @@ export interface Box {
   physical_location: string | null;
   short_code: string;
   qr_token: string;
+  is_inbound: boolean;
   version: number;
   created_at: string;
   updated_at: string;

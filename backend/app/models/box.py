@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -21,6 +21,7 @@ class Box(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     physical_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     qr_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     short_code: Mapped[str] = mapped_column(String(16), index=True)
+    is_inbound: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True, index=True)
 

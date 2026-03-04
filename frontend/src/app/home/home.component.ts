@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -189,7 +189,18 @@ type HomeViewMode = 'cards' | 'list';
                 (change)="toggleSelected(item.id)"
               ></mat-checkbox>
 
-              <div class="product-avatar" aria-hidden="true">
+              <div
+                class="product-avatar"
+                [class.product-avatar-clickable]="!!item.photo_url"
+                [attr.aria-hidden]="item.photo_url ? null : true"
+                [attr.role]="item.photo_url ? 'button' : null"
+                [attr.tabindex]="item.photo_url ? 0 : null"
+                (mouseenter)="onAvatarMouseEnter(item, $event)"
+                (mouseleave)="onAvatarMouseLeave()"
+                (click)="onAvatarClick(item, $event)"
+                (keydown.enter)="onAvatarKey(item, $event)"
+                (keydown.space)="onAvatarKey(item, $event)"
+              >
                 <img *ngIf="item.photo_url" [src]="item.photo_url" [alt]="'Foto de ' + item.name" loading="lazy" />
                 <mat-icon *ngIf="!item.photo_url">inventory_2</mat-icon>
               </div>
@@ -197,7 +208,7 @@ type HomeViewMode = 'cards' | 'list';
               <div class="product-copy">
                 <p class="product-title">{{ item.name }}</p>
                 <p class="product-meta" [matTooltip]="item.description || 'Sin descripción'">{{ item.description || 'Sin descripción' }}</p>
-                <p class="product-path">{{ item.box_path.join(' > ') }}</p>
+                <p class="product-path" [class.product-path-inbound]="item.box_is_inbound">{{ item.box_path.join(' > ') }}</p>
               </div>
             </div>
 
@@ -298,7 +309,18 @@ type HomeViewMode = 'cards' | 'list';
                     </td>
                     <td class="col-item">
                       <div class="table-item-cell">
-                        <div class="product-avatar table-avatar" aria-hidden="true">
+                        <div
+                          class="product-avatar table-avatar"
+                          [class.product-avatar-clickable]="!!item.photo_url"
+                          [attr.aria-hidden]="item.photo_url ? null : true"
+                          [attr.role]="item.photo_url ? 'button' : null"
+                          [attr.tabindex]="item.photo_url ? 0 : null"
+                          (mouseenter)="onAvatarMouseEnter(item, $event)"
+                          (mouseleave)="onAvatarMouseLeave()"
+                          (click)="onAvatarClick(item, $event)"
+                          (keydown.enter)="onAvatarKey(item, $event)"
+                          (keydown.space)="onAvatarKey(item, $event)"
+                        >
                           <img *ngIf="item.photo_url" [src]="item.photo_url" [alt]="'Foto de ' + item.name" loading="lazy" />
                           <mat-icon *ngIf="!item.photo_url">inventory_2</mat-icon>
                         </div>
@@ -308,7 +330,7 @@ type HomeViewMode = 'cards' | 'list';
                         </div>
                       </div>
                     </td>
-                    <td class="col-route route-text">{{ item.box_path.join(' > ') }}</td>
+                    <td class="col-route route-text" [class.route-text-inbound]="item.box_is_inbound">{{ item.box_path.join(' > ') }}</td>
                     <td class="col-stock">
                       <span class="product-stock">{{ item.stock }}</span>
                     </td>
@@ -397,6 +419,24 @@ type HomeViewMode = 'cards' | 'list';
           No hay artículos para los filtros seleccionados.
         </div>
       </ng-template>
+
+      <div
+        class="avatar-preview-backdrop"
+        *ngIf="avatarPreviewUrl && avatarPreviewPinned"
+        (click)="closeAvatarPreview(true)"
+      ></div>
+      <aside
+        class="avatar-preview-panel"
+        *ngIf="avatarPreviewUrl"
+        [ngStyle]="avatarPreviewStyle"
+        [class.avatar-preview-pinned]="avatarPreviewPinned"
+        (mouseenter)="onPreviewMouseEnter()"
+        (mouseleave)="onPreviewMouseLeave()"
+        (click)="$event.stopPropagation()"
+      >
+        <img [src]="avatarPreviewUrl" [alt]="'Vista ampliada de ' + avatarPreviewName" />
+        <p>{{ avatarPreviewName }}</p>
+      </aside>
     </div>
   `,
   styles: [
@@ -494,6 +534,10 @@ type HomeViewMode = 'cards' | 'list';
         place-items: center;
       }
 
+      .product-avatar-clickable {
+        cursor: zoom-in;
+      }
+
       .product-avatar img {
         width: 100%;
         height: 100%;
@@ -532,6 +576,11 @@ type HomeViewMode = 'cards' | 'list';
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .product-path-inbound {
+        color: #b91c1c;
+        font-weight: 600;
       }
 
       .product-stock {
@@ -682,6 +731,11 @@ type HomeViewMode = 'cards' | 'list';
         max-width: 0;
       }
 
+      .route-text-inbound {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+
       .table-tags {
         display: flex;
         align-items: center;
@@ -716,6 +770,43 @@ type HomeViewMode = 'cards' | 'list';
         padding: 2px !important;
       }
 
+      .avatar-preview-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(14, 23, 38, 0.18);
+        z-index: 1200;
+      }
+
+      .avatar-preview-panel {
+        position: fixed;
+        width: 260px;
+        max-width: calc(100vw - 18px);
+        background: #ffffff;
+        border: 1px solid rgba(191, 201, 219, 0.9);
+        border-radius: 12px;
+        padding: 8px;
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
+        z-index: 1201;
+      }
+
+      .avatar-preview-panel img {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: min(52vh, 320px);
+        object-fit: contain;
+        border-radius: 8px;
+        background: #f4f7fb;
+      }
+
+      .avatar-preview-panel p {
+        margin: 7px 2px 2px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #2d3a4d;
+        line-height: 1.3;
+      }
+
       @media (max-width: 900px) {
         .cards-grid {
           grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -739,6 +830,11 @@ type HomeViewMode = 'cards' | 'list';
         .product-actions {
           gap: 3px;
         }
+
+        .avatar-preview-panel {
+          width: calc(100vw - 18px);
+          max-width: 360px;
+        }
       }
     `
   ]
@@ -759,6 +855,11 @@ export class HomeComponent implements OnInit, OnDestroy {
   selectedItemIds = new Set<string>();
   batchActionsExpanded = false;
   viewMode: HomeViewMode = 'cards';
+  avatarPreviewUrl: string | null = null;
+  avatarPreviewName = '';
+  avatarPreviewPinned = false;
+  avatarPreviewStyle: Record<string, string> = {};
+  private avatarPreviewHovering = false;
 
   readonly filtersForm = this.fb.nonNullable.group({
     q: [''],
@@ -799,6 +900,78 @@ export class HomeComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscClosePreview(): void {
+    this.closeAvatarPreview(true);
+  }
+
+  onAvatarMouseEnter(item: Item, event: MouseEvent): void {
+    if (!item.photo_url || this.avatarPreviewPinned || isCoarsePointerDevice()) {
+      return;
+    }
+    this.openAvatarPreview(item, event, false);
+  }
+
+  onAvatarMouseLeave(): void {
+    if (this.avatarPreviewPinned) {
+      return;
+    }
+    setTimeout(() => {
+      if (!this.avatarPreviewHovering && !this.avatarPreviewPinned) {
+        this.closeAvatarPreview(false);
+      }
+    }, 70);
+  }
+
+  onAvatarClick(item: Item, event: MouseEvent): void {
+    if (!item.photo_url) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.avatarPreviewPinned && this.avatarPreviewUrl === item.photo_url) {
+      this.closeAvatarPreview(true);
+      return;
+    }
+    this.openAvatarPreview(item, event, true);
+  }
+
+  onAvatarKey(item: Item, event: KeyboardEvent): void {
+    if (!item.photo_url) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.avatarPreviewPinned && this.avatarPreviewUrl === item.photo_url) {
+      this.closeAvatarPreview(true);
+      return;
+    }
+    const target = event.currentTarget as HTMLElement | null;
+    this.openAvatarPreview(item, { currentTarget: target } as MouseEvent, true);
+  }
+
+  onPreviewMouseEnter(): void {
+    this.avatarPreviewHovering = true;
+  }
+
+  onPreviewMouseLeave(): void {
+    this.avatarPreviewHovering = false;
+    if (!this.avatarPreviewPinned) {
+      this.closeAvatarPreview(false);
+    }
+  }
+
+  closeAvatarPreview(force: boolean): void {
+    if (!force && this.avatarPreviewPinned) {
+      return;
+    }
+    this.avatarPreviewUrl = null;
+    this.avatarPreviewName = '';
+    this.avatarPreviewPinned = false;
+    this.avatarPreviewStyle = {};
+    this.avatarPreviewHovering = false;
   }
 
   setViewMode(mode: string): void {
@@ -1048,4 +1221,34 @@ export class HomeComponent implements OnInit, OnDestroy {
     }
     return 'cards';
   }
+
+  private openAvatarPreview(item: Item, event: MouseEvent, pinned: boolean): void {
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target || !item.photo_url) {
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    const panelWidth = Math.min(260, window.innerWidth - 18);
+    const panelHeight = Math.min(350, Math.floor(window.innerHeight * 0.6));
+    const margin = 10;
+    const placeRight = rect.right + margin + panelWidth <= window.innerWidth - margin;
+    let left = placeRight ? rect.right + margin : rect.left - panelWidth - margin;
+    left = Math.max(margin, Math.min(left, window.innerWidth - panelWidth - margin));
+    let top = rect.top - 14;
+    top = Math.max(margin, Math.min(top, window.innerHeight - panelHeight - margin));
+
+    this.avatarPreviewUrl = item.photo_url;
+    this.avatarPreviewName = item.name;
+    this.avatarPreviewPinned = pinned;
+    this.avatarPreviewHovering = false;
+    this.avatarPreviewStyle = {
+      left: `${left}px`,
+      top: `${top}px`
+    };
+  }
+}
+
+function isCoarsePointerDevice(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(hover: none), (pointer: coarse)').matches;
 }

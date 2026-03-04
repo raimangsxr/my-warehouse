@@ -43,6 +43,7 @@ class ItemResponse(BaseModel):
     stock: int
     is_favorite: bool
     box_path: list[str]
+    box_is_inbound: bool
 
 
 class ItemFavoriteRequest(BaseModel):
@@ -69,7 +70,7 @@ class ItemBatchRequest(BaseModel):
 
 
 class ItemPhotoDraftRequest(BaseModel):
-    image_data_url: str = Field(min_length=32, max_length=8_000_000)
+    image_data_url: str = Field(min_length=32, max_length=20_000_000)
 
 
 class ItemPhotoDraftResponse(BaseModel):
