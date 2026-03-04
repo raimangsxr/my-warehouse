@@ -11,6 +11,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
+import { BoxLabelPrintService } from '../services/box-label-print.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 interface BoxTreeViewNode extends BoxTreeNode {
@@ -124,6 +125,10 @@ interface BoxTreeViewNode extends BoxTreeNode {
                     <p class="item-card-title">{{ node.box.name }}</p>
                     <div class="inline-actions box-tree-actions">
                       <button mat-button type="button" [routerLink]="['/app/boxes', node.box.id]">Ver</button>
+                      <button mat-button type="button" (click)="printLabel(node.box)">
+                        <mat-icon>print</mat-icon>
+                        Etiqueta
+                      </button>
                       <button mat-button type="button" (click)="startRename(node)">Renombrar</button>
                       <button mat-button type="button" (click)="startMove(node)">Mover</button>
                       <button mat-button color="warn" type="button" (click)="deleteBox(node.box.id)">Papelera</button>
@@ -215,6 +220,7 @@ export class BoxesComponent implements OnInit {
   constructor(
     private readonly fb: FormBuilder,
     private readonly boxService: BoxService,
+    private readonly boxLabelPrintService: BoxLabelPrintService,
     private readonly warehouseService: WarehouseService,
   ) {}
 
@@ -338,6 +344,10 @@ export class BoxesComponent implements OnInit {
         }
       },
     });
+  }
+
+  printLabel(box: BoxTreeViewNode['box']): void {
+    this.boxLabelPrintService.printLabel(box);
   }
 
   private loadTree(): void {

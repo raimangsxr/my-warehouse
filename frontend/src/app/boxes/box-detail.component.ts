@@ -10,6 +10,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
 import { Box, BoxItem, BoxService } from '../services/box.service';
+import { BoxLabelPrintService } from '../services/box-label-print.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -33,10 +34,16 @@ import { WarehouseService } from '../services/warehouse.service';
           <h1 class="page-title">{{ box.name }}</h1>
           <p class="page-subtitle">Detalle recursivo de contenido y rutas navegables</p>
         </div>
-        <button mat-flat-button color="primary" [routerLink]="['/app/items/new']" [queryParams]="{ boxId: box.id }">
-          <mat-icon>add</mat-icon>
-          Nuevo elemento
-        </button>
+        <div class="inline-actions">
+          <button mat-stroked-button type="button" (click)="printLabel()">
+            <mat-icon>print</mat-icon>
+            Imprimir etiqueta
+          </button>
+          <button mat-flat-button color="primary" [routerLink]="['/app/items/new']" [queryParams]="{ boxId: box.id }">
+            <mat-icon>add</mat-icon>
+            Nuevo elemento
+          </button>
+        </div>
       </header>
 
       <mat-card class="surface-card">
@@ -109,6 +116,7 @@ export class BoxDetailComponent implements OnInit {
     private readonly fb: FormBuilder,
     private readonly route: ActivatedRoute,
     private readonly boxService: BoxService,
+    private readonly boxLabelPrintService: BoxLabelPrintService,
     private readonly warehouseService: WarehouseService
   ) {}
 
@@ -136,5 +144,12 @@ export class BoxDetailComponent implements OnInit {
         this.items = items;
       }
     });
+  }
+
+  printLabel(): void {
+    if (!this.box) {
+      return;
+    }
+    this.boxLabelPrintService.printLabel(this.box);
   }
 }
