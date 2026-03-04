@@ -2,6 +2,8 @@ import json
 import logging
 import re
 import unicodedata
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from urllib import error, request
 
 
@@ -66,6 +68,52 @@ def _normalize_output_values(values: list[str], *, max_count: int, drop_value: s
     return unique
 
 
+def _parse_data_url(image_data_url: str) -> tuple[str, str]:
+    if not image_data_url.startswith("data:"):
+        raise ValueError("image_data_url must be a data URL")
+    header, sep, payload = image_data_url.partition(",")
+    if not sep:
+        raise ValueError("Invalid data URL")
+    if ";base64" not in header:
+        raise ValueError("image_data_url must be base64 encoded")
+
+    mime_type = header[5:].split(";")[0].strip().lower()
+    if not mime_type.startswith("image/"):
+        raise ValueError("image_data_url must contain an image mime type")
+    if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise ValueError("Unsupported image mime type")
+
+    try:
+        b64decode(payload, validate=True)
+    except (BinasciiError, ValueError) as exc:
+        raise ValueError("Invalid base64 image payload") from exc
+    return mime_type, payload
+
+
+def _sanitize_title(raw: str) -> str:
+    normalized = " ".join(raw.strip().split())
+    if not normalized:
+        return "Articulo sin identificar"
+    return normalized[:160]
+
+
+def _sanitize_description(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    normalized = " ".join(raw.strip().split())
+    if not normalized:
+        return None
+    return normalized[:1000]
+
+
+def _parse_confidence(raw: object, *, default: float) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, value))
+
+
 def _heuristic_tags_and_aliases(name: str, description: str | None) -> tuple[list[str], list[str]]:
     source = f"{name} {description or ''}".strip()
     tokens = _tokenize(source)
@@ -89,6 +137,27 @@ def _heuristic_tags_and_aliases(name: str, description: str | None) -> tuple[lis
 
     aliases = [alias for alias in aliases if alias and alias != normalized_name][:5]
     return tags[:10], aliases[:5]
+
+
+def _heuristic_photo_draft(image_mime_type: str) -> dict[str, object]:
+    mime_hint = {
+        "image/jpeg": "foto",
+        "image/png": "imagen",
+        "image/webp": "captura",
+    }.get(image_mime_type, "foto")
+    tags = _normalize_output_values(
+        [mime_hint, "inventario", "pendiente", "revision"],
+        max_count=10,
+    )
+    return {
+        "name": "Articulo sin identificar",
+        "description": "Generado desde foto. Revisa nombre, descripcion, tags y aliases antes de guardar.",
+        "tags": tags,
+        "aliases": [],
+        "confidence": 0.2,
+        "warnings": ["No se pudo inferir el item con LLM; se aplico fallback local."],
+        "llm_used": False,
+    }
 
 
 def _gemini_tags_and_aliases(
@@ -159,6 +228,103 @@ def _gemini_tags_and_aliases(
     return tags, aliases
 
 
+def _gemini_photo_draft(
+    *,
+    api_key: str,
+    model: str,
+    image_mime_type: str,
+    image_b64_data: str,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    prompt = (
+        "You classify inventory items from photos for a warehouse app.\n"
+        "Return only JSON with shape:\n"
+        "{\"name\": string, \"description\": string, \"tags\": string[], \"aliases\": string[], \"confidence\": number, \"warnings\": string[]}\n"
+        "Rules:\n"
+        "- name: short, human-readable item name.\n"
+        "- description: one concise sentence for search context.\n"
+        "- tags: 3-10 lowercase tokens, no duplicates.\n"
+        "- aliases: 0-5 lowercase alternatives, no duplicates, not equal to name.\n"
+        "- confidence: number between 0 and 1.\n"
+        "- warnings: empty array unless the image is ambiguous."
+    )
+    url = GEMINI_GENERATE_CONTENT_URL.format(model=model)
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": image_mime_type, "data": image_b64_data}},
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.15,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    req = request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+    with request.urlopen(req, timeout=timeout_seconds) as res:  # noqa: S310
+        payload = json.loads(res.read().decode("utf-8"))
+
+    text = ""
+    candidates = payload.get("candidates") or []
+    if candidates:
+        parts = ((candidates[0].get("content") or {}).get("parts") or [])
+        if parts:
+            text = str(parts[0].get("text") or "")
+    if not text:
+        raise ValueError("Gemini response did not include text")
+
+    parsed = json.loads(_extract_json_fragment(text))
+    if not isinstance(parsed, dict):
+        raise ValueError("Gemini response is not a JSON object")
+
+    name = _sanitize_title(str(parsed.get("name") or ""))
+    description = _sanitize_description(str(parsed.get("description") or ""))
+    normalized_name = _normalize_text(name)
+    raw_tags = parsed.get("tags") if isinstance(parsed.get("tags"), list) else []
+    raw_aliases = parsed.get("aliases") if isinstance(parsed.get("aliases"), list) else []
+    raw_warnings = parsed.get("warnings") if isinstance(parsed.get("warnings"), list) else []
+
+    tags = _normalize_output_values([str(value) for value in raw_tags], max_count=10)
+    aliases = _normalize_output_values(
+        [str(value) for value in raw_aliases],
+        max_count=5,
+        drop_value=normalized_name,
+    )
+    warnings = [
+        " ".join(str(entry).strip().split())[:180]
+        for entry in raw_warnings
+        if str(entry).strip()
+    ][:4]
+    confidence = _parse_confidence(parsed.get("confidence"), default=0.7)
+
+    if len(tags) < 3:
+        # Ensure minimum search hints even if the model under-returns tags.
+        tags = _normalize_output_values(tags + _tokenize(f"{name} {description or ''}") + ["inventario"], max_count=10)
+
+    return {
+        "name": name,
+        "description": description,
+        "tags": tags,
+        "aliases": aliases,
+        "confidence": confidence,
+        "warnings": warnings,
+        "llm_used": True,
+    }
+
+
 def generate_tags_and_aliases(
     name: str,
     description: str | None,
@@ -182,3 +348,30 @@ def generate_tags_and_aliases(
             logger.warning("Gemini enrichment failed, using heuristic fallback: %s", exc)
 
     return _heuristic_tags_and_aliases(name, description)
+
+
+def generate_item_draft_from_photo(
+    image_data_url: str,
+    *,
+    api_key: str | None = None,
+    model: str = DEFAULT_GEMINI_MODEL,
+    timeout_seconds: float = 10.0,
+) -> dict[str, object]:
+    image_mime_type, image_b64_data = _parse_data_url(image_data_url)
+    fallback = _heuristic_photo_draft(image_mime_type)
+
+    if api_key:
+        try:
+            draft = _gemini_photo_draft(
+                api_key=api_key,
+                model=model,
+                image_mime_type=image_mime_type,
+                image_b64_data=image_b64_data,
+                timeout_seconds=timeout_seconds,
+            )
+            if draft.get("name") and draft.get("tags"):
+                return draft
+        except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("Gemini photo draft failed, using heuristic fallback: %s", exc)
+
+    return fallback

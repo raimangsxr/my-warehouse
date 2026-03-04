@@ -12,6 +12,7 @@ import { authGuard, guestGuard } from './core/auth.guard';
 import { HomeComponent } from './home/home.component';
 import { AcceptInviteComponent } from './invites/accept-invite.component';
 import { ItemFormComponent } from './items/item-form.component';
+import { ItemPhotoCaptureComponent } from './items/item-photo-capture.component';
 import { ScanComponent } from './scan/scan.component';
 import { SettingsComponent } from './settings/settings.component';
 import { ShellComponent } from './shell/shell.component';
@@ -34,6 +35,7 @@ export const routes: Routes = [
       { path: 'boxes', component: BoxesComponent },
       { path: 'boxes/:id', component: BoxDetailComponent },
       { path: 'items/new', component: ItemFormComponent },
+      { path: 'items/from-photo', component: ItemPhotoCaptureComponent },
       { path: 'items/:id', component: ItemFormComponent },
       { path: 'scan', component: ScanComponent },
       { path: 'scan/:qrToken', component: ScanComponent },

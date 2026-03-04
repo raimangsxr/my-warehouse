@@ -82,6 +82,9 @@ import { WarehouseService } from '../services/warehouse.service';
           <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
             <mat-icon>qr_code_scanner</mat-icon>
           </button>
+          <button mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo">
+            <mat-icon>photo_camera</mat-icon>
+          </button>
           <button mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
             <mat-icon>tune</mat-icon>
           </button>

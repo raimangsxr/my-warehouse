@@ -28,6 +28,16 @@ export interface TagCloudEntry {
   count: number;
 }
 
+export interface ItemPhotoDraft {
+  name: string;
+  description: string | null;
+  tags: string[];
+  aliases: string[];
+  confidence: number;
+  warnings: string[];
+  llm_used: boolean;
+}
+
 export type BatchAction = 'move' | 'favorite' | 'unfavorite' | 'delete';
 
 @Injectable({ providedIn: 'root' })
@@ -89,6 +99,13 @@ export class ItemService {
     }
   ): Observable<Item> {
     return this.http.post<Item>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/items`, payload);
+  }
+
+  draftFromPhoto(warehouseId: string, imageDataUrl: string): Observable<ItemPhotoDraft> {
+    return this.http.post<ItemPhotoDraft>(
+      `${environment.apiBaseUrl}/warehouses/${warehouseId}/items/draft-from-photo`,
+      { image_data_url: imageDataUrl }
+    );
   }
 
   update(

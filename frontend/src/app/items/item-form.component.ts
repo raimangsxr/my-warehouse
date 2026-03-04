@@ -13,7 +13,7 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { Observable } from 'rxjs';
 
 import { Box, BoxService, BoxTreeNode } from '../services/box.service';
-import { Item, ItemService } from '../services/item.service';
+import { Item, ItemPhotoDraft, ItemService } from '../services/item.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 type CreateEntityType = 'item' | 'box';
@@ -47,6 +47,13 @@ type CreateEntityType = 'item' | 'box';
         <mat-progress-bar *ngIf="loading" mode="indeterminate" />
         <mat-card-content>
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
+          <div class="status-message" *ngIf="photoDraftMessage">{{ photoDraftMessage }}</div>
+          <div class="status-line" *ngIf="photoDraftWarnings.length > 0">
+            {{ photoDraftWarnings.join(' · ') }}
+          </div>
+          <div class="item-card" *ngIf="photoPreviewUrl" style="margin: 12px 0; padding: 10px">
+            <img [src]="photoPreviewUrl" alt="Foto capturada" style="width: 100%; max-width: 260px; border-radius: 10px" />
+          </div>
 
           <form [formGroup]="form" (ngSubmit)="save()" class="form-stack">
             <div class="inline-actions" *ngIf="!itemId">
@@ -131,6 +138,9 @@ export class ItemFormComponent implements OnInit {
   loading = false;
   errorMessage = '';
   boxes: BoxTreeNode[] = [];
+  photoDraftMessage = '';
+  photoDraftWarnings: string[] = [];
+  photoPreviewUrl: string | null = null;
   private readonly boxPathById = new Map<string, string>();
 
   readonly form = this.fb.group({
@@ -165,6 +175,7 @@ export class ItemFormComponent implements OnInit {
       if (requestedType === 'box' || requestedType === 'item') {
         this.createEntityType = requestedType;
       }
+      this.tryApplyPhotoDraftState();
     }
 
     this.updateValidatorsByType();
@@ -362,6 +373,27 @@ export class ItemFormComponent implements OnInit {
       this.form.controls.boxId.clearValidators();
     }
     this.form.controls.boxId.updateValueAndValidity({ emitEvent: false });
+  }
+
+  private tryApplyPhotoDraftState(): void {
+    const state = history.state as { photoDraft?: ItemPhotoDraft; photoPreviewUrl?: string } | undefined;
+    const draft = state?.photoDraft;
+    if (!draft) {
+      return;
+    }
+
+    this.createEntityType = 'item';
+    this.photoPreviewUrl = state?.photoPreviewUrl || null;
+    this.photoDraftWarnings = draft.warnings || [];
+    this.photoDraftMessage = draft.llm_used
+      ? `Datos sugeridos por IA (confianza ${Math.round(draft.confidence * 100)}%). Revisa y elige caja.`
+      : 'No hubo inferencia LLM; se aplicó un borrador base para acelerar el alta.';
+    this.form.patchValue({
+      name: draft.name || '',
+      description: draft.description || '',
+      tags: (draft.tags || []).join(', '),
+      aliases: (draft.aliases || []).join(', ')
+    });
   }
 }
 

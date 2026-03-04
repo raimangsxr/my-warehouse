@@ -19,12 +19,14 @@ from app.schemas.item import (
     ItemBatchRequest,
     ItemCreateRequest,
     ItemFavoriteRequest,
+    ItemPhotoDraftRequest,
+    ItemPhotoDraftResponse,
     ItemResponse,
     ItemUpdateRequest,
     StockAdjustRequest,
 )
 from app.services.activity import record_activity
-from app.services.llm_enrichment import generate_tags_and_aliases
+from app.services.llm_enrichment import generate_item_draft_from_photo, generate_tags_and_aliases
 from app.services.secret_store import decrypt_secret
 from app.services.sync_log import append_change_log
 
@@ -282,6 +284,44 @@ def create_item(
     db.refresh(item)
     boxes_by_id = _active_boxes_map(db, warehouse_id)
     return _serialize_item(boxes_by_id, item, stock=0, favorite=False)
+
+
+@router.post("/draft-from-photo", response_model=ItemPhotoDraftResponse)
+def draft_item_from_photo(
+    warehouse_id: str,
+    payload: ItemPhotoDraftRequest,
+    _membership=Depends(require_warehouse_membership),
+    db: Session = Depends(get_db),
+) -> ItemPhotoDraftResponse:
+    llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
+    api_key: str | None = None
+    pre_warnings: list[str] = []
+
+    if llm_setting is None or not llm_setting.api_key_encrypted:
+        pre_warnings.append("LLM no configurado para este warehouse; se usa fallback local.")
+    else:
+        try:
+            api_key = decrypt_secret(llm_setting.api_key_encrypted)
+        except Exception:  # noqa: BLE001
+            pre_warnings.append("No se pudo leer la API key LLM; se usa fallback local.")
+
+    try:
+        draft = generate_item_draft_from_photo(payload.image_data_url, api_key=api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    raw_warnings = draft.get("warnings")
+    model_warnings = raw_warnings if isinstance(raw_warnings, list) else []
+    warnings = [*pre_warnings, *[str(w) for w in model_warnings if str(w).strip()]]
+    return ItemPhotoDraftResponse(
+        name=str(draft.get("name") or "Articulo sin identificar")[:160],
+        description=(str(draft.get("description"))[:1000] if draft.get("description") else None),
+        tags=[str(tag) for tag in (draft.get("tags") or [])][:10],
+        aliases=[str(alias) for alias in (draft.get("aliases") or [])][:5],
+        confidence=float(draft.get("confidence") or 0.0),
+        warnings=warnings[:5],
+        llm_used=bool(draft.get("llm_used")),
+    )
 
 
 @router.get("/{item_id}", response_model=ItemResponse)

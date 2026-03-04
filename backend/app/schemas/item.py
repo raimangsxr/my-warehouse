@@ -66,3 +66,17 @@ class ItemBatchRequest(BaseModel):
     item_ids: list[str] = Field(min_length=1)
     action: ItemBatchAction
     target_box_id: str | None = None
+
+
+class ItemPhotoDraftRequest(BaseModel):
+    image_data_url: str = Field(min_length=32, max_length=8_000_000)
+
+
+class ItemPhotoDraftResponse(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=1000)
+    tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+    warnings: list[str] = Field(default_factory=list)
+    llm_used: bool = False

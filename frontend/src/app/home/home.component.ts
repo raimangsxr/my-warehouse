@@ -3,6 +3,7 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatChipsModule } from '@angular/material/chips';
@@ -11,6 +12,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
@@ -26,6 +28,8 @@ interface BoxMoveOption {
   path_label: string;
 }
 
+type HomeViewMode = 'cards' | 'list';
+
 @Component({
   selector: 'app-home',
   standalone: true,
@@ -38,11 +42,13 @@ interface BoxMoveOption {
     MatFormFieldModule,
     MatInputModule,
     MatButtonModule,
+    MatButtonToggleModule,
     MatIconModule,
     MatCheckboxModule,
     MatChipsModule,
     MatSelectModule,
-    MatProgressBarModule
+    MatProgressBarModule,
+    MatTooltipModule
   ],
   template: `
     <div class="app-page">
@@ -103,27 +109,31 @@ interface BoxMoveOption {
         </mat-card-content>
       </mat-card>
 
-      <mat-card class="surface-card">
+      <mat-card class="surface-card batch-card">
         <mat-card-content>
-          <div class="card-header-row">
+          <button type="button" class="batch-toggle" (click)="toggleBatchActions()" [attr.aria-expanded]="batchActionsExpanded">
             <div>
               <h2 class="card-title">Acciones por lote</h2>
-              <p class="card-subtitle">Seleccionados: {{ selectedItemIds.size }}</p>
+              <p class="card-subtitle">
+                {{ batchActionsExpanded ? 'Modo lote activo' : 'Pulsa para activar selección en artículos' }} ·
+                Seleccionados: {{ selectedItemIds.size }}
+              </p>
             </div>
-          </div>
+            <mat-icon class="batch-toggle-icon" [class.batch-toggle-open]="batchActionsExpanded">expand_more</mat-icon>
+          </button>
 
-          <div class="form-row">
-              <mat-form-field>
-                <mat-label>Mover seleccionados a caja</mat-label>
-                <mat-select [(ngModel)]="targetBoxId" [ngModelOptions]="{ standalone: true }">
-                  <mat-option *ngFor="let box of boxes" [value]="box.id">
-                    <span class="tree-option-label">
-                      <span class="tree-option-level">N{{ box.level }}</span>
-                      {{ box.path_label }}
-                    </span>
-                  </mat-option>
-                </mat-select>
-              </mat-form-field>
+          <div class="form-row" *ngIf="batchActionsExpanded">
+            <mat-form-field>
+              <mat-label>Mover seleccionados a caja</mat-label>
+              <mat-select [(ngModel)]="targetBoxId" [ngModelOptions]="{ standalone: true }">
+                <mat-option *ngFor="let box of boxes" [value]="box.id">
+                  <span class="tree-option-label">
+                    <span class="tree-option-level">N{{ box.level }}</span>
+                    {{ box.path_label }}
+                  </span>
+                </mat-option>
+              </mat-select>
+            </mat-form-field>
 
             <div class="inline-actions">
               <button mat-stroked-button type="button" (click)="batchMove()" [disabled]="selectedItemIds.size === 0 || !targetBoxId">
@@ -145,76 +155,242 @@ interface BoxMoveOption {
 
       <mat-progress-bar *ngIf="loadingItems" mode="indeterminate" />
 
-      <div class="items-grid" *ngIf="items.length > 0; else emptyItems" style="margin-top: 14px">
-        <article class="item-card item-card-compact" *ngFor="let item of items">
-          <div class="item-card-top">
-            <div class="item-card-left">
+      <ng-container *ngIf="items.length > 0; else emptyItems">
+        <section class="results-toolbar" aria-label="Preferencias de visualización de resultados">
+          <div>
+            <p class="results-title">Inventario</p>
+            <p class="results-count">{{ items.length }} artículos</p>
+          </div>
+          <mat-button-toggle-group
+            [ngModel]="viewMode"
+            (ngModelChange)="setViewMode($event)"
+            [ngModelOptions]="{ standalone: true }"
+            aria-label="Vista de resultados"
+            class="view-toggle"
+          >
+            <mat-button-toggle value="cards">
+              <mat-icon>grid_view</mat-icon>
+              Cards
+            </mat-button-toggle>
+            <mat-button-toggle value="list">
+              <mat-icon>table_rows</mat-icon>
+              Lista
+            </mat-button-toggle>
+          </mat-button-toggle-group>
+        </section>
+
+        <div class="cards-grid" *ngIf="viewMode === 'cards'; else listView">
+          <article class="product-card" *ngFor="let item of items">
+            <div class="product-card-main">
               <mat-checkbox
+                *ngIf="batchActionsExpanded"
                 class="item-select-checkbox"
                 [checked]="selectedItemIds.has(item.id)"
                 (change)="toggleSelected(item.id)"
               ></mat-checkbox>
-              <div class="item-card-headings">
-                <p class="item-card-title">{{ item.name }}</p>
-                <p class="item-card-path">{{ item.box_path.join(' > ') }}</p>
+
+              <div class="product-avatar" aria-hidden="true">
+                <img *ngIf="item.photo_url" [src]="item.photo_url" [alt]="'Foto de ' + item.name" loading="lazy" />
+                <mat-icon *ngIf="!item.photo_url">inventory_2</mat-icon>
+              </div>
+
+              <div class="product-copy">
+                <p class="product-title">{{ item.name }}</p>
+                <p class="product-meta" [matTooltip]="item.description || 'Sin descripción'">{{ item.description || 'Sin descripción' }}</p>
+                <p class="product-path">{{ item.box_path.join(' > ') }}</p>
               </div>
             </div>
-            <div class="item-card-right">
-              <span class="inline-chip stock-chip">Stock: {{ item.stock }}</span>
+
+            <div class="product-actions">
+              <div class="product-stock-inline" matTooltip="Stock actual">
+                <mat-icon>inventory_2</mat-icon>
+                <span>{{ item.stock }}</span>
+              </div>
+              <span class="actions-spacer"></span>
               <button
                 mat-icon-button
                 class="compact-icon-action"
                 (click)="toggleFavorite(item)"
                 [attr.aria-label]="'Favorito ' + item.name"
+                [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
               >
                 <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
               </button>
+              <button
+                mat-icon-button
+                color="primary"
+                class="compact-icon-action"
+                type="button"
+                (click)="adjustStock(item, 1)"
+                [attr.aria-label]="'Incrementar stock de ' + item.name"
+                matTooltip="Incrementar stock"
+              >
+                <mat-icon>add</mat-icon>
+              </button>
+              <button
+                mat-icon-button
+                class="compact-icon-action"
+                type="button"
+                (click)="adjustStock(item, -1)"
+                [attr.aria-label]="'Reducir stock de ' + item.name"
+                matTooltip="Reducir stock"
+              >
+                <mat-icon>remove</mat-icon>
+              </button>
+              <button
+                mat-icon-button
+                class="compact-icon-action"
+                type="button"
+                [routerLink]="['/app/items', item.id]"
+                [attr.aria-label]="'Editar ' + item.name"
+                matTooltip="Editar"
+              >
+                <mat-icon>edit</mat-icon>
+              </button>
+              <button
+                mat-icon-button
+                type="button"
+                class="compact-icon-action"
+                (click)="reprocessItemTags(item)"
+                [disabled]="reprocessingItemIds.has(item.id)"
+                [attr.aria-label]="'Reprocesar tags de ' + item.name"
+                [matTooltip]="reprocessingItemIds.has(item.id) ? 'Reprocesando tags' : 'Reprocesar tags'"
+              >
+                <mat-icon>{{ reprocessingItemIds.has(item.id) ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
+              </button>
+              <button
+                mat-icon-button
+                color="warn"
+                type="button"
+                class="compact-icon-action"
+                (click)="deleteItem(item)"
+                [attr.aria-label]="'Borrar ' + item.name"
+                matTooltip="Borrar"
+              >
+                <mat-icon>delete</mat-icon>
+              </button>
             </div>
-          </div>
+          </article>
+        </div>
 
-          <p class="status-line item-card-description">{{ item.description || 'Sin descripción' }}</p>
-
-          <div class="item-card-actions">
-            <button
-              mat-icon-button
-              color="primary"
-              class="compact-icon-action"
-              type="button"
-              (click)="adjustStock(item, 1)"
-              [attr.aria-label]="'Incrementar stock de ' + item.name"
-            >
-              <mat-icon>add</mat-icon>
-            </button>
-            <button
-              mat-icon-button
-              class="compact-icon-action"
-              type="button"
-              (click)="adjustStock(item, -1)"
-              [attr.aria-label]="'Reducir stock de ' + item.name"
-            >
-              <mat-icon>remove</mat-icon>
-            </button>
-            <button mat-button type="button" class="compact-text-action" [routerLink]="['/app/items', item.id]">
-              <mat-icon>edit</mat-icon>
-              Editar
-            </button>
-            <button
-              mat-button
-              type="button"
-              class="compact-text-action"
-              (click)="reprocessItemTags(item)"
-              [disabled]="reprocessingItemIds.has(item.id)"
-            >
-              <mat-icon>auto_awesome</mat-icon>
-              {{ reprocessingItemIds.has(item.id) ? 'Reprocesando...' : 'Reprocesar tags' }}
-            </button>
-            <button mat-button color="warn" type="button" class="compact-text-action" (click)="deleteItem(item)">
-              <mat-icon>delete</mat-icon>
-              Borrar
-            </button>
-          </div>
-        </article>
-      </div>
+        <ng-template #listView>
+          <section class="table-shell">
+            <div class="table-scroll">
+              <table class="inventory-table" aria-label="Listado de artículos">
+                <thead>
+                  <tr>
+                    <th class="col-select" *ngIf="batchActionsExpanded"></th>
+                    <th class="col-item">Artículo</th>
+                    <th class="col-route">Ruta</th>
+                    <th class="col-stock">Stock</th>
+                    <th class="col-tags">Tags</th>
+                    <th class="col-actions">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr *ngFor="let item of items">
+                    <td class="col-select" *ngIf="batchActionsExpanded">
+                      <mat-checkbox
+                        class="item-select-checkbox"
+                        [checked]="selectedItemIds.has(item.id)"
+                        (change)="toggleSelected(item.id)"
+                      ></mat-checkbox>
+                    </td>
+                    <td class="col-item">
+                      <div class="table-item-cell">
+                        <div class="product-avatar table-avatar" aria-hidden="true">
+                          <img *ngIf="item.photo_url" [src]="item.photo_url" [alt]="'Foto de ' + item.name" loading="lazy" />
+                          <mat-icon *ngIf="!item.photo_url">inventory_2</mat-icon>
+                        </div>
+                        <div class="table-item-copy">
+                          <p class="table-item-title">{{ item.name }}</p>
+                          <p class="table-item-subtitle" [matTooltip]="item.description || 'Sin descripción'">{{ item.description || 'Sin descripción' }}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="col-route route-text">{{ item.box_path.join(' > ') }}</td>
+                    <td class="col-stock">
+                      <span class="product-stock">{{ item.stock }}</span>
+                    </td>
+                    <td class="col-tags">
+                      <div class="table-tags">
+                        <span class="table-tag" *ngFor="let tag of item.tags | slice:0:2">{{ tag }}</span>
+                        <span class="table-tag-more" *ngIf="item.tags.length > 2">+{{ item.tags.length - 2 }}</span>
+                      </div>
+                    </td>
+                    <td class="col-actions">
+                      <div class="table-actions">
+                        <button
+                          mat-icon-button
+                          class="compact-icon-action"
+                          (click)="toggleFavorite(item)"
+                          [attr.aria-label]="'Favorito ' + item.name"
+                          [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
+                        >
+                          <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
+                        </button>
+                        <button
+                          mat-icon-button
+                          color="primary"
+                          class="compact-icon-action"
+                          type="button"
+                          (click)="adjustStock(item, 1)"
+                          [attr.aria-label]="'Incrementar stock de ' + item.name"
+                          matTooltip="Incrementar stock"
+                        >
+                          <mat-icon>add</mat-icon>
+                        </button>
+                        <button
+                          mat-icon-button
+                          class="compact-icon-action"
+                          type="button"
+                          (click)="adjustStock(item, -1)"
+                          [attr.aria-label]="'Reducir stock de ' + item.name"
+                          matTooltip="Reducir stock"
+                        >
+                          <mat-icon>remove</mat-icon>
+                        </button>
+                        <button
+                          mat-icon-button
+                          type="button"
+                          class="compact-icon-action"
+                          [routerLink]="['/app/items', item.id]"
+                          [attr.aria-label]="'Editar ' + item.name"
+                          matTooltip="Editar"
+                        >
+                          <mat-icon>edit</mat-icon>
+                        </button>
+                        <button
+                          mat-icon-button
+                          type="button"
+                          class="compact-icon-action"
+                          (click)="reprocessItemTags(item)"
+                          [disabled]="reprocessingItemIds.has(item.id)"
+                          [attr.aria-label]="'Reprocesar tags de ' + item.name"
+                          [matTooltip]="reprocessingItemIds.has(item.id) ? 'Reprocesando tags' : 'Reprocesar tags'"
+                        >
+                          <mat-icon>{{ reprocessingItemIds.has(item.id) ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
+                        </button>
+                        <button
+                          mat-icon-button
+                          color="warn"
+                          type="button"
+                          class="compact-icon-action"
+                          (click)="deleteItem(item)"
+                          [attr.aria-label]="'Borrar ' + item.name"
+                          matTooltip="Borrar"
+                        >
+                          <mat-icon>delete</mat-icon>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </ng-template>
+      </ng-container>
 
       <ng-template #emptyItems>
         <div class="empty-state" style="margin-top: 14px">
@@ -222,11 +398,355 @@ interface BoxMoveOption {
         </div>
       </ng-template>
     </div>
-  `
+  `,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+
+      .results-toolbar {
+        margin-top: 16px;
+        padding: 10px 2px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .results-title {
+        margin: 0;
+        font-size: 0.93rem;
+        font-weight: 600;
+        color: var(--text-1);
+      }
+
+      .results-count {
+        margin: 2px 0 0;
+        color: var(--text-2);
+        font-size: 0.83rem;
+      }
+
+      .view-toggle {
+        border-radius: 10px;
+      }
+
+      .view-toggle mat-button-toggle {
+        font-size: 0.84rem;
+      }
+
+      .batch-card {
+        margin-top: 12px;
+      }
+
+      .batch-toggle {
+        width: 100%;
+        border: none;
+        background: transparent;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .batch-toggle-icon {
+        transition: transform 120ms ease;
+      }
+
+      .batch-toggle-open {
+        transform: rotate(180deg);
+      }
+
+      .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 10px;
+      }
+
+      .product-card {
+        border: 1px solid rgba(219, 227, 239, 0.9);
+        border-radius: 12px;
+        background: linear-gradient(180deg, #f8f9fc 0%, #f3f6fb 100%);
+        padding: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .product-card-main {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .product-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 9px;
+        border: 1px solid var(--border-soft);
+        background: #fff;
+        overflow: hidden;
+        flex: 0 0 36px;
+        display: grid;
+        place-items: center;
+      }
+
+      .product-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .product-avatar .mat-icon {
+        width: 17px;
+        height: 17px;
+        font-size: 17px;
+        color: var(--text-2);
+      }
+
+      .product-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+        display: grid;
+        gap: 1px;
+      }
+
+      .product-title {
+        margin: 0;
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: #1f2937;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .product-meta,
+      .product-path {
+        margin: 0;
+        font-size: 0.78rem;
+        color: #64748b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .product-stock {
+        display: inline-flex;
+        align-self: flex-start;
+        margin-top: 2px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #deecff;
+        color: #1f4db8;
+        border: 1px solid #bfd8ff;
+        white-space: nowrap;
+      }
+
+      .product-actions {
+        border-top: 1px solid rgba(219, 227, 239, 0.85);
+        padding-top: 7px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+      }
+
+      .product-stock-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(191, 216, 255, 0.8);
+        background: #edf4ff;
+        color: #234e9c;
+        font-size: 0.76rem;
+        font-weight: 600;
+      }
+
+      .product-stock-inline .mat-icon {
+        width: 14px;
+        height: 14px;
+        font-size: 14px;
+      }
+
+      .actions-spacer {
+        flex: 1 1 auto;
+      }
+
+      .table-shell {
+        border: 1px solid var(--border-soft);
+        border-radius: 14px;
+        background: linear-gradient(180deg, #fcfdff 0%, #f6f8fc 100%);
+        overflow: hidden;
+      }
+
+      .table-scroll {
+        overflow-x: auto;
+      }
+
+      .inventory-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1040px;
+      }
+
+      .inventory-table th {
+        text-align: left;
+        font-size: 0.73rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #64748b;
+        text-transform: uppercase;
+        padding: 11px 10px;
+        border-bottom: 1px solid var(--border-soft);
+        background: #f2f6fd;
+        white-space: nowrap;
+      }
+
+      .inventory-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(219, 227, 239, 0.72);
+        vertical-align: middle;
+      }
+
+      .inventory-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .col-select {
+        width: 44px;
+      }
+
+      .col-stock {
+        width: 90px;
+      }
+
+      .col-tags {
+        width: 180px;
+      }
+
+      .col-actions {
+        width: 310px;
+      }
+
+      .table-item-cell {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+      }
+
+      .table-avatar {
+        width: 32px;
+        height: 32px;
+        flex-basis: 32px;
+      }
+
+      .table-item-copy {
+        min-width: 0;
+      }
+
+      .table-item-title,
+      .table-item-subtitle {
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .table-item-title {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #1f2937;
+      }
+
+      .table-item-subtitle {
+        margin-top: 1px;
+        font-size: 0.77rem;
+        color: #64748b;
+      }
+
+      .route-text {
+        font-size: 0.81rem;
+        color: #475569;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 0;
+      }
+
+      .table-tags {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      .table-tag {
+        font-size: 0.72rem;
+        border: 1px solid var(--border-soft);
+        color: #475569;
+        background: #eef3fa;
+        border-radius: 999px;
+        padding: 2px 7px;
+      }
+
+      .table-tag-more {
+        font-size: 0.72rem;
+        color: #64748b;
+      }
+
+      .table-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        flex-wrap: wrap;
+      }
+
+      .compact-icon-action {
+        width: 29px !important;
+        height: 29px !important;
+        padding: 2px !important;
+      }
+
+      @media (max-width: 900px) {
+        .cards-grid {
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        }
+
+        .table-shell {
+          border-radius: 12px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .cards-grid {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .product-card {
+          padding: 7px;
+        }
+
+        .product-actions {
+          gap: 3px;
+        }
+      }
+    `
+  ]
 })
 export class HomeComponent implements OnInit, OnDestroy {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
   private readonly destroy$ = new Subject<void>();
+  private readonly viewModeStorageKey = 'home_view_mode';
 
   errorMessage = '';
   loadingItems = false;
@@ -237,6 +757,8 @@ export class HomeComponent implements OnInit, OnDestroy {
   targetBoxId: string | null = null;
   reprocessingItemIds = new Set<string>();
   selectedItemIds = new Set<string>();
+  batchActionsExpanded = false;
+  viewMode: HomeViewMode = 'cards';
 
   readonly filtersForm = this.fb.nonNullable.group({
     q: [''],
@@ -260,6 +782,7 @@ export class HomeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.viewMode = this.readStoredViewMode();
     this.loadBoxes();
     this.loadTagsCloud();
     this.loadItems();
@@ -276,6 +799,22 @@ export class HomeComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  setViewMode(mode: string): void {
+    if (mode !== 'cards' && mode !== 'list') {
+      return;
+    }
+    this.viewMode = mode;
+    localStorage.setItem(this.viewModeStorageKey, mode);
+  }
+
+  toggleBatchActions(): void {
+    this.batchActionsExpanded = !this.batchActionsExpanded;
+    if (!this.batchActionsExpanded) {
+      this.selectedItemIds.clear();
+      this.targetBoxId = null;
+    }
   }
 
   loadItems(): void {
@@ -332,7 +871,7 @@ export class HomeComponent implements OnInit, OnDestroy {
           command_id: commandId,
           type: nextFavorite ? 'item.favorite' : 'item.unfavorite',
           entity_id: item.id,
-          payload: {},
+          payload: {}
         });
         this.upsertItem({ ...item, is_favorite: nextFavorite });
         this.errorMessage = 'Sin conexión: favorito en cola para sincronizar.';
@@ -355,7 +894,7 @@ export class HomeComponent implements OnInit, OnDestroy {
           command_id: commandId,
           type: 'stock.adjust',
           entity_id: item.id,
-          payload: { delta },
+          payload: { delta }
         });
         this.upsertItem({ ...item, stock: item.stock + delta });
         this.errorMessage = 'Sin conexión: ajuste de stock en cola para sincronizar.';
@@ -500,5 +1039,13 @@ export class HomeComponent implements OnInit, OnDestroy {
 
   private upsertItem(updated: Item): void {
     this.items = this.items.map((it) => (it.id === updated.id ? updated : it));
+  }
+
+  private readStoredViewMode(): HomeViewMode {
+    const saved = localStorage.getItem(this.viewModeStorageKey);
+    if (saved === 'cards' || saved === 'list') {
+      return saved;
+    }
+    return 'cards';
   }
 }

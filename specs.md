@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.7  
+- **Versión:** v1.12  
 - **Última actualización:** 2026-03-04  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -37,6 +37,12 @@
 - **v1.5 (2026-02-24):** Refactor completo de jerarquía de cajas en UI: árbol realmente anidado con ramas visuales, expand/collapse por nodo, rutas completas en nodos y selects (crear/mover/alta de elemento/lote) para distinguir claramente contención padre→hijo sin ambigüedad.
 - **v1.6 (2026-03-04):** Etiquetas imprimibles por caja en frontend: botón `Etiqueta` en árbol de cajas y botón `Imprimir etiqueta` en detalle de caja. La etiqueta incluye nombre de caja, `short_code`, QR escaneable (contenido = `qr_token`) y token visible como fallback manual.
 - **v1.7 (2026-03-04):** Reprocesado LLM accionable desde cards de artículos (`Reprocesar tags`) y endpoint de reprocesado extensible por campos (`fields`) para soportar futuras ampliaciones. Integración de enriquecimiento con Gemini API real a partir de `name` + `description`, usando por defecto modelo costo-efectivo vigente `gemini-2.5-flash-lite` y endpoint `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` (con fallback heurístico backend ante error).
+- **v1.8 (2026-03-04):** Rediseño de visualización en Home para alto volumen: cards más compactas y con miniatura (foto/placeholder), densidad por fila incrementada, y nueva vista en formato lista con selector `Cards/Lista` persistido en preferencias locales del navegador.
+- **v1.9 (2026-03-04):** Refinamiento visual de Home basado en referencias de producto: vista `Lista` evoluciona a formato tabular denso para escritorio (columnas de artículo/ruta/stock/tags/acciones con scroll horizontal controlado) y vista `Cards` adopta patrón compacto tipo feed (avatar, texto jerárquico, badge de stock y acciones inline), manteniendo operaciones rápidas y selección por lote.
+- **v1.10 (2026-03-04):** Ajuste de usabilidad en Home: panel de acciones por lote colapsable (la selección por checkbox solo aparece al activarlo), cards con nombre más compacto y badge de stock reubicado para no interferir en legibilidad, y tooltip en descripción para mostrar texto completo.
+- **v1.11 (2026-03-04):** Refinamiento estético de cards en Home: stock presentado como micro-KPI independiente dentro de la card (etiqueta + valor) para mejorar jerarquía visual y evitar competición con título/descripción.
+- **v1.12 (2026-03-04):** Ajuste visual iterativo del stock en cards de Home: se sustituye micro-KPI por indicador compacto con icono integrado en la barra de acciones, priorizando limpieza del bloque de contenido y consistencia operativa.
+- **v1.13 (2026-03-04):** Alta asistida por foto (Slice 9 inicial): nuevo acceso en toolbar con icono de cámara y ruta `/app/items/from-photo` para sacar/subir imagen, endpoint backend `POST /warehouses/{warehouse_id}/items/draft-from-photo` que genera borrador de artículo (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`) usando Gemini Vision con fallback heurístico, y prefill automático en `/app/items/new` para que el usuario solo complete caja y confirme.
 
 ---
 
@@ -165,6 +171,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - `/app` (shell)
   - `/app/home` (buscador + favoritos)
   - `/app/items/new`
+  - `/app/items/from-photo` (captura/subida + inferencia IA)
   - `/app/items/:id` (detalle/edición)
   - `/app/boxes` (árbol de cajas)
   - `/app/boxes/:id` (detalle de caja)
@@ -178,7 +185,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 ### Shell (Material)
 - Toolbar superior con:
   - selector de warehouse (si aplica)
-  - icono escáner/cámara (QR)
+  - icono escáner QR
+  - icono cámara para alta asistida por foto de artículo
   - acceso a settings
 - navegación lateral con iconografía y estado activo por sección
 - Responsive:
@@ -189,9 +197,14 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Buscador arriba (input fijo).
 - Estado inicial: favoritos del usuario + chips de filtros rápidos.
 - Al escribir: filtra y ordena por relevancia.
-- Acciones rápidas en cada card: ⭐, +/- stock, mover, borrar.
+- Acciones rápidas en cada card/lista con iconografía consistente (favorito, +/- stock, editar, reprocesar, borrar) y `tooltip` descriptivo por acción para mantener claridad sin perder densidad visual.
 - Acción principal: **Nuevo elemento** (desde ahí se elige crear artículo o caja).
-- Cards de artículos compactas: prioridad a densidad (más elementos visibles) y claridad operativa (acciones inline sin botones flotantes grandes).
+- Visualización conmutable entre `Cards` y `Lista` mediante selector en la propia Home (preferencia persistida en cliente).
+- Cards de artículos compactas: prioridad a densidad (más elementos visibles por fila), miniatura de producto y jerarquía clara (nombre, ruta, stock, tags y acciones inline).
+- Vista lista: filas densas para escaneo rápido de muchos artículos con las mismas acciones operativas (favorito, stock, editar, reprocesar tags, borrar).
+- En escritorio, la vista lista usa tabla densa con encabezados por columna para maximizar comparación visual entre artículos; en pantallas pequeñas mantiene legibilidad mediante contenedor con scroll horizontal.
+- El panel de acciones por lote está colapsado por defecto y al activarlo habilita selección visual por checkbox en cards/lista; al cerrarlo limpia selección para evitar estado oculto.
+- La descripción en cards/lista mantiene truncado visual y expone el contenido completo mediante tooltip.
 
 ### Árbol de cajas
 - Árbol con expand/collapse (Material Tree).
@@ -348,6 +361,11 @@ Secciones:
 - [x] En `/app/items/new`, el usuario elige tipo de alta: **Artículo** o **Caja**.
 - [x] Si selecciona Caja, se crea `box` con padre opcional usando el mismo flujo.
 - [x] El acceso principal se etiqueta como “Nuevo elemento”.
+
+**US-D8: Alta de artículo vía foto + LLM**
+- [x] Desde toolbar (`icono cámara`), el usuario puede sacar/subir foto para inferir metadatos del artículo.
+- [x] Backend devuelve borrador estructurado (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`) con fallback local si Gemini falla o no está configurado.
+- [x] El formulario `/app/items/new` se abre pre-rellenado y mantiene edición manual completa; el usuario debe seleccionar/confirmar caja antes de guardar.
 
 ---
 
@@ -645,6 +663,9 @@ Secciones:
 ### Items
 - `GET /warehouses/{warehouse_id}/items?q=...&favorites_only=...&stock_zero=...&with_photo=...`
 - `POST /warehouses/{warehouse_id}/items`
+- `POST /warehouses/{warehouse_id}/items/draft-from-photo`
+  - body: `{ "image_data_url": "data:image/...;base64,..." }`
+  - respuesta: `{ "name", "description", "tags", "aliases", "confidence", "warnings", "llm_used" }`
 - `GET /warehouses/{warehouse_id}/items/{item_id}`
 - `PATCH /warehouses/{warehouse_id}/items/{item_id}`
 - `DELETE /warehouses/{warehouse_id}/items/{item_id}` (soft)
@@ -772,6 +793,7 @@ El servidor persiste `processed_commands` para no duplicar.
 - Modelo por defecto recomendado (costo/latencia): `gemini-2.5-flash-lite`.
 - Endpoint REST Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`.
 - La generación de tags/alias se hace a partir de `item.name` + `item.description`.
+- Para alta por foto, backend envía la imagen (data URL base64) como `inline_data` a Gemini y obtiene borrador de metadatos de artículo.
 
 ### Reglas
 - Tags: 3–10, normalizados, sin duplicados.
@@ -783,6 +805,11 @@ El servidor persiste `processed_commands` para no duplicar.
   - backend llama Gemini con `name + description` y genera tags/alias
   - si Gemini no responde o devuelve formato inválido, backend aplica fallback heurístico para no bloquear la operación
   - UI refleja estado “generando tags…”
+- Al crear item desde foto:
+  - frontend captura/sube imagen y llama `POST /warehouses/{warehouse_id}/items/draft-from-photo`
+  - backend intenta inferir `name/description/tags/aliases` con Gemini Vision
+  - si falla Gemini o no hay API key válida, backend devuelve fallback no bloqueante con advertencias
+  - frontend abre `/app/items/new` con datos pre-rellenados para confirmación del usuario
 
 ---
 
@@ -896,6 +923,17 @@ El servidor persiste `processed_commands` para no duplicar.
   - Migración: `20260222_0006_slice7_slice8_sync_transfer`.
   - Calidad: test backend `test_slice8_export_import.py`.
 
+### Slice 9 — Alta de artículo por foto (LLM Vision)
+- Captura/subida de imagen desde toolbar.
+- Inferencia de metadatos de item con Gemini Vision.
+- Prefill de `/app/items/new` para reducir fricción de alta.
+- Estado actual (2026-03-04): **completada (iteración inicial)**.
+  - Backend: endpoint `POST /warehouses/{warehouse_id}/items/draft-from-photo`, validación de membresía/imagen y respuesta estructurada (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`, `llm_used`).
+  - Frontend: ruta `/app/items/from-photo`, captura/subida de foto (móvil/escritorio), análisis y navegación a formulario de alta pre-rellenado.
+  - Seguridad: la API key Gemini permanece cifrada en backend; ante error o falta de configuración se aplica fallback heurístico no bloqueante.
+  - Migración: no requerida (sin cambios de modelo en esta iteración).
+  - Calidad: test backend `test_slice9_item_photo_draft.py` y build frontend OK.
+
 ---
 
 ## Definición de Done
@@ -927,3 +965,4 @@ Para considerar una slice “Done”:
 - **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
 - **A-012 (2026-03-04):** Para habilitar impresión de etiquetas sin añadir librerías QR al frontend en esta iteración, la imagen QR se renderiza con un servicio remoto (`api.qrserver.com`) usando como payload únicamente `qr_token` (no credenciales ni secretos). Si se requiere operación 100% offline/air-gapped, se migrará a generador QR local en frontend o endpoint backend dedicado.
 - **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias usa Gemini API (`gemini-2.5-flash-lite`) cuando hay API key válida; si hay error de red o respuesta inválida, backend aplica fallback heurístico local para mantener disponibilidad y evitar fallos en create/update/reprocess.
+- **A-014 (2026-03-04):** En Slice 9 inicial, la foto capturada para inferencia se envía como `data URL` al endpoint de borrador y no se persiste automáticamente en `items.photo_url`; se prioriza flujo rápido y reversible de identificación (fase posterior podrá añadir almacenamiento persistente de foto en backend).
