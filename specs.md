@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.29
+- **Versión:** v1.30
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -59,6 +59,7 @@
 - **v1.27 (2026-03-05):** Ajuste de legibilidad en vista `Lista` de artículos: la columna `Ruta` aumenta su ancho mínimo/máximo para reducir truncados agresivos de nombres de cajas largas en Home y detalle de caja.
 - **v1.28 (2026-03-05):** Refinamiento UX en móvil para detalle de caja: el bloque de acciones de cabecera (`print`, `add`, `photo_camera`) deja de usar layout heredado de botones full-width y pasa a una banda compacta de 3 acciones en una sola fila, con targets táctiles claros y proporciones estables.
 - **v1.29 (2026-03-05):** Ajuste de acciones de producto en móvil: se elimina el modo “rail scrollable” en cards (`product-actions-mobile`) y se reemplaza por distribución con wrapping sin contenedor con overflow, evitando scroll vertical/artefactos visuales en Home y detalle de caja.
+- **v1.30 (2026-03-05):** Ajuste de comprensión en cards de artículos: los controles de stock `+/-` se integran dentro del badge de stock para vincular explícitamente la acción con el número mostrado.
 
 ---
 

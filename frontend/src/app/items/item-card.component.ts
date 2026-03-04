@@ -56,9 +56,32 @@ import { Item } from '../services/item.service';
       </div>
 
       <div class="product-actions" [class.product-actions-mobile]="isMobileView">
-        <div class="product-stock-inline" matTooltip="Stock actual">
-          <mat-icon>inventory_2</mat-icon>
-          <span>{{ item.stock }}</span>
+        <div class="product-stock-inline">
+          <button
+            mat-icon-button
+            type="button"
+            class="stock-step-btn"
+            (click)="stockAdjust.emit(-1)"
+            [attr.aria-label]="'Reducir stock de ' + item.name"
+            matTooltip="Reducir stock"
+          >
+            <mat-icon>remove</mat-icon>
+          </button>
+          <span class="stock-display" matTooltip="Stock actual">
+            <mat-icon>inventory_2</mat-icon>
+            <span>{{ item.stock }}</span>
+          </span>
+          <button
+            mat-icon-button
+            color="primary"
+            type="button"
+            class="stock-step-btn"
+            (click)="stockAdjust.emit(1)"
+            [attr.aria-label]="'Incrementar stock de ' + item.name"
+            matTooltip="Incrementar stock"
+          >
+            <mat-icon>add</mat-icon>
+          </button>
         </div>
         <span class="actions-spacer"></span>
         <button
@@ -69,27 +92,6 @@ import { Item } from '../services/item.service';
           [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
         >
           <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
-        </button>
-        <button
-          mat-icon-button
-          color="primary"
-          class="compact-icon-action"
-          type="button"
-          (click)="stockAdjust.emit(1)"
-          [attr.aria-label]="'Incrementar stock de ' + item.name"
-          matTooltip="Incrementar stock"
-        >
-          <mat-icon>add</mat-icon>
-        </button>
-        <button
-          mat-icon-button
-          class="compact-icon-action"
-          type="button"
-          (click)="stockAdjust.emit(-1)"
-          [attr.aria-label]="'Reducir stock de ' + item.name"
-          matTooltip="Reducir stock"
-        >
-          <mat-icon>remove</mat-icon>
         </button>
         <button
           mat-icon-button
@@ -237,17 +239,39 @@ import { Item } from '../services/item.service';
       .product-stock-inline {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
-        padding: 2px 6px;
+        gap: 2px;
+        padding: 2px;
         border-radius: 999px;
         border: 1px solid rgba(191, 216, 255, 0.8);
         background: #edf4ff;
         color: #234e9c;
+      }
+
+      .stock-display {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        min-width: 52px;
+        padding: 0 6px;
         font-size: 0.76rem;
         font-weight: 600;
       }
 
-      .product-stock-inline .mat-icon {
+      .stock-display .mat-icon {
+        width: 14px;
+        height: 14px;
+        font-size: 14px;
+      }
+
+      .stock-step-btn {
+        width: 26px !important;
+        height: 26px !important;
+        min-width: 26px !important;
+        padding: 0 !important;
+      }
+
+      .stock-step-btn .mat-icon {
         width: 14px;
         height: 14px;
         font-size: 14px;
@@ -274,6 +298,12 @@ import { Item } from '../services/item.service';
 
         .product-actions .actions-spacer {
           display: none;
+        }
+
+        .stock-step-btn {
+          width: 30px !important;
+          height: 30px !important;
+          min-width: 30px !important;
         }
 
         .compact-icon-action {
