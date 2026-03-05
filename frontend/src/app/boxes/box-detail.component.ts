@@ -188,12 +188,24 @@ type DetailViewMode = 'cards' | 'list';
         *ngIf="avatarPreviewUrl"
         [ngStyle]="avatarPreviewStyle"
         [class.avatar-preview-pinned]="avatarPreviewPinned"
+        [class.avatar-preview-modal]="avatarPreviewModal"
         (mouseenter)="onPreviewMouseEnter()"
         (mouseleave)="onPreviewMouseLeave()"
         (click)="$event.stopPropagation()"
       >
         <img [src]="avatarPreviewUrl" [alt]="'Vista ampliada de ' + avatarPreviewName" />
-        <p>{{ avatarPreviewName }}</p>
+        <div class="avatar-preview-modal-actions" *ngIf="avatarPreviewModal">
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            class="avatar-preview-close-large"
+            aria-label="Cerrar vista ampliada"
+            (click)="closeAvatarPreview(true)"
+          >
+            Cerrar
+          </button>
+        </div>
       </aside>
     </div>
   `,
@@ -263,32 +275,48 @@ type DetailViewMode = 'cards' | 'list';
 
       .avatar-preview-panel {
         position: fixed;
-        width: 260px;
-        max-width: calc(100vw - 18px);
         background: #ffffff;
         border: 1px solid rgba(191, 201, 219, 0.9);
-        border-radius: 12px;
-        padding: 8px;
-        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
+        border-radius: 14px;
+        padding: 10px;
+        box-shadow: 0 18px 38px rgba(15, 23, 42, 0.22);
         z-index: 1201;
+        display: flex;
+        flex-direction: column;
       }
 
       .avatar-preview-panel img {
         display: block;
         width: 100%;
         height: auto;
-        max-height: min(52vh, 320px);
+        flex: 1 1 auto;
+        min-height: 0;
         object-fit: contain;
-        border-radius: 8px;
+        border-radius: 10px;
         background: #f4f7fb;
       }
 
-      .avatar-preview-panel p {
-        margin: 7px 2px 2px;
-        font-size: 0.78rem;
+      .avatar-preview-modal-actions {
+        margin-top: 12px;
+        display: flex;
+      }
+
+      .avatar-preview-close-large {
+        width: 100%;
+        min-height: 46px;
+        border-radius: 10px;
         font-weight: 600;
-        color: #2d3a4d;
-        line-height: 1.3;
+      }
+
+      .avatar-preview-modal {
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%);
+        width: min(92vw, 960px) !important;
+        height: min(88vh, 900px) !important;
+        max-width: calc(100vw - 24px);
+        max-height: calc(100vh - 24px);
+        padding: 12px;
       }
 
       @media (max-width: 900px) {
@@ -323,10 +351,6 @@ type DetailViewMode = 'cards' | 'list';
           gap: 8px;
         }
 
-        .avatar-preview-panel {
-          width: calc(100vw - 18px);
-          max-width: 360px;
-        }
       }
     `
   ]
@@ -346,6 +370,7 @@ export class BoxDetailComponent implements OnInit, OnDestroy {
   avatarPreviewUrl: string | null = null;
   avatarPreviewName = '';
   avatarPreviewPinned = false;
+  avatarPreviewModal = false;
   avatarPreviewStyle: Record<string, string> = {};
   private avatarPreviewHovering = false;
 
@@ -533,7 +558,7 @@ export class BoxDetailComponent implements OnInit, OnDestroy {
   }
 
   onAvatarMouseEnter(item: BoxItem, event: MouseEvent): void {
-    if (!item.photo_url || this.avatarPreviewPinned || isCoarsePointerDevice()) {
+    if (!item.photo_url || this.avatarPreviewPinned || isTabletOrMobileViewport() || isCoarsePointerDevice()) {
       return;
     }
     this.openAvatarPreview(item, event, false);
@@ -595,6 +620,7 @@ export class BoxDetailComponent implements OnInit, OnDestroy {
     this.avatarPreviewUrl = null;
     this.avatarPreviewName = '';
     this.avatarPreviewPinned = false;
+    this.avatarPreviewModal = false;
     this.avatarPreviewStyle = {};
     this.avatarPreviewHovering = false;
   }
@@ -636,35 +662,36 @@ export class BoxDetailComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (this.isMobileView || isCoarsePointerDevice()) {
+    const rect = target.getBoundingClientRect();
+    const margin = 10;
+
+    if (isTabletOrMobileViewport() || this.isMobileView || isCoarsePointerDevice()) {
       this.avatarPreviewUrl = item.photo_url;
       this.avatarPreviewName = item.name;
       this.avatarPreviewPinned = true;
+      this.avatarPreviewModal = true;
       this.avatarPreviewHovering = false;
-      this.avatarPreviewStyle = {
-        width: 'calc(100vw - 18px)',
-        left: '9px',
-        top: 'auto',
-        bottom: 'max(10px, env(safe-area-inset-bottom))'
-      };
+      this.avatarPreviewStyle = {};
       return;
     }
 
-    const rect = target.getBoundingClientRect();
-    const panelWidth = Math.min(260, window.innerWidth - 18);
-    const panelHeight = Math.min(350, Math.floor(window.innerHeight * 0.6));
-    const margin = 10;
+    const previewSize = Math.max(360, Math.round((rect.width || 36) * 20));
+    const panelWidth = Math.min(previewSize, window.innerWidth - margin * 2);
+    const panelHeight = Math.min(previewSize, window.innerHeight - margin * 2);
     const placeRight = rect.right + margin + panelWidth <= window.innerWidth - margin;
     let left = placeRight ? rect.right + margin : rect.left - panelWidth - margin;
     left = Math.max(margin, Math.min(left, window.innerWidth - panelWidth - margin));
-    let top = rect.top - 14;
+    let top = rect.top + rect.height / 2 - panelHeight / 2;
     top = Math.max(margin, Math.min(top, window.innerHeight - panelHeight - margin));
 
     this.avatarPreviewUrl = item.photo_url;
     this.avatarPreviewName = item.name;
     this.avatarPreviewPinned = pinned;
+    this.avatarPreviewModal = false;
     this.avatarPreviewHovering = false;
     this.avatarPreviewStyle = {
+      width: `${panelWidth}px`,
+      height: `${panelHeight}px`,
       left: `${left}px`,
       top: `${top}px`
     };
@@ -677,6 +704,10 @@ function isCoarsePointerDevice(): boolean {
 
 function isNarrowViewport(): boolean {
   return mediaQueryMatches('(max-width: 700px)');
+}
+
+function isTabletOrMobileViewport(): boolean {
+  return mediaQueryMatches('(max-width: 1024px)');
 }
 
 function mediaQueryMatches(query: string): boolean {

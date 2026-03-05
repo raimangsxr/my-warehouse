@@ -85,6 +85,15 @@
 - **v1.53 (2026-03-05):** Observabilidad ampliada del pipeline LLM en backend: se añaden logs `INFO/DEBUG` por petición de IA con identificador de operación, orden de `model_priority`, intentos por modelo configurado y alias runtime, modelo ganador que resuelve cada petición (tags/aliases y draft por foto) y trazado explícito de fallback cuando falla un intento y se pasa al siguiente modelo/alias o a fallback heurístico.
 - **v1.54 (2026-03-05):** Hardening de observabilidad y flujo de lotes: todos los fallos backend registrados con logging de severidad `ERROR` (incluyendo fallos de autenticación/acceso y fallos de IA/fallback por modelo), `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` permite añadir nuevas fotos a lotes previamente `committed` (reabriendo estado operativo del lote), y en frontend detalle de lote sincroniza correctamente los campos del editor al llegar resultados IA para artículos recién añadidos (evita formulario en blanco tras procesado sin necesidad de refrescar la página).
 - **v1.55 (2026-03-05):** UX de búsqueda en frontend sin acción explícita de submit: se elimina el botón `Buscar` en Home y Detalle de caja, y ambos buscadores funcionan en tiempo real mientras se escribe con `debounce` (300ms), manteniendo botón `Limpiar` para reset inmediato de filtros.
+- **v1.56 (2026-03-05):** Refinamiento visual de Home: la card de filtros se divide en dos columnas (izquierda: buscador + filtros rápidos en píldoras iconográficas; derecha: nube de tags), se elimina el botón `Limpiar`, la nube de tags queda acotada a ~5-6 filas sin scroll, el CTA `Nuevo elemento` pasa a icono con `tooltip`, las cards de artículos usan fondo blanco con elevación sutil para mayor contraste, y el preview de avatar en hover/tap se ajusta a tamaño ~2x respecto a la miniatura.
+- **v1.57 (2026-03-05):** Ajuste de inspección visual de fotos de artículos en inventario (Home y Detalle de caja): en escritorio, hover/tap sobre avatar abre preview flotante de gran tamaño (escala objetivo ~20x respecto a la miniatura, acotada al viewport); en tablet/móvil, el tap abre una modal centrada con la imagen en grande y cierre por backdrop/`Esc`.
+- **v1.58 (2026-03-05):** Mejora de usabilidad en modal de preview de imágenes (tablet/móvil): se añade botón explícito de cierre (`close`) dentro de la modal de foto en Home y Detalle de caja, manteniendo también cierre por backdrop y tecla `Esc`.
+- **v1.59 (2026-03-05):** Ajuste de ergonomía en modal de preview (tablet/móvil): el cierre pasa a botón grande en la parte inferior de la modal (`Cerrar`) en Home y Detalle de caja, sustituyendo el botón flotante superior.
+- **v1.60 (2026-03-05):** Prioridad operativa de `Lotes` en shell: la acción `Lotes` pasa a botón principal visible en la toolbar superior, situada junto a `Escanear QR` (desktop y móvil). En móvil, `Lotes` sale del menú overflow y queda como acceso directo en la barra.
+- **v1.61 (2026-03-05):** Corrección de densidad en vista `Lista` de inventario (Home y Detalle de caja): filas compactadas (menor alto de celdas/texto/avatar/chips), ajuste de anchos de columnas (`Artículo/Ruta/Stock/Tags/Acciones`) y acciones en una sola línea sin wrapping para eliminar alturas excesivas y espacio desperdiciado.
+- **v1.62 (2026-03-05):** Ajuste de equilibrio visual en vista `Lista`: se recupera algo de espacio vertical de fila para legibilidad (sin volver al exceso), se reduce el ancho de `Ruta` y se amplía `Artículo` para priorizar el contenido principal.
+- **v1.63 (2026-03-05):** Coherencia operativa entre vistas `Cards` y `Lista`: en la tabla de inventario los controles de stock `-/+` se integran dentro del chip de stock (misma semántica que cards), y la columna `Acciones` se simplifica eliminando botones de stock duplicados.
+- **v1.64 (2026-03-05):** Ajuste fino de alineación en chip de stock de vista `Lista`: iconos de decremento/incremento (`-/+`) centrados verticalmente respecto al valor de stock para mejorar legibilidad y precisión visual.
 
 ---
 
@@ -232,8 +241,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 
 ### Shell (Material)
 - Toolbar superior con:
-  - escritorio: chip de warehouse activo + accesos directos (QR, cámara individual, lotes, settings, salir)
-  - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal, incluyendo acceso a lotes
+  - escritorio: chip de warehouse activo + accesos directos con prioridad operativa `QR` + `Lotes` (adyacentes), seguidos de cámara individual, settings y salir
+  - móvil: accesos esenciales visibles (menú lateral + `QR` + `Lotes`) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal
 - navegación lateral con iconografía y estado activo por sección
 - navegación lateral con módulo dedicado `Lotes` (enlace de primer nivel) que lleva a vista de listado y gestión de lotes
 - Responsive:
@@ -252,23 +261,29 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Las acciones explícitas de usuario (crear/guardar/mover/borrar/restaurar/sync/import/export/resolver conflictos) muestran feedback inmediato con snackbar en la esquina inferior derecha.
 - Se usan tres severidades visuales consistentes: `success` (confirmación), `error` (fallo), `info` (estado operativo no bloqueante, p. ej. comandos offline en cola).
 - Los mensajes inline existentes se mantienen para contexto persistente de pantalla; el snackbar cubre confirmación/error inmediata de la acción disparada.
+- Las acciones de **alta/creación** en cabeceras o barras de herramientas se representan con icono Material + `tooltip` textual descriptivo, priorizando densidad visual sin perder descubribilidad.
 
 ### Home
 - Buscador arriba (input fijo).
 - Estado inicial: favoritos del usuario + chips de filtros rápidos.
 - Al escribir: filtra y ordena por relevancia.
 - Acciones rápidas en cada card/lista con iconografía consistente (favorito, +/- stock, editar, reprocesar, borrar) y `tooltip` descriptivo por acción para mantener claridad sin perder densidad visual.
-- Acción principal: **Nuevo elemento** (desde ahí se elige crear artículo o caja).
+- Acción principal: **Nuevo elemento** en formato iconográfico (`add`) con `tooltip`.
 - Visualización conmutable entre `Cards` y `Lista` mediante selector en la propia Home (preferencia persistida en cliente) en escritorio/tablet; en móvil se prioriza siempre `Cards` para legibilidad y operación táctil.
-- Cards de artículos compactas: prioridad a densidad (más elementos visibles por fila), miniatura de producto y jerarquía clara (nombre, ruta, stock, tags y acciones inline).
-- El avatar de artículo permite preview ampliada de foto para inspección rápida: hover contextual en escritorio y panel fijo inferior en móvil/táctil, sin salir de Home.
+- La card de filtros se organiza en dos bloques verticales: columna izquierda para búsqueda + filtros rápidos y columna derecha para nube de tags.
+- Los filtros rápidos (`Solo favoritos`, `Stock = 0`) se muestran como píldoras iconográficas con estado activo.
+- Cards de artículos compactas: prioridad a densidad (más elementos visibles por fila), miniatura de producto y jerarquía clara (nombre, ruta, stock, tags y acciones inline), con superficie blanca y elevación sutil para separarse del fondo.
+- El avatar de artículo permite preview ampliada de foto para inspección rápida: en escritorio usa panel flotante de gran tamaño (objetivo ~20x de la miniatura, limitado por viewport) y en tablet/móvil abre modal centrada con imagen grande y botón grande inferior `Cerrar`, sin salir de Home.
 - La ruta del artículo se resalta en rojo si su caja actual es la caja especial de entrada.
 - Vista lista: filas densas para escaneo rápido de muchos artículos con las mismas acciones operativas (favorito, stock, editar, reprocesar tags, borrar).
 - En escritorio, la vista lista usa tabla densa con encabezados por columna para maximizar comparación visual entre artículos; en pantallas pequeñas mantiene legibilidad mediante contenedor con scroll horizontal.
+- La tabla de lista prioriza densidad vertical: altura de fila compacta y columna de acciones sin salto de línea (botones en una sola fila) para evitar desperdicio de espacio.
+- El reparto horizontal de columnas prioriza `Artículo` sobre `Ruta` (ruta más estrecha) para mejorar lectura del nombre/descripcion en inventarios grandes.
+- En vista `Lista`, los ajustes de stock `-/+` viven dentro del chip de stock (igual que en `Cards`) para vincular visualmente la acción con el valor.
 - El panel de acciones por lote está colapsado por defecto y al activarlo habilita selección visual por checkbox en cards/lista; al cerrarlo limpia selección para evitar estado oculto.
 - La descripción en cards/lista mantiene truncado visual y expone el contenido completo mediante tooltip.
-- La nube de tags en Home pondera visualmente cada tag según su frecuencia (más uso = más tamaño/peso visual) para facilitar escaneo y priorización de filtros frecuentes.
-- En móvil, filtros/checkboxes/nube de tags de Home se apilan en una sola columna; la nube permite scroll vertical acotado y las acciones rápidas de cada card mantienen layout táctil con wrapping para evitar botones diminutos o saltos de línea confusos.
+- La nube de tags en Home pondera visualmente cada tag según su frecuencia (más uso = más tamaño/peso visual) para facilitar escaneo y priorización de filtros frecuentes, con alto máximo visual equivalente a ~5-6 filas (sin scroll).
+- En móvil, filtros rápidos y nube de tags de Home se apilan en una sola columna; se mantiene límite visual de altura en la nube sin scroll y las acciones rápidas de cada card usan layout táctil con wrapping para evitar botones diminutos o saltos de línea confusos.
 
 ### Árbol de cajas
 - Árbol con expand/collapse (Material Tree).
@@ -293,6 +308,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Acciones de cabecera en iconos con tooltip: `print` (imprimir etiqueta), `add` (nuevo elemento), `photo_camera` (alta por foto contextual) y `collections` (captura masiva contextual).
 - Buscador interno incremental con `debounce` (actualiza resultados al escribir, sin botón `Buscar`).
 - Lista de artículos recursivos renderizada con los mismos componentes reutilizables que Home (`item-card` / `item-list`) para mantener consistencia visual y funcional.
+- La vista `Lista` en detalle de caja hereda la misma optimización de densidad/ancho de columnas que Home para mantener filas compactas y acciones sin wrapping.
+- El preview de foto de artículo replica la misma regla de Home: escritorio con panel flotante de gran tamaño (~20x objetivo), tablet/móvil con modal centrada y botón grande inferior `Cerrar`.
 - Cada fila/card muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`.
 - La ruta es navegable por tramo en detalle de caja (navega a la caja correspondiente).
 - En alta por foto iniciada desde detalle, tras la inferencia IA la caja destino queda fijada a la caja actual (`lockBox`) en `/app/items/new`.

@@ -68,7 +68,33 @@ import { Item } from '../services/item.service';
                 <ng-template #plainPath>{{ item.box_path.join(' > ') }}</ng-template>
               </td>
               <td class="col-stock">
-                <span class="product-stock">{{ item.stock }}</span>
+                <div class="product-stock-inline">
+                  <button
+                    mat-icon-button
+                    type="button"
+                    class="stock-step-btn stock-step-dec"
+                    (click)="stockAdjust.emit({ item, delta: -1 })"
+                    [attr.aria-label]="'Reducir stock de ' + item.name"
+                    matTooltip="Reducir stock"
+                  >
+                    <mat-icon>remove</mat-icon>
+                  </button>
+                  <span class="stock-display" matTooltip="Stock actual">
+                    <mat-icon>inventory_2</mat-icon>
+                    <span>{{ item.stock }}</span>
+                  </span>
+                  <button
+                    mat-icon-button
+                    color="primary"
+                    type="button"
+                    class="stock-step-btn stock-step-inc"
+                    (click)="stockAdjust.emit({ item, delta: 1 })"
+                    [attr.aria-label]="'Incrementar stock de ' + item.name"
+                    matTooltip="Incrementar stock"
+                  >
+                    <mat-icon>add</mat-icon>
+                  </button>
+                </div>
               </td>
               <td class="col-tags">
                 <div class="table-tags">
@@ -86,27 +112,6 @@ import { Item } from '../services/item.service';
                     [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
                   >
                     <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
-                  </button>
-                  <button
-                    mat-icon-button
-                    color="primary"
-                    class="compact-icon-action"
-                    type="button"
-                    (click)="stockAdjust.emit({ item, delta: 1 })"
-                    [attr.aria-label]="'Incrementar stock de ' + item.name"
-                    matTooltip="Incrementar stock"
-                  >
-                    <mat-icon>add</mat-icon>
-                  </button>
-                  <button
-                    mat-icon-button
-                    class="compact-icon-action"
-                    type="button"
-                    (click)="stockAdjust.emit({ item, delta: -1 })"
-                    [attr.aria-label]="'Reducir stock de ' + item.name"
-                    matTooltip="Reducir stock"
-                  >
-                    <mat-icon>remove</mat-icon>
                   </button>
                   <button
                     mat-icon-button
@@ -168,24 +173,25 @@ import { Item } from '../services/item.service';
       .inventory-table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 1040px;
+        min-width: 920px;
+        table-layout: fixed;
       }
 
       .inventory-table th {
         text-align: left;
-        font-size: 0.73rem;
+        font-size: 0.7rem;
         font-weight: 700;
         letter-spacing: 0.04em;
         color: #64748b;
         text-transform: uppercase;
-        padding: 11px 10px;
+        padding: 9px 8px;
         border-bottom: 1px solid var(--border-soft);
         background: #f2f6fd;
         white-space: nowrap;
       }
 
       .inventory-table td {
-        padding: 8px 10px;
+        padding: 8px 8px;
         border-bottom: 1px solid rgba(219, 227, 239, 0.72);
         vertical-align: middle;
       }
@@ -195,37 +201,42 @@ import { Item } from '../services/item.service';
       }
 
       .col-select {
-        width: 44px;
+        width: 42px;
+      }
+
+      .col-item {
+        width: 44%;
+        min-width: 340px;
       }
 
       .col-stock {
-        width: 90px;
+        width: 132px;
       }
 
       .col-route {
-        width: 340px;
-        min-width: 300px;
+        width: 18%;
+        min-width: 170px;
       }
 
       .col-tags {
-        width: 180px;
+        width: 140px;
       }
 
       .col-actions {
-        width: 310px;
+        width: 178px;
       }
 
       .table-item-cell {
         display: flex;
         align-items: center;
-        gap: 9px;
+        gap: 7px;
         min-width: 0;
       }
 
       .product-avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 9px;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
         border: 1px solid var(--border-soft);
         background: #fff;
         overflow: hidden;
@@ -234,9 +245,9 @@ import { Item } from '../services/item.service';
       }
 
       .table-avatar {
-        width: 32px;
-        height: 32px;
-        flex-basis: 32px;
+        width: 30px;
+        height: 30px;
+        flex-basis: 30px;
       }
 
       .product-avatar img {
@@ -269,24 +280,26 @@ import { Item } from '../services/item.service';
       }
 
       .table-item-title {
-        font-size: 0.9rem;
+        font-size: 0.86rem;
         font-weight: 600;
         color: #1f2937;
+        line-height: 1.24;
       }
 
       .table-item-subtitle {
         margin-top: 1px;
-        font-size: 0.77rem;
+        font-size: 0.74rem;
         color: #64748b;
+        line-height: 1.24;
       }
 
       .route-text {
-        font-size: 0.81rem;
+        font-size: 0.79rem;
         color: #475569;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 520px;
+        max-width: 100%;
       }
 
       .route-text-inbound,
@@ -307,21 +320,21 @@ import { Item } from '../services/item.service';
       .table-tags {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 3px;
         flex-wrap: wrap;
       }
 
       .table-tag {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         border: 1px solid var(--border-soft);
         color: #475569;
         background: #eef3fa;
         border-radius: 999px;
-        padding: 2px 7px;
+        padding: 2px 6px;
       }
 
       .table-tag-more {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         color: #64748b;
       }
 
@@ -329,27 +342,82 @@ import { Item } from '../services/item.service';
         display: flex;
         align-items: center;
         gap: 3px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
       }
 
-      .product-stock {
-        display: inline-flex;
-        align-self: flex-start;
-        margin-top: 2px;
-        font-size: 0.74rem;
-        font-weight: 600;
-        padding: 3px 8px;
+      .product-stock-inline {
+        display: grid;
+        grid-template-columns: 26px minmax(0, 1fr) 26px;
+        align-items: center;
+        gap: 2px;
+        width: 100%;
+        padding: 2px 6px;
         border-radius: 999px;
-        background: #deecff;
-        color: #1f4db8;
-        border: 1px solid #bfd8ff;
+        border: 1px solid rgba(191, 216, 255, 0.82);
+        background: #edf4ff;
+        color: #234e9c;
+        min-height: 32px;
+      }
+
+      .stock-display {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-width: 0;
+        padding: 0 4px;
+        font-size: 0.72rem;
+        font-weight: 600;
         white-space: nowrap;
+        line-height: 1;
+      }
+
+      .stock-display .mat-icon {
+        width: 13px;
+        height: 13px;
+        font-size: 13px;
+      }
+
+      .stock-step-btn {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 22px !important;
+        min-width: 22px !important;
+        height: 22px !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+      }
+
+      .stock-step-btn .mat-icon {
+        display: block;
+        width: 14px;
+        height: 14px;
+        font-size: 14px;
+        line-height: 14px;
+        margin: 0;
+        vertical-align: middle;
+      }
+
+      .stock-step-dec {
+        justify-self: start;
+      }
+
+      .stock-step-inc {
+        justify-self: end;
       }
 
       .compact-icon-action {
-        width: 32px !important;
-        height: 32px !important;
-        padding: 4px !important;
+        width: 30px !important;
+        min-width: 30px !important;
+        height: 30px !important;
+        padding: 3px !important;
+      }
+
+      .compact-icon-action .mat-icon {
+        width: 16px;
+        height: 16px;
+        font-size: 16px;
       }
 
       @media (max-width: 900px) {

@@ -136,12 +136,20 @@ import { Item } from '../services/item.service';
       }
 
       .product-card {
-        border: 1px solid rgba(219, 227, 239, 0.9);
+        border: 1px solid rgba(210, 220, 234, 0.92);
         border-radius: 12px;
-        background: linear-gradient(180deg, #f8f9fc 0%, #f3f6fb 100%);
+        background: #ffffff;
         padding: 8px;
         display: grid;
         gap: 8px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 18px rgba(15, 23, 42, 0.06);
+        transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+      }
+
+      .product-card:hover {
+        border-color: rgba(186, 202, 224, 0.96);
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.07), 0 11px 22px rgba(15, 23, 42, 0.08);
+        transform: translateY(-1px);
       }
 
       .product-card-main {

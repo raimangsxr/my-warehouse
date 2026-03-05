@@ -5,7 +5,6 @@ import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -51,7 +50,6 @@ type HomeViewMode = 'cards' | 'list';
     MatButtonModule,
     MatButtonToggleModule,
     MatIconModule,
-    MatCheckboxModule,
     MatSelectModule,
     MatProgressBarModule,
     MatTooltipModule,
@@ -65,9 +63,15 @@ type HomeViewMode = 'cards' | 'list';
           <h1 class="page-title">Inicio</h1>
           <p class="page-subtitle">Consulta rápida de artículos, favoritos y stock por warehouse</p>
         </div>
-        <button mat-flat-button color="primary" class="home-primary-action" [routerLink]="['/app/items/new']">
+        <button
+          mat-mini-fab
+          color="primary"
+          class="home-primary-action"
+          [routerLink]="['/app/items/new']"
+          matTooltip="Nuevo elemento"
+          aria-label="Nuevo elemento"
+        >
           <mat-icon>add</mat-icon>
-          Nuevo elemento
         </button>
       </header>
 
@@ -82,24 +86,43 @@ type HomeViewMode = 'cards' | 'list';
 
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
 
-          <div [formGroup]="filtersForm" class="form-stack">
-            <div class="form-row home-filter-row">
+          <div
+            [formGroup]="filtersForm"
+            class="home-filters-layout"
+            [class.home-filters-layout-no-tags]="visualTagsCloud.length === 0"
+          >
+            <section class="home-filters-left" aria-label="Búsqueda y filtros rápidos">
               <mat-form-field class="grow">
                 <mat-label>Buscar artículo</mat-label>
                 <mat-icon matPrefix>search</mat-icon>
                 <input matInput formControlName="q" placeholder="nombre, tags, alias, ubicación" />
               </mat-form-field>
-              <div class="inline-actions home-filter-switches">
-                <mat-checkbox class="filter-checkbox" formControlName="favoritesOnly">Solo favoritos</mat-checkbox>
-                <mat-checkbox class="filter-checkbox" formControlName="stockZero">Stock = 0</mat-checkbox>
+
+              <div class="quick-filter-pills" role="group" aria-label="Filtros rápidos">
+                <button
+                  type="button"
+                  class="quick-filter-pill"
+                  [class.quick-filter-pill-active]="filtersForm.controls.favoritesOnly.value"
+                  [attr.aria-pressed]="filtersForm.controls.favoritesOnly.value"
+                  (click)="toggleQuickFilter('favoritesOnly')"
+                >
+                  <mat-icon>{{ filtersForm.controls.favoritesOnly.value ? 'star' : 'star_outline' }}</mat-icon>
+                  Solo favoritos
+                </button>
+                <button
+                  type="button"
+                  class="quick-filter-pill"
+                  [class.quick-filter-pill-active]="filtersForm.controls.stockZero.value"
+                  [attr.aria-pressed]="filtersForm.controls.stockZero.value"
+                  (click)="toggleQuickFilter('stockZero')"
+                >
+                  <mat-icon>{{ filtersForm.controls.stockZero.value ? 'report_off' : 'remove_shopping_cart' }}</mat-icon>
+                  Stock = 0
+                </button>
               </div>
-            </div>
+            </section>
 
-            <div class="inline-actions">
-              <button mat-stroked-button type="button" (click)="clearFilters()">Limpiar</button>
-            </div>
-
-            <div class="home-tags-row" *ngIf="visualTagsCloud.length > 0">
+            <section class="home-filters-right" *ngIf="visualTagsCloud.length > 0">
               <div class="home-tags-head">
                 <span class="muted">Nube de tags</span>
                 <button mat-button type="button" *ngIf="activeTag" (click)="toggleTag(activeTag)">Quitar tag</button>
@@ -120,7 +143,7 @@ type HomeViewMode = 'cards' | 'list';
                   <span class="home-tag-chip-count">{{ tag.count }}</span>
                 </button>
               </div>
-            </div>
+            </section>
           </div>
         </mat-card-content>
       </mat-card>
@@ -253,12 +276,24 @@ type HomeViewMode = 'cards' | 'list';
         *ngIf="avatarPreviewUrl"
         [ngStyle]="avatarPreviewStyle"
         [class.avatar-preview-pinned]="avatarPreviewPinned"
+        [class.avatar-preview-modal]="avatarPreviewModal"
         (mouseenter)="onPreviewMouseEnter()"
         (mouseleave)="onPreviewMouseLeave()"
         (click)="$event.stopPropagation()"
       >
         <img [src]="avatarPreviewUrl" [alt]="'Vista ampliada de ' + avatarPreviewName" />
-        <p>{{ avatarPreviewName }}</p>
+        <div class="avatar-preview-modal-actions" *ngIf="avatarPreviewModal">
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            class="avatar-preview-close-large"
+            aria-label="Cerrar vista ampliada"
+            (click)="closeAvatarPreview(true)"
+          >
+            Cerrar
+          </button>
+        </div>
       </aside>
     </div>
   `,
@@ -273,20 +308,82 @@ type HomeViewMode = 'cards' | 'list';
       }
 
       .home-primary-action {
-        white-space: nowrap;
+        flex-shrink: 0;
       }
 
-      .home-filter-row {
-        align-items: flex-start;
-      }
-
-      .home-filter-switches {
-        min-width: 220px;
-      }
-
-      .home-tags-row {
+      .home-filters-layout {
         display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .home-filters-layout-no-tags {
+        grid-template-columns: 1fr;
+      }
+
+      .home-filters-left,
+      .home-filters-right {
+        min-width: 0;
+        display: grid;
+        gap: 10px;
+      }
+
+      .home-filters-right {
+        border-left: 1px solid rgba(211, 222, 236, 0.88);
+        padding-left: 14px;
+      }
+
+      .quick-filter-pills {
+        display: flex;
+        flex-wrap: wrap;
         gap: 8px;
+      }
+
+      .quick-filter-pill {
+        border: 1px solid rgba(188, 202, 224, 0.96);
+        border-radius: 999px;
+        background: #f7f9fd;
+        color: #344054;
+        padding: 7px 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
+      }
+
+      .quick-filter-pill:hover {
+        border-color: rgba(140, 169, 212, 0.96);
+        background: #f1f6ff;
+      }
+
+      .quick-filter-pill:focus-visible {
+        outline: 2px solid rgba(39, 93, 198, 0.42);
+        outline-offset: 1px;
+      }
+
+      .quick-filter-pill .mat-icon {
+        width: 15px;
+        height: 15px;
+        font-size: 15px;
+      }
+
+      .quick-filter-pill-active {
+        border-color: rgba(37, 74, 166, 0.94);
+        background: linear-gradient(180deg, #2f58c5 0%, #2748a4 100%);
+        color: #f7faff;
+        box-shadow: 0 6px 14px rgba(39, 72, 164, 0.25);
+      }
+
+      .quick-filter-pill.quick-filter-pill-active:hover,
+      .quick-filter-pill.quick-filter-pill-active:active,
+      .quick-filter-pill.quick-filter-pill-active:focus-visible {
+        border-color: rgba(37, 74, 166, 0.94);
+        background: linear-gradient(180deg, #2f58c5 0%, #2748a4 100%);
+        color: #f7faff;
       }
 
       .home-tags-head {
@@ -299,8 +396,11 @@ type HomeViewMode = 'cards' | 'list';
       .home-tags-cloud {
         display: flex;
         flex-wrap: wrap;
+        align-content: flex-start;
         align-items: center;
         gap: 8px;
+        max-height: 232px;
+        overflow: hidden;
       }
 
       .home-tag-chip {
@@ -708,32 +808,48 @@ type HomeViewMode = 'cards' | 'list';
 
       .avatar-preview-panel {
         position: fixed;
-        width: 260px;
-        max-width: calc(100vw - 18px);
         background: #ffffff;
         border: 1px solid rgba(191, 201, 219, 0.9);
-        border-radius: 12px;
-        padding: 8px;
-        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
+        border-radius: 14px;
+        padding: 10px;
+        box-shadow: 0 18px 38px rgba(15, 23, 42, 0.22);
         z-index: 1201;
+        display: flex;
+        flex-direction: column;
       }
 
       .avatar-preview-panel img {
         display: block;
         width: 100%;
         height: auto;
-        max-height: min(52vh, 320px);
+        flex: 1 1 auto;
+        min-height: 0;
         object-fit: contain;
-        border-radius: 8px;
+        border-radius: 10px;
         background: #f4f7fb;
       }
 
-      .avatar-preview-panel p {
-        margin: 7px 2px 2px;
-        font-size: 0.78rem;
+      .avatar-preview-modal-actions {
+        margin-top: 12px;
+        display: flex;
+      }
+
+      .avatar-preview-close-large {
+        width: 100%;
+        min-height: 46px;
+        border-radius: 10px;
         font-weight: 600;
-        color: #2d3a4d;
-        line-height: 1.3;
+      }
+
+      .avatar-preview-modal {
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%);
+        width: min(92vw, 960px) !important;
+        height: min(88vh, 900px) !important;
+        max-width: calc(100vw - 24px);
+        max-height: calc(100vh - 24px);
+        padding: 12px;
       }
 
       @media (max-width: 900px) {
@@ -745,8 +861,16 @@ type HomeViewMode = 'cards' | 'list';
           border-radius: 12px;
         }
 
-        .home-filter-switches {
-          min-width: 0;
+        .home-filters-layout {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        .home-filters-right {
+          border-left: none;
+          border-top: 1px solid rgba(211, 222, 236, 0.88);
+          padding-left: 0;
+          padding-top: 9px;
         }
       }
 
@@ -755,28 +879,19 @@ type HomeViewMode = 'cards' | 'list';
           gap: 10px;
         }
 
-        .home-primary-action {
+        .home-header > button.home-primary-action {
+          width: 40px !important;
+          min-width: 40px !important;
+          height: 40px !important;
+        }
+
+        .quick-filter-pills {
           width: 100%;
-        }
-
-        .home-filter-row {
-          gap: 8px;
-        }
-
-        .home-filter-switches {
-          width: 100%;
-          display: grid;
-          gap: 2px;
-        }
-
-        .home-tags-row {
           gap: 7px;
         }
 
         .home-tags-cloud {
-          max-height: 172px;
-          overflow-y: auto;
-          padding-right: 4px;
+          max-height: 184px;
         }
 
         .home-tag-chip {
@@ -798,11 +913,6 @@ type HomeViewMode = 'cards' | 'list';
 
         .product-actions .actions-spacer {
           display: none;
-        }
-
-        .avatar-preview-panel {
-          width: calc(100vw - 18px);
-          max-width: 360px;
         }
 
         .compact-icon-action {
@@ -834,6 +944,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   avatarPreviewUrl: string | null = null;
   avatarPreviewName = '';
   avatarPreviewPinned = false;
+  avatarPreviewModal = false;
   avatarPreviewStyle: Record<string, string> = {};
   private avatarPreviewHovering = false;
 
@@ -891,7 +1002,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   }
 
   onAvatarMouseEnter(item: Item, event: MouseEvent): void {
-    if (!item.photo_url || this.avatarPreviewPinned || isCoarsePointerDevice()) {
+    if (!item.photo_url || this.avatarPreviewPinned || isTabletOrMobileViewport() || isCoarsePointerDevice()) {
       return;
     }
     this.openAvatarPreview(item, event, false);
@@ -953,6 +1064,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     this.avatarPreviewUrl = null;
     this.avatarPreviewName = '';
     this.avatarPreviewPinned = false;
+    this.avatarPreviewModal = false;
     this.avatarPreviewStyle = {};
     this.avatarPreviewHovering = false;
   }
@@ -1007,15 +1119,14 @@ export class HomeComponent implements OnInit, OnDestroy {
       });
   }
 
-  clearFilters(): void {
-    this.activeTag = null;
-    this.filtersForm.reset({ q: '', favoritesOnly: false, stockZero: false }, { emitEvent: false });
-    this.loadItems();
-  }
-
   toggleTag(tag: string): void {
     this.activeTag = this.activeTag === tag ? null : tag;
     this.loadItems();
+  }
+
+  toggleQuickFilter(controlName: 'favoritesOnly' | 'stockZero'): void {
+    const control = this.filtersForm.controls[controlName];
+    control.setValue(!control.value);
   }
 
   trackTagCloud(_index: number, entry: TagCloudVisualEntry): string {
@@ -1289,35 +1400,36 @@ export class HomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (this.isMobileView || isCoarsePointerDevice()) {
+    const rect = target.getBoundingClientRect();
+    const margin = 10;
+
+    if (isTabletOrMobileViewport() || this.isMobileView || isCoarsePointerDevice()) {
       this.avatarPreviewUrl = item.photo_url;
       this.avatarPreviewName = item.name;
       this.avatarPreviewPinned = true;
+      this.avatarPreviewModal = true;
       this.avatarPreviewHovering = false;
-      this.avatarPreviewStyle = {
-        width: 'calc(100vw - 18px)',
-        left: '9px',
-        top: 'auto',
-        bottom: 'max(10px, env(safe-area-inset-bottom))'
-      };
+      this.avatarPreviewStyle = {};
       return;
     }
 
-    const rect = target.getBoundingClientRect();
-    const panelWidth = Math.min(260, window.innerWidth - 18);
-    const panelHeight = Math.min(350, Math.floor(window.innerHeight * 0.6));
-    const margin = 10;
+    const previewSize = Math.max(360, Math.round((rect.width || 36) * 20));
+    const panelWidth = Math.min(previewSize, window.innerWidth - margin * 2);
+    const panelHeight = Math.min(previewSize, window.innerHeight - margin * 2);
     const placeRight = rect.right + margin + panelWidth <= window.innerWidth - margin;
     let left = placeRight ? rect.right + margin : rect.left - panelWidth - margin;
     left = Math.max(margin, Math.min(left, window.innerWidth - panelWidth - margin));
-    let top = rect.top - 14;
+    let top = rect.top + rect.height / 2 - panelHeight / 2;
     top = Math.max(margin, Math.min(top, window.innerHeight - panelHeight - margin));
 
     this.avatarPreviewUrl = item.photo_url;
     this.avatarPreviewName = item.name;
     this.avatarPreviewPinned = pinned;
+    this.avatarPreviewModal = false;
     this.avatarPreviewHovering = false;
     this.avatarPreviewStyle = {
+      width: `${panelWidth}px`,
+      height: `${panelHeight}px`,
       left: `${left}px`,
       top: `${top}px`
     };
@@ -1330,6 +1442,10 @@ function isCoarsePointerDevice(): boolean {
 
 function isNarrowViewport(): boolean {
   return mediaQueryMatches('(max-width: 700px)');
+}
+
+function isTabletOrMobileViewport(): boolean {
+  return mediaQueryMatches('(max-width: 1024px)');
 }
 
 function mediaQueryMatches(query: string): boolean {

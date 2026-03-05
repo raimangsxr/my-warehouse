@@ -90,11 +90,11 @@ import { WarehouseService } from '../services/warehouse.service';
             <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
               <mat-icon>qr_code_scanner</mat-icon>
             </button>
-            <button mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo">
-              <mat-icon>photo_camera</mat-icon>
-            </button>
             <button mat-icon-button aria-label="Ir a lotes" routerLink="/app/batches">
               <mat-icon>collections</mat-icon>
+            </button>
+            <button mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo">
+              <mat-icon>photo_camera</mat-icon>
             </button>
             <button mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
               <mat-icon>tune</mat-icon>
@@ -105,6 +105,9 @@ import { WarehouseService } from '../services/warehouse.service';
             <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
               <mat-icon>qr_code_scanner</mat-icon>
             </button>
+            <button mat-icon-button aria-label="Ir a lotes" routerLink="/app/batches">
+              <mat-icon>collections</mat-icon>
+            </button>
             <button mat-icon-button [matMenuTriggerFor]="mobileToolbarMenu" aria-label="Más acciones">
               <mat-icon>more_vert</mat-icon>
             </button>
@@ -114,10 +117,6 @@ import { WarehouseService } from '../services/warehouse.service';
           <button mat-menu-item routerLink="/app/items/from-photo">
             <mat-icon>photo_camera</mat-icon>
             <span>Nuevo por foto</span>
-          </button>
-          <button mat-menu-item routerLink="/app/batches">
-            <mat-icon>collections</mat-icon>
-            <span>Lotes</span>
           </button>
           <button mat-menu-item routerLink="/app/settings">
             <mat-icon>tune</mat-icon>
