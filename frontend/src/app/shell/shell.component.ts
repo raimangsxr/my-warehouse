@@ -11,6 +11,7 @@ import { MatSidenav, MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 
 import { AuthService } from '../services/auth.service';
+import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -138,6 +139,7 @@ export class ShellComponent {
     private readonly warehouseService: WarehouseService,
     private readonly authService: AuthService,
     private readonly router: Router,
+    private readonly notificationService: NotificationService,
     breakpointObserver: BreakpointObserver
   ) {
     breakpointObserver.observe('(max-width: 900px)').subscribe((res) => {
@@ -154,10 +156,12 @@ export class ShellComponent {
   logout(): void {
     this.authService.logout().subscribe({
       next: () => {
+        this.notificationService.info('Sesión cerrada.');
         this.router.navigateByUrl('/login');
       },
       error: () => {
         this.authService.clearTokens();
+        this.notificationService.error('La sesión se cerró localmente por un error de red.');
         this.router.navigateByUrl('/login');
       }
     });

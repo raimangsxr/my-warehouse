@@ -14,6 +14,7 @@ import { Observable } from 'rxjs';
 
 import { Box, BoxService, BoxTreeNode } from '../services/box.service';
 import { Item, ItemPhotoDraft, ItemService } from '../services/item.service';
+import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 type CreateEntityType = 'item' | 'box';
@@ -159,7 +160,8 @@ export class ItemFormComponent implements OnInit {
     private readonly router: Router,
     private readonly boxService: BoxService,
     private readonly itemService: ItemService,
-    private readonly warehouseService: WarehouseService
+    private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -208,7 +210,7 @@ export class ItemFormComponent implements OnInit {
           this.updateValidatorsByType();
         },
         error: () => {
-          this.errorMessage = 'No se pudo cargar el artículo.';
+          this.setActionError('No se pudo cargar el artículo.');
         }
       });
     }
@@ -250,17 +252,20 @@ export class ItemFormComponent implements OnInit {
       next: (result: Item | Box) => {
         this.loading = false;
         if (this.createEntityType === 'box' && !this.itemId && result && 'id' in result) {
+          this.notificationService.success('Caja creada correctamente.');
           this.router.navigateByUrl(`/app/boxes/${result.id}`);
           return;
         }
+        this.notificationService.success(this.itemId ? 'Artículo actualizado correctamente.' : 'Artículo creado correctamente.');
         this.router.navigateByUrl('/app/home');
       },
       error: () => {
         this.loading = false;
-        this.errorMessage =
+        this.setActionError(
           this.createEntityType === 'box' && !this.itemId
             ? 'No se pudo crear la caja.'
-            : 'No se pudo guardar el artículo.';
+            : 'No se pudo guardar el artículo.'
+        );
       }
     });
   }
@@ -272,10 +277,11 @@ export class ItemFormComponent implements OnInit {
 
     this.itemService.delete(this.selectedWarehouseId, this.itemId).subscribe({
       next: () => {
+        this.notificationService.success('Artículo enviado a papelera.');
         this.router.navigateByUrl('/app/home');
       },
       error: () => {
-        this.errorMessage = 'No se pudo borrar el artículo.';
+        this.setActionError('No se pudo borrar el artículo.');
       }
     });
   }
@@ -288,9 +294,10 @@ export class ItemFormComponent implements OnInit {
     this.itemService.restore(this.selectedWarehouseId, this.itemId).subscribe({
       next: () => {
         this.errorMessage = '';
+        this.notificationService.success('Artículo restaurado correctamente.');
       },
       error: () => {
-        this.errorMessage = 'No se pudo restaurar el artículo.';
+        this.setActionError('No se pudo restaurar el artículo.');
       }
     });
   }
@@ -313,7 +320,7 @@ export class ItemFormComponent implements OnInit {
         if (this.lockedBoxId) {
           const lockedExists = nodes.some((node) => node.box.id === this.lockedBoxId);
           if (!lockedExists) {
-            this.errorMessage = 'La caja fijada ya no existe o no está disponible.';
+            this.setActionError('La caja fijada ya no existe o no está disponible.');
             this.lockedBoxId = null;
             this.applyBoxLockControlState();
           }
@@ -326,7 +333,7 @@ export class ItemFormComponent implements OnInit {
         }
       },
       error: () => {
-        this.errorMessage = 'No se pudieron cargar las cajas.';
+        this.setActionError('No se pudieron cargar las cajas.');
       }
     });
   }
@@ -441,6 +448,11 @@ export class ItemFormComponent implements OnInit {
       return;
     }
     this.form.controls.boxId.enable({ emitEvent: false });
+  }
+
+  private setActionError(message: string): void {
+    this.errorMessage = message;
+    this.notificationService.error(message);
   }
 }
 

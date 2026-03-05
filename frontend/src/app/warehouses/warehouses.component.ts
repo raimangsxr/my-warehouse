@@ -10,6 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
 import { Warehouse, WarehouseService } from '../services/warehouse.service';
+import { NotificationService } from '../services/notification.service';
 
 @Component({
   selector: 'app-warehouses',
@@ -159,7 +160,8 @@ export class WarehousesComponent implements OnInit {
   constructor(
     private readonly fb: FormBuilder,
     private readonly warehouseService: WarehouseService,
-    private readonly router: Router
+    private readonly router: Router,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -178,12 +180,14 @@ export class WarehousesComponent implements OnInit {
         this.loading = false;
         this.form.reset();
         this.warehouseService.setSelectedWarehouseId(warehouse.id);
+        this.notificationService.success('Warehouse creado correctamente.');
         this.loadWarehouses();
         this.router.navigateByUrl('/app/home');
       },
       error: () => {
         this.loading = false;
         this.errorMessage = 'No se pudo crear el warehouse.';
+        this.notificationService.error(this.errorMessage);
       }
     });
   }
@@ -214,10 +218,12 @@ export class WarehousesComponent implements OnInit {
         this.inviteLink = invite.invite_url;
         this.inviteToken = invite.invite_token;
         this.inviteMessage = 'Invitación creada.';
+        this.notificationService.success(this.inviteMessage);
       },
       error: () => {
         this.inviteLoading = false;
         this.inviteError = 'No se pudo crear la invitación.';
+        this.notificationService.error(this.inviteError);
       }
     });
   }
@@ -232,6 +238,7 @@ export class WarehousesComponent implements OnInit {
       },
       error: () => {
         this.errorMessage = 'No se pudieron cargar los warehouses.';
+        this.notificationService.error(this.errorMessage);
       }
     });
   }

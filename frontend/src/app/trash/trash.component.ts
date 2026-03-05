@@ -6,6 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
 import { Item, ItemService } from '../services/item.service';
+import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -97,7 +98,8 @@ export class TrashComponent implements OnInit {
   constructor(
     private readonly boxService: BoxService,
     private readonly itemService: ItemService,
-    private readonly warehouseService: WarehouseService
+    private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -109,9 +111,13 @@ export class TrashComponent implements OnInit {
       return;
     }
     this.boxService.restore(this.selectedWarehouseId, boxId).subscribe({
-      next: () => this.reload(),
+      next: () => {
+        this.notificationService.success('Caja restaurada correctamente.');
+        this.reload();
+      },
       error: () => {
         this.errorMessage = 'No se pudo restaurar la caja (revisa si su padre está eliminado).';
+        this.notificationService.error(this.errorMessage);
       }
     });
   }
@@ -121,9 +127,13 @@ export class TrashComponent implements OnInit {
       return;
     }
     this.itemService.restore(this.selectedWarehouseId, itemId).subscribe({
-      next: () => this.reload(),
+      next: () => {
+        this.notificationService.success('Artículo restaurado correctamente.');
+        this.reload();
+      },
       error: () => {
         this.errorMessage = 'No se pudo restaurar el artículo.';
+        this.notificationService.error(this.errorMessage);
       }
     });
   }
@@ -141,6 +151,7 @@ export class TrashComponent implements OnInit {
       },
       error: () => {
         this.errorMessage = 'No se pudo cargar la papelera de cajas.';
+        this.notificationService.error(this.errorMessage);
       }
     });
 
@@ -150,6 +161,7 @@ export class TrashComponent implements OnInit {
       },
       error: () => {
         this.errorMessage = 'No se pudo cargar la papelera de artículos.';
+        this.notificationService.error(this.errorMessage);
       }
     });
   }

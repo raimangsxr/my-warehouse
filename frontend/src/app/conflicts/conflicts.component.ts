@@ -6,6 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { SyncConflict, SyncService } from '../services/sync.service';
+import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -73,7 +74,8 @@ export class ConflictsComponent implements OnInit {
 
   constructor(
     private readonly syncService: SyncService,
-    private readonly warehouseService: WarehouseService
+    private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -93,6 +95,7 @@ export class ConflictsComponent implements OnInit {
       this.conflicts = await this.syncService.listConflicts(this.selectedWarehouseId);
     } catch {
       this.errorMessage = 'No se pudo cargar la lista de conflictos.';
+      this.notificationService.error(this.errorMessage);
     } finally {
       this.loading = false;
     }
@@ -108,8 +111,10 @@ export class ConflictsComponent implements OnInit {
     try {
       await this.syncService.resolveConflict(this.selectedWarehouseId, conflict.id, resolution);
       this.conflicts = await this.syncService.listConflicts(this.selectedWarehouseId);
+      this.notificationService.success('Conflicto resuelto correctamente.');
     } catch {
       this.errorMessage = 'No se pudo resolver el conflicto.';
+      this.notificationService.error(this.errorMessage);
     } finally {
       this.loading = false;
     }

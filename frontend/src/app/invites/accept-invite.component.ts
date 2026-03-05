@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { WarehouseService } from '../services/warehouse.service';
+import { NotificationService } from '../services/notification.service';
 
 @Component({
   selector: 'app-accept-invite',
@@ -52,7 +53,8 @@ export class AcceptInviteComponent implements OnInit {
   constructor(
     private readonly route: ActivatedRoute,
     private readonly router: Router,
-    private readonly warehouseService: WarehouseService
+    private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -68,18 +70,22 @@ export class AcceptInviteComponent implements OnInit {
         this.loading = false;
         this.warehouseService.setSelectedWarehouseId(res.warehouse_id);
         this.successMessage = 'Invitación aceptada correctamente.';
+        this.notificationService.success(this.successMessage);
       },
       error: (err) => {
         this.loading = false;
         if (err?.status === 400) {
           this.errorMessage = 'La invitación está expirada o ya fue usada.';
+          this.notificationService.error(this.errorMessage);
           return;
         }
         if (err?.status === 403) {
           this.errorMessage = 'La invitación no corresponde a tu email.';
+          this.notificationService.error(this.errorMessage);
           return;
         }
         this.errorMessage = 'No se pudo aceptar la invitación.';
+        this.notificationService.error(this.errorMessage);
       }
     });
   }

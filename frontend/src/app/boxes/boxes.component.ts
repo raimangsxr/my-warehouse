@@ -13,6 +13,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
 import { BoxLabelPrintService } from '../services/box-label-print.service';
+import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 interface BoxTreeViewNode extends BoxTreeNode {
@@ -297,6 +298,7 @@ export class BoxesComponent implements OnInit {
     private readonly boxService: BoxService,
     private readonly boxLabelPrintService: BoxLabelPrintService,
     private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -320,10 +322,11 @@ export class BoxesComponent implements OnInit {
           this.loading = false;
           this.createForm.reset({ name: '', parentBoxId: null });
           this.loadTree();
+          this.notificationService.success('Caja creada correctamente.');
         },
         error: () => {
           this.loading = false;
-          this.errorMessage = 'No se pudo crear la caja.';
+          this.setActionError('No se pudo crear la caja.');
         },
       });
   }
@@ -360,9 +363,10 @@ export class BoxesComponent implements OnInit {
       next: () => {
         this.cancelRename();
         this.loadTree();
+        this.notificationService.success('Caja renombrada correctamente.');
       },
       error: () => {
-        this.errorMessage = 'No se pudo actualizar la caja.';
+        this.setActionError('No se pudo actualizar la caja.');
       },
     });
   }
@@ -394,9 +398,10 @@ export class BoxesComponent implements OnInit {
       next: () => {
         this.cancelMove();
         this.loadTree();
+        this.notificationService.success('Caja movida correctamente.');
       },
       error: () => {
-        this.errorMessage = 'No se pudo mover la caja. Verifica que no se cree un ciclo.';
+        this.setActionError('No se pudo mover la caja. Verifica que no se cree un ciclo.');
       },
     });
   }
@@ -407,13 +412,19 @@ export class BoxesComponent implements OnInit {
     }
 
     this.boxService.delete(this.selectedWarehouseId, boxId, false).subscribe({
-      next: () => this.loadTree(),
+      next: () => {
+        this.loadTree();
+        this.notificationService.success('Caja enviada a papelera.');
+      },
       error: () => {
         if (confirm('La caja tiene contenido. ¿Borrar de forma recursiva (force)?')) {
           this.boxService.delete(this.selectedWarehouseId!, boxId, true).subscribe({
-            next: () => this.loadTree(),
+            next: () => {
+              this.loadTree();
+              this.notificationService.success('Caja y contenido enviados a papelera.');
+            },
             error: () => {
-              this.errorMessage = 'No se pudo enviar la caja a papelera.';
+              this.setActionError('No se pudo enviar la caja a papelera.');
             },
           });
         }
@@ -423,6 +434,11 @@ export class BoxesComponent implements OnInit {
 
   printLabel(box: BoxTreeViewNode['box']): void {
     this.boxLabelPrintService.printLabel(box);
+  }
+
+  private setActionError(message: string): void {
+    this.errorMessage = message;
+    this.notificationService.error(message);
   }
 
   private loadTree(): void {

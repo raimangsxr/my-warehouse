@@ -20,6 +20,7 @@ import { generateUuid } from '../core/uuid';
 import { ItemCardComponent } from '../items/item-card.component';
 import { ItemListComponent } from '../items/item-list.component';
 import { Item, ItemService, TagCloudEntry } from '../services/item.service';
+import { NotificationService } from '../services/notification.service';
 import { SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
@@ -850,7 +851,8 @@ export class HomeComponent implements OnInit, OnDestroy {
     private readonly settingsService: SettingsService,
     private readonly syncService: SyncService,
     private readonly warehouseService: WarehouseService,
-    private readonly router: Router
+    private readonly router: Router,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -1040,7 +1042,7 @@ export class HomeComponent implements OnInit, OnDestroy {
           payload: {}
         });
         this.upsertItem({ ...item, is_favorite: nextFavorite });
-        this.errorMessage = 'Sin conexión: favorito en cola para sincronizar.';
+        this.setActionInfo('Sin conexión: favorito en cola para sincronizar.');
       }
     });
   }
@@ -1063,7 +1065,7 @@ export class HomeComponent implements OnInit, OnDestroy {
           payload: { delta }
         });
         this.upsertItem({ ...item, stock: item.stock + delta });
-        this.errorMessage = 'Sin conexión: ajuste de stock en cola para sincronizar.';
+        this.setActionInfo('Sin conexión: ajuste de stock en cola para sincronizar.');
       }
     });
   }
@@ -1080,9 +1082,10 @@ export class HomeComponent implements OnInit, OnDestroy {
       next: () => {
         this.items = this.items.filter((it) => it.id !== item.id);
         this.selectedItemIds.delete(item.id);
+        this.notificationService.success('Artículo enviado a papelera.');
       },
       error: () => {
-        this.errorMessage = 'No se pudo borrar el artículo.';
+        this.setActionError('No se pudo borrar el artículo.');
       }
     });
   }
@@ -1098,10 +1101,11 @@ export class HomeComponent implements OnInit, OnDestroy {
         this.reprocessingItemIds.delete(item.id);
         this.upsertItem({ ...item, tags: res.tags });
         this.loadTagsCloud();
+        this.notificationService.success('Tags reprocesados.');
       },
       error: () => {
         this.reprocessingItemIds.delete(item.id);
-        this.errorMessage = 'No se pudieron reprocesar los tags del artículo.';
+        this.setActionError('No se pudieron reprocesar los tags del artículo.');
       }
     });
   }
@@ -1126,9 +1130,12 @@ export class HomeComponent implements OnInit, OnDestroy {
         target_box_id: this.targetBoxId
       })
       .subscribe({
-        next: () => this.loadItems(),
+        next: () => {
+          this.loadItems();
+          this.notificationService.success('Lote movido correctamente.');
+        },
         error: () => {
-          this.errorMessage = 'No se pudo mover el lote.';
+          this.setActionError('No se pudo mover el lote.');
         }
       });
   }
@@ -1144,9 +1151,12 @@ export class HomeComponent implements OnInit, OnDestroy {
         action: value ? 'favorite' : 'unfavorite'
       })
       .subscribe({
-        next: () => this.loadItems(),
+        next: () => {
+          this.loadItems();
+          this.notificationService.success('Favoritos del lote actualizados.');
+        },
         error: () => {
-          this.errorMessage = 'No se pudo actualizar favoritos en lote.';
+          this.setActionError('No se pudo actualizar favoritos en lote.');
         }
       });
   }
@@ -1165,11 +1175,24 @@ export class HomeComponent implements OnInit, OnDestroy {
         action: 'delete'
       })
       .subscribe({
-        next: () => this.loadItems(),
+        next: () => {
+          this.loadItems();
+          this.notificationService.success('Lote enviado a papelera.');
+        },
         error: () => {
-          this.errorMessage = 'No se pudo borrar el lote.';
+          this.setActionError('No se pudo borrar el lote.');
         }
       });
+  }
+
+  private setActionError(message: string): void {
+    this.errorMessage = message;
+    this.notificationService.error(message);
+  }
+
+  private setActionInfo(message: string): void {
+    this.errorMessage = message;
+    this.notificationService.info(message);
   }
 
   private loadBoxes(): void {

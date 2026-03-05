@@ -10,6 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { BoxService } from '../services/box.service';
+import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 type BarcodeDetectorLike = {
@@ -105,7 +106,8 @@ export class ScanComponent implements OnInit, OnDestroy {
     private readonly boxService: BoxService,
     private readonly warehouseService: WarehouseService,
     private readonly router: Router,
-    private readonly route: ActivatedRoute
+    private readonly route: ActivatedRoute,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -126,14 +128,14 @@ export class ScanComponent implements OnInit, OnDestroy {
 
     const video = this.videoEl?.nativeElement || null;
     if (!video) {
-      this.errorMessage = 'No se pudo inicializar el video.';
+      this.setActionError('No se pudo inicializar el video.');
       return;
     }
 
     const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (config: { formats: string[] }) => BarcodeDetectorLike })
       .BarcodeDetector;
     if (!BarcodeDetectorCtor) {
-      this.errorMessage = 'Este navegador no soporta BarcodeDetector. Usa el token manual.';
+      this.setActionError('Este navegador no soporta BarcodeDetector. Usa el token manual.');
       return;
     }
 
@@ -163,7 +165,7 @@ export class ScanComponent implements OnInit, OnDestroy {
         }
       }, 700);
     } catch {
-      this.errorMessage = 'No se pudo acceder a la cámara. Revisa permisos del navegador.';
+      this.setActionError('No se pudo acceder a la cámara. Revisa permisos del navegador.');
     }
   }
 
@@ -198,20 +200,26 @@ export class ScanComponent implements OnInit, OnDestroy {
       next: (lookup) => {
         this.warehouseService.setSelectedWarehouseId(lookup.warehouse_id);
         this.statusMessage = '';
+        this.notificationService.success('QR resuelto. Abriendo caja.');
         this.router.navigateByUrl(`/app/boxes/${lookup.box_id}`);
       },
       error: (err) => {
         this.statusMessage = '';
         if (err?.status === 403) {
-          this.errorMessage = 'No tienes acceso al warehouse de este QR.';
+          this.setActionError('No tienes acceso al warehouse de este QR.');
           return;
         }
         if (err?.status === 404) {
-          this.errorMessage = 'QR no válido o caja no encontrada.';
+          this.setActionError('QR no válido o caja no encontrada.');
           return;
         }
-        this.errorMessage = 'No se pudo resolver el QR.';
+        this.setActionError('No se pudo resolver el QR.');
       }
     });
+  }
+
+  private setActionError(message: string): void {
+    this.errorMessage = message;
+    this.notificationService.error(message);
   }
 }

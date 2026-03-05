@@ -13,6 +13,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { Subscription } from 'rxjs';
 
 import { AuthService } from '../services/auth.service';
+import { NotificationService } from '../services/notification.service';
 import { SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
 import { TransferService, WarehouseExportPayload } from '../services/transfer.service';
@@ -337,7 +338,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     private readonly settingsService: SettingsService,
     private readonly syncService: SyncService,
     private readonly transferService: TransferService,
-    private readonly warehouseService: WarehouseService
+    private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -367,11 +369,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
       next: (res) => {
         this.passwordLoading = false;
         this.passwordMessage = res.message;
+        this.notificationService.success(res.message || 'Contraseña actualizada correctamente.');
         this.passwordForm.reset();
       },
       error: () => {
         this.passwordLoading = false;
         this.passwordError = 'No se pudo cambiar la contraseña.';
+        this.notificationService.error(this.passwordError);
       }
     });
   }
@@ -398,12 +402,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.smtpLoading = false;
           this.smtpMessage = 'SMTP guardado.';
+          this.notificationService.success(this.smtpMessage);
           this.smtpPasswordMasked = res.password_masked;
           this.smtpForm.patchValue({ password: '' });
         },
         error: () => {
           this.smtpLoading = false;
           this.smtpError = 'No se pudo guardar SMTP.';
+          this.notificationService.error(this.smtpError);
         }
       });
   }
@@ -415,9 +421,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.settingsService.testSmtpSettings(this.selectedWarehouseId, this.smtpTestEmail.trim()).subscribe({
       next: (res) => {
         this.smtpMessage = res.message;
+        this.notificationService.success(res.message || 'Test SMTP completado.');
       },
       error: () => {
         this.smtpError = 'No se pudo ejecutar test SMTP.';
+        this.notificationService.error(this.smtpError);
       }
     });
   }
@@ -442,12 +450,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.llmLoading = false;
           this.llmMessage = 'LLM guardado.';
+          this.notificationService.success(this.llmMessage);
           this.llmForm.patchValue({ apiKey: res.api_key_value || '' });
           this.llmApiKeyVisible = false;
         },
         error: () => {
           this.llmLoading = false;
           this.llmError = 'No se pudo guardar LLM.';
+          this.notificationService.error(this.llmError);
         }
       });
   }
@@ -486,8 +496,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.syncConflictsCount = summary.conflicts;
       this.syncLastSeq = summary.lastSeq;
       this.syncMessage = `Sync completado. Aplicados: ${summary.applied}, cola restante: ${summary.queueCountAfter}.`;
+      this.notificationService.success(this.syncMessage);
     } catch {
       this.syncError = 'No se pudo ejecutar la sincronización.';
+      this.notificationService.error(this.syncError);
     } finally {
       this.syncLoading = false;
     }
@@ -504,9 +516,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
       next: (snapshot) => {
         this.downloadSnapshot(snapshot);
         this.transferMessage = 'Export generado correctamente.';
+        this.notificationService.success(this.transferMessage);
       },
       error: () => {
         this.transferError = 'No se pudo exportar el warehouse.';
+        this.notificationService.error(this.transferError);
       }
     });
   }
@@ -531,13 +545,16 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.transferService.importWarehouse(this.selectedWarehouseId, parsed).subscribe({
         next: (res) => {
           this.transferMessage = `${res.message}. Boxes: ${res.boxes_upserted}, Items: ${res.items_upserted}, Movimientos: ${res.stock_movements_upserted}.`;
+          this.notificationService.success('Importación completada correctamente.');
         },
         error: () => {
           this.transferError = 'No se pudo importar el JSON.';
+          this.notificationService.error(this.transferError);
         }
       });
     } catch {
       this.transferError = 'Archivo JSON inválido.';
+      this.notificationService.error(this.transferError);
     } finally {
       input.value = '';
     }

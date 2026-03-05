@@ -17,6 +17,7 @@ import { ItemListComponent } from '../items/item-list.component';
 import { Box, BoxItem, BoxService } from '../services/box.service';
 import { BoxLabelPrintService } from '../services/box-label-print.service';
 import { ItemService } from '../services/item.service';
+import { NotificationService } from '../services/notification.service';
 import { SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
@@ -350,7 +351,8 @@ export class BoxDetailComponent implements OnInit {
     private readonly settingsService: SettingsService,
     private readonly syncService: SyncService,
     private readonly boxLabelPrintService: BoxLabelPrintService,
-    private readonly warehouseService: WarehouseService
+    private readonly warehouseService: WarehouseService,
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -367,6 +369,10 @@ export class BoxDetailComponent implements OnInit {
       next: (box) => {
         this.box = box;
         this.loadItems();
+      },
+      error: () => {
+        this.notificationService.error('No se pudo cargar la caja.');
+        this.router.navigateByUrl('/app/boxes');
       }
     });
   }
@@ -408,6 +414,9 @@ export class BoxDetailComponent implements OnInit {
           acc[item.id] = item.box_path_ids;
           return acc;
         }, {} as Record<string, string[]>);
+      },
+      error: () => {
+        this.notificationService.error('No se pudieron cargar los artículos de la caja.');
       }
     });
   }
@@ -431,6 +440,7 @@ export class BoxDetailComponent implements OnInit {
           payload: {}
         });
         this.upsertItem({ ...item, is_favorite: nextFavorite });
+        this.notificationService.info('Sin conexión: favorito en cola para sincronizar.');
       }
     });
   }
@@ -453,6 +463,7 @@ export class BoxDetailComponent implements OnInit {
           payload: { delta }
         });
         this.upsertItem({ ...item, stock: item.stock + delta });
+        this.notificationService.info('Sin conexión: ajuste de stock en cola para sincronizar.');
       }
     });
   }
@@ -469,6 +480,10 @@ export class BoxDetailComponent implements OnInit {
       next: () => {
         this.items = this.items.filter((current) => current.id !== item.id);
         delete this.boxPathIdsByItemId[item.id];
+        this.notificationService.success('Artículo enviado a papelera.');
+      },
+      error: () => {
+        this.notificationService.error('No se pudo borrar el artículo.');
       }
     });
   }
@@ -483,9 +498,11 @@ export class BoxDetailComponent implements OnInit {
       next: (res) => {
         this.reprocessingItemIds.delete(item.id);
         this.upsertItem({ ...item, tags: res.tags });
+        this.notificationService.success('Tags reprocesados.');
       },
       error: () => {
         this.reprocessingItemIds.delete(item.id);
+        this.notificationService.error('No se pudieron reprocesar los tags del artículo.');
       }
     });
   }
