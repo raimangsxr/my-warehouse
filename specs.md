@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.37
+- **Versión:** v1.43
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -67,6 +67,12 @@
 - **v1.35 (2026-03-05):** Hardening del flujo `/app/items/from-photo` ante fallos intermitentes de previsualización en móvil: validación de fichero más robusta (incluye `image/jpg`, tamaño 0 y fallback por extensión cuando el MIME llega vacío), preservación del archivo seleccionado aunque falle el render de la preview, y mensajes de error visibles/no silenciosos para que el usuario pueda continuar con "Analizar foto".
 - **v1.36 (2026-03-05):** Estabilización adicional de preview en `/app/items/from-photo` para móvil: la previsualización pasa de `blob:` URL temporal a `data URL` estable (`FileReader`) y se reutiliza en el análisis IA para minimizar desapariciones intermitentes tras mostrarse la imagen.
 - **v1.37 (2026-03-05):** Blindaje ante remount de vista en `/app/items/from-photo`: se añade estado temporal en servicio frontend (`file`, `preview`, flags) para restaurar automáticamente la foto seleccionada si el componente se vuelve a crear durante el flujo móvil, evitando que la preview desaparezca por pérdida de estado local.
+- **v1.38 (2026-03-05):** Captura masiva por caja (Slice 10): nuevo flujo `/app/items/intake-batch` para subir N fotos por lote, procesarlas en paralelo en backend, revisar/editar inline (`name`, `description`, `tags`, `aliases`) y hacer commit masivo a una caja destino. Backend añade tablas `intake_batches` + `intake_drafts`, endpoints de intake (`create/upload/start/get/update/commit/delete`), procesamiento paralelo server-side desde `photo_url` con estados (`uploaded/processing/ready/review/rejected/error/committed`) y migración `20260305_0009_intake_batches`. Frontend integra acceso desde toolbar y detalle de caja (`collections`) y nueva pantalla de validación operativa.
+- **v1.39 (2026-03-05):** Ajuste UX en revisión de intake masivo: acciones por borrador pasan a iconografía con `tooltip` descriptivo (guardar/listo/revisión/rechazar/reintentar IA), y `Reintentar IA` deja de depender solo de estado `error` para permitir reproceso manual desde cualquier borrador no comprometido. El reproceso backend ahora usa contexto adicional (`name` + `description` editados) junto con la foto para mejorar la inferencia.
+- **v1.40 (2026-03-05):** Refinamiento semántico de reprocesado en intake masivo: al reintentar IA, el `name` editado por el usuario pasa a ser **autoritativo** (no se sobrescribe con una nueva predicción de nombre), y el reproceso usa foto + `name` + `description` para recalcular principalmente descripción/tags/aliases.
+- **v1.41 (2026-03-05):** Ajuste de prompt en inferencia por foto (single y batch): el modelo debe clasificar **solo un objeto**, priorizando el elemento en primer plano y más enfocado, ignorando soportes/fondo/objetos secundarios (p. ej. móvil sobre alfombrilla → `móvil`).
+- **v1.42 (2026-03-05):** Regla de contexto en `Reintentar IA` para intake: si el usuario cambió el nombre propuesto por IA, el reproceso usa `foto + name`; si no lo cambió, reprocesa solo con la foto. Se añade `suggested_name` en `intake_drafts` (migración `20260305_0010_intake_suggested_name`) para detectar este caso de forma explícita.
+- **v1.43 (2026-03-05):** Refactor visual del panel de acciones en `/app/items/intake-batch` para móvil: botones de lote pasan a layout en grid (2 columnas) con ancho/alto uniforme y botón principal de commit a ancho completo, eliminando alineación irregular y tamaños dispares.
 
 ---
 
@@ -198,6 +204,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - `/app/home` (buscador + favoritos)
   - `/app/items/new`
   - `/app/items/from-photo` (captura/subida + inferencia IA)
+  - `/app/items/intake-batch` (captura masiva por caja + revisión + commit)
   - `/app/items/:id` (detalle/edición)
   - `/app/boxes` (árbol de cajas)
   - `/app/boxes/:id` (detalle de caja)
@@ -210,8 +217,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 
 ### Shell (Material)
 - Toolbar superior con:
-  - escritorio: chip de warehouse activo + accesos directos (QR, cámara, settings, salir)
-  - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal
+  - escritorio: chip de warehouse activo + accesos directos (QR, cámara individual, captura masiva, settings, salir)
+  - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal, incluyendo acceso a captura masiva
 - navegación lateral con iconografía y estado activo por sección
 - Responsive:
   - móvil: navegación compacta (sidenav overlay), toolbar optimizada para notch/safe-area y targets táctiles amplios
@@ -267,12 +274,13 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 
 ### Detalle de caja (clave)
 - Header: nombre caja + QR + código corto (pequeño bajo QR).
-- Acciones de cabecera en iconos con tooltip: `print` (imprimir etiqueta), `add` (nuevo elemento) y `photo_camera` (alta por foto contextual).
+- Acciones de cabecera en iconos con tooltip: `print` (imprimir etiqueta), `add` (nuevo elemento), `photo_camera` (alta por foto contextual) y `collections` (captura masiva contextual).
 - Buscador interno.
 - Lista de artículos recursivos renderizada con los mismos componentes reutilizables que Home (`item-card` / `item-list`) para mantener consistencia visual y funcional.
 - Cada fila/card muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`.
 - La ruta es navegable por tramo en detalle de caja (navega a la caja correspondiente).
 - En alta por foto iniciada desde detalle, tras la inferencia IA la caja destino queda fijada a la caja actual (`lockBox`) en `/app/items/new`.
+- En captura masiva iniciada desde detalle, la caja destino del lote también queda fijada por contexto (`boxId` + `lockBox`) para evitar reasignaciones accidentales.
 
 ### Scanner QR
 - Icono en header → vista escáner.
@@ -415,6 +423,16 @@ Secciones:
 - [x] Si el navegador no puede renderizar la preview de la foto (casos HEIC/compatibilidad), la UI mantiene el fichero seleccionado, muestra error visible y permite continuar con el análisis.
 - [x] La preview se genera con `data URL` estable en memoria para reducir pérdidas de imagen intermitentes en móvil tras captura.
 - [x] Si la vista de captura se remonta (render/navegación móvil), la foto seleccionada se restaura automáticamente desde estado temporal y no se pierde el flujo.
+
+**US-D9: Captura masiva por caja + revisión operativa**
+- [x] Desde toolbar y detalle de caja (`collections`), el usuario puede crear un lote de captura masiva con caja destino fija.
+- [x] El usuario puede subir `N` fotos en lote (multipart) sin pasar por formulario item por item.
+- [x] Backend procesa en paralelo los borradores y clasifica cada uno en `Lista` o `Revisión` según confianza/warnings.
+- [x] La UI permite edición inline de `name`, `description`, `tags`, `aliases` por borrador antes de confirmar.
+- [x] Acciones rápidas por borrador en iconos con `tooltip`: guardar, `Listo`, `Revisar`, `Rechazar`, `Reintentar IA`.
+- [x] `Reintentar IA` puede ejecutarse desde cualquier borrador no comprometido (no solo en error): si `name` fue cambiado respecto al sugerido por IA usa `foto + name`; si no fue cambiado, usa solo foto.
+- [x] En móvil, las acciones del panel de lote se muestran en grid uniforme (2 columnas) con botones de tamaño consistente y acción principal de commit a ancho completo.
+- [x] Commit masivo crea artículos en la caja destino para todos los borradores en `Listo`.
 
 ---
 
@@ -629,6 +647,44 @@ Secciones:
 - sha256 (para cache/versionado)
 - created_at
 
+**intake_batches**
+- id (uuid PK)
+- warehouse_id (FK)
+- target_box_id (FK boxes.id)
+- created_by (FK users.id)
+- name (nullable)
+- status (`drafting|processing|review|committed`)
+- total_count
+- processed_count
+- committed_count
+- started_at, finished_at
+- created_at, updated_at
+
+Índices:
+- (warehouse_id, status)
+- (warehouse_id, target_box_id)
+
+**intake_drafts**
+- id (uuid PK)
+- warehouse_id (FK)
+- batch_id (FK intake_batches.id)
+- photo_url
+- status (`uploaded|processing|ready|review|rejected|error|committed`)
+- position (orden de captura/subida)
+- suggested_name (nullable): último nombre sugerido por IA para decidir si aplicar contexto manual en `Reintentar IA`
+- name (nullable), description (nullable)
+- tags (json[]), aliases (json[])
+- confidence (float), warnings (json[])
+- llm_used (bool)
+- error_message (nullable)
+- processing_attempts
+- created_item_id (FK items.id, nullable)
+- created_at, updated_at
+
+Índices:
+- (warehouse_id, batch_id)
+- (batch_id, status)
+
 **stock_movements**
 - id (uuid PK)
 - warehouse_id (FK)
@@ -730,6 +786,25 @@ Secciones:
 Stock:
 - `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` body: `{ "delta": 1, "command_id": "uuid" }`
 
+### Intake masivo por caja
+- `POST /warehouses/{warehouse_id}/intake/batches`
+  - body: `{ "target_box_id": "...", "name?": "..." }`
+  - crea lote y fija caja destino.
+- `GET /warehouses/{warehouse_id}/intake/batches/{batch_id}`
+  - devuelve `batch` + `drafts` para refresco/polling.
+- `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` (multipart `files[]`)
+  - sube N imágenes al storage backend y crea `intake_drafts` en estado `uploaded`.
+- `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/start`
+  - body: `{ "retry_errors": bool }`
+  - encola/procesa en paralelo borradores `uploaded`.
+- `PATCH /warehouses/{warehouse_id}/intake/drafts/{draft_id}`
+  - edición manual de metadatos + cambio de estado (`ready|review|rejected|uploaded`).
+- `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/commit`
+  - body: `{ "include_review": false }`
+  - crea items para drafts en `ready` (y opcionalmente `review`).
+- `DELETE /warehouses/{warehouse_id}/intake/batches/{batch_id}`
+  - elimina lote si no está en procesamiento.
+
 ### Photos
 - `POST /photos/upload?warehouse_id=...` (multipart) → guarda en disco backend y devuelve `{ photo_url, content_type, size_bytes }`
 - `GET /media/{warehouse_id}/{filename}` → archivo estático servible para renderizar avatar/foto de item desde `items.photo_url`
@@ -782,11 +857,13 @@ Stock:
 ### Tags
 - No se introducen manualmente en el flujo normal.
 - Se generan por LLM al crear/editar artículo (si habilitado).
+- En captura masiva (`/app/items/intake-batch`), se permite ajuste manual inline antes del commit.
 - Nube de tags: chips interactivos para filtrar con codificación visual por frecuencia (tamaño/color), contador por tag y estado activo resaltado.
 
 ### Alias
 - No se introducen manualmente en el flujo normal.
 - Generados por LLM al crear/editar artículo (si habilitado).
+- En captura masiva (`/app/items/intake-batch`), se permite ajuste manual inline antes del commit.
 
 ---
 
@@ -850,8 +927,11 @@ El servidor persiste `processed_commands` para no duplicar.
 - Endpoint REST Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`.
 - La generación de tags/alias se hace a partir de `item.name` + `item.description`.
 - Para alta por foto, backend envía la imagen (data URL base64) como `inline_data` a Gemini y obtiene borrador de metadatos de artículo.
+- En captura masiva, backend reconstruye `data URL` desde `photo_url` persistida en storage y procesa borradores en paralelo por lote.
 
 ### Reglas
+- En inferencia desde foto, clasificar únicamente el objeto principal en primer plano y más enfocado.
+- Ignorar soportes y fondo (mesa, alfombrilla, estantería, pared) y objetos secundarios fuera de foco.
 - Tags: 3–10, normalizados, sin duplicados.
 - Alias: 0–5, no repetir nombre, útiles para búsqueda.
 - Idioma de salida configurable por warehouse (`llm_settings.language`): por defecto español (`es`), opcional inglés (`en`).
@@ -867,6 +947,11 @@ El servidor persiste `processed_commands` para no duplicar.
   - backend intenta inferir `name/description/tags/aliases` con Gemini Vision en el idioma configurado
   - si falla Gemini o no hay API key válida, backend devuelve fallback no bloqueante con advertencias
   - frontend abre `/app/items/new` con datos pre-rellenados para confirmación del usuario
+- En captura masiva por lote:
+  - frontend crea `intake_batch`, sube `files[]` y dispara `start`
+  - backend procesa borradores en paralelo y clasifica estado por draft (`ready` o `review`)
+  - al reintentar IA desde revisión, backend compara `name` actual contra `suggested_name`: si difiere usa `foto + name`; si coincide usa solo foto
+  - usuario revisa/edita inline y hace commit masivo de drafts listos en la caja destino
 
 ---
 
@@ -991,6 +1076,17 @@ El servidor persiste `processed_commands` para no duplicar.
   - Migración: no requerida (sin cambios de modelo en esta iteración).
   - Calidad: test backend `test_slice9_item_photo_draft.py` y build frontend OK.
 
+### Slice 10 — Captura masiva por caja (batch intake + commit)
+- Crear lotes por caja y subir N fotos sin pasar por formulario individual.
+- Procesamiento paralelo de borradores en backend con clasificación automática (`ready`/`review`) por confianza.
+- Revisión operativa en frontend con edición inline (`name`, `description`, `tags`, `aliases`) y acciones por estado.
+- Commit masivo para crear items en la caja destino.
+- Estado actual (2026-03-05): **completada**.
+  - Backend: modelos `intake_batches`, `intake_drafts`; endpoints `/warehouses/{warehouse_id}/intake/...`; procesamiento paralelo server-side desde `photo_url`; commit masivo con creación de `items` y `change_log`.
+  - Frontend: ruta `/app/items/intake-batch`; subida múltiple, polling de progreso, revisión por borrador y commit de listos; accesos en shell y detalle de caja (`collections`).
+  - Migración: `20260305_0009_intake_batches`.
+  - Calidad: test backend `test_slice10_intake_batch.py` y build frontend OK.
+
 ---
 
 ## Definición de Done
@@ -1026,3 +1122,4 @@ Para considerar una slice “Done”:
 - **A-015 (2026-03-04):** Para esta iteración, la persistencia de fotos usa filesystem local del backend (`media_root`) y URL pública (`/media/...`) referenciada desde `items.photo_url`, sin tabla `photos` dedicada. Si se necesita almacenamiento distribuido (S3/objeto), la migración puede conservar el contrato `photo_url`.
 - **A-015 (2026-03-04):** Para simplificar edición de credenciales LLM en Settings, `GET /settings/llm` puede devolver `api_key_value` descifrada al frontend para miembros autenticados del warehouse. La clave sigue persistida únicamente cifrada en backend y no se almacena en cliente fuera del estado temporal de formulario.
 - **A-016 (2026-03-04):** En import cross-warehouse, si el snapshot trae una caja `is_inbound=true` pero el warehouse destino ya tiene su propia caja especial activa, la caja importada se conserva como caja normal (`is_inbound=false`) para mantener un único punto de entrada visual/operativo por warehouse.
+- **A-017 (2026-03-05):** En Slice 10, el procesamiento paralelo de intake se ejecuta en backend con `ThreadPoolExecutor` y estados persistidos en DB (sin broker externo). Es una solución simple/reversible para esta fase; si se requiere resiliencia multi-worker/procesos, se migrará a cola distribuida dedicada (p. ej. Redis/Celery o equivalente) conservando el contrato REST.

@@ -29,3 +29,4 @@ class Box(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     parent = relationship("Box", remote_side="Box.id", back_populates="children")
     children = relationship("Box", back_populates="parent")
     items = relationship("Item", back_populates="box")
+    intake_batches = relationship("IntakeBatch", back_populates="target_box")

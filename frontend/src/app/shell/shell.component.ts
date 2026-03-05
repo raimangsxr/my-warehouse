@@ -89,6 +89,9 @@ import { WarehouseService } from '../services/warehouse.service';
             <button mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo">
               <mat-icon>photo_camera</mat-icon>
             </button>
+            <button mat-icon-button aria-label="Captura masiva por caja" routerLink="/app/items/intake-batch">
+              <mat-icon>collections</mat-icon>
+            </button>
             <button mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
               <mat-icon>tune</mat-icon>
             </button>
@@ -107,6 +110,10 @@ import { WarehouseService } from '../services/warehouse.service';
           <button mat-menu-item routerLink="/app/items/from-photo">
             <mat-icon>photo_camera</mat-icon>
             <span>Nuevo por foto</span>
+          </button>
+          <button mat-menu-item routerLink="/app/items/intake-batch">
+            <mat-icon>collections</mat-icon>
+            <span>Captura masiva</span>
           </button>
           <button mat-menu-item routerLink="/app/settings">
             <mat-icon>tune</mat-icon>
