@@ -13,6 +13,7 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     memberships = relationship("Membership", back_populates="warehouse", cascade="all, delete-orphan")
     boxes = relationship("Box", back_populates="warehouse", cascade="all, delete-orphan")
     items = relationship("Item", back_populates="warehouse", cascade="all, delete-orphan")
+    intake_batches = relationship("IntakeBatch", back_populates="warehouse", cascade="all, delete-orphan")
     invites = relationship("WarehouseInvite", cascade="all, delete-orphan")
     activity_events = relationship("ActivityEvent", cascade="all, delete-orphan")
     smtp_setting = relationship("SMTPSetting", uselist=False, cascade="all, delete-orphan")

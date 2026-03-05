@@ -1,5 +1,7 @@
 from app.models.activity_event import ActivityEvent
 from app.models.box import Box
+from app.models.intake_batch import IntakeBatch
+from app.models.intake_draft import IntakeDraft
 from app.models.item import Item
 from app.models.item_favorite import ItemFavorite
 from app.models.membership import Membership
@@ -19,6 +21,8 @@ __all__ = [
     "RefreshToken",
     "PasswordResetToken",
     "Box",
+    "IntakeBatch",
+    "IntakeDraft",
     "Item",
     "ItemFavorite",
     "StockMovement",

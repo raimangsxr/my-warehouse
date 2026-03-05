@@ -153,17 +153,27 @@ def _language_instruction(output_language: str) -> str:
     return "Escribe todos los valores generados en espanol."
 
 
-def _heuristic_photo_draft(image_mime_type: str, output_language: str) -> dict[str, object]:
+def _heuristic_photo_draft(
+    image_mime_type: str,
+    output_language: str,
+    *,
+    context_name: str | None = None,
+    context_description: str | None = None,
+) -> dict[str, object]:
     mime_hint = {
         "image/jpeg": "foto",
         "image/png": "imagen",
         "image/webp": "captura",
     }.get(image_mime_type, "foto")
+    fallback_name = "Unidentified item" if output_language == "en" else "Articulo sin identificar"
+    name = _sanitize_title(context_name or "", default_title=fallback_name)
+    description_hint = _sanitize_description(context_description)
     if output_language == "en":
         tags = _normalize_output_values(["photo", "inventory", "pending", "review"], max_count=10)
         return {
-            "name": "Unidentified item",
-            "description": "Generated from photo. Review name, description, tags, and aliases before saving.",
+            "name": name,
+            "description": description_hint
+            or "Generated from photo. Review name, description, tags, and aliases before saving.",
             "tags": tags,
             "aliases": [],
             "confidence": 0.2,
@@ -173,8 +183,9 @@ def _heuristic_photo_draft(image_mime_type: str, output_language: str) -> dict[s
 
     tags = _normalize_output_values([mime_hint, "inventario", "pendiente", "revision"], max_count=10)
     return {
-        "name": "Articulo sin identificar",
-        "description": "Generado desde foto. Revisa nombre, descripcion, tags y aliases antes de guardar.",
+        "name": name,
+        "description": description_hint
+        or "Generado desde foto. Revisa nombre, descripcion, tags y aliases antes de guardar.",
         "tags": tags,
         "aliases": [],
         "confidence": 0.2,
@@ -260,6 +271,8 @@ def _gemini_photo_draft(
     image_mime_type: str,
     image_b64_data: str,
     output_language: str,
+    context_name: str | None,
+    context_description: str | None,
     timeout_seconds: float,
 ) -> dict[str, object]:
     prompt = (
@@ -268,6 +281,9 @@ def _gemini_photo_draft(
         "{\"name\": string, \"description\": string, \"tags\": string[], \"aliases\": string[], \"confidence\": number, \"warnings\": string[]}\n"
         "Rules:\n"
         f"- {_language_instruction(output_language)}\n"
+        "- Identify only one object: the main item in the foreground and most in focus.\n"
+        "- Ignore secondary objects, supports, surfaces, background, and scene context.\n"
+        "- Example: if a phone is on a mat, classify only the phone.\n"
         "- name: short, human-readable item name.\n"
         "- description: one concise sentence for search context.\n"
         "- tags: 3-10 lowercase tokens, no duplicates.\n"
@@ -275,6 +291,14 @@ def _gemini_photo_draft(
         "- confidence: number between 0 and 1.\n"
         "- warnings: empty array unless the image is ambiguous."
     )
+    if context_name:
+        prompt += f"\nContext name hint from user/workflow: {context_name.strip()[:160]}"
+    if context_description:
+        prompt += f"\nContext description hint from user/workflow: {context_description.strip()[:400]}"
+    if context_name:
+        prompt += "\nIf a context name is provided, use that exact value for the output field `name`."
+    elif context_description:
+        prompt += "\nUse context hints only if consistent with the photo."
     url = GEMINI_GENERATE_CONTENT_URL.format(model=model)
     body = {
         "contents": [
@@ -318,8 +342,9 @@ def _gemini_photo_draft(
         raise ValueError("Gemini response is not a JSON object")
 
     default_title = "Unidentified item" if output_language == "en" else "Articulo sin identificar"
-    name = _sanitize_title(str(parsed.get("name") or ""), default_title=default_title)
-    description = _sanitize_description(str(parsed.get("description") or ""))
+    context_name_hint = _sanitize_title(str(context_name or ""), default_title="") if context_name else ""
+    name = context_name_hint or _sanitize_title(str(parsed.get("name") or ""), default_title=default_title)
+    description = _sanitize_description(str(parsed.get("description") or "")) or _sanitize_description(context_description)
     normalized_name = _normalize_text(name)
     raw_tags = parsed.get("tags") if isinstance(parsed.get("tags"), list) else []
     raw_aliases = parsed.get("aliases") if isinstance(parsed.get("aliases"), list) else []
@@ -390,12 +415,19 @@ def generate_item_draft_from_photo(
     *,
     api_key: str | None = None,
     output_language: str = DEFAULT_OUTPUT_LANGUAGE,
+    context_name: str | None = None,
+    context_description: str | None = None,
     model: str = DEFAULT_GEMINI_MODEL,
     timeout_seconds: float = 10.0,
 ) -> dict[str, object]:
     resolved_language = _resolve_output_language(output_language)
     image_mime_type, image_b64_data = _parse_data_url(image_data_url)
-    fallback = _heuristic_photo_draft(image_mime_type, resolved_language)
+    fallback = _heuristic_photo_draft(
+        image_mime_type,
+        resolved_language,
+        context_name=context_name,
+        context_description=context_description,
+    )
 
     if api_key:
         try:
@@ -405,6 +437,8 @@ def generate_item_draft_from_photo(
                 image_mime_type=image_mime_type,
                 image_b64_data=image_b64_data,
                 output_language=resolved_language,
+                context_name=context_name,
+                context_description=context_description,
                 timeout_seconds=timeout_seconds,
             )
             if draft.get("name") and draft.get("tags"):

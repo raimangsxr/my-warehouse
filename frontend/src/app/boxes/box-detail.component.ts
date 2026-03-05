@@ -72,6 +72,15 @@ type DetailViewMode = 'cards' | 'list';
           >
             <mat-icon>photo_camera</mat-icon>
           </button>
+          <button
+            mat-icon-button
+            type="button"
+            [routerLink]="['/app/items/intake-batch']"
+            [queryParams]="{ boxId: box.id, lockBox: 1 }"
+            matTooltip="Captura masiva"
+          >
+            <mat-icon>collections</mat-icon>
+          </button>
         </div>
       </header>
 
@@ -295,7 +304,7 @@ type DetailViewMode = 'cards' | 'list';
         .box-detail-header-actions {
           width: 100%;
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           border-radius: 12px;
           gap: 8px;
           padding: 8px;
