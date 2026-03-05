@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.52
+- **Versión:** v1.53
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -82,6 +82,7 @@
 - **v1.50 (2026-03-05):** Refactor de lotes a módulo dedicado: se elimina el panel dinámico de lotes en sidenav y se añade sección `Lotes` con vista de listado (`/app/batches`) + detalle (`/app/batches/:batchId`). El detalle de lote pasa a flujo operativo por estados de UX `Nuevo/Procesado/Error/Guardado` con tablero por bloques (foto+título), acciones iconográficas con `tooltip` (añadir foto, guardar procesados, reprocesar errores, eliminar lote) y edición manual en error con acción `Marcar como procesado`. Backend intake elimina fallback local sin IA durante procesamiento de lote: si no hay resultado LLM válido, el draft queda en `error`; además `retry_errors=true` reprocesa **solo** errores en secuencia (1 a 1).
 - **v1.51 (2026-03-05):** Regla de stock inicial en altas de artículo: todo artículo nuevo nace con stock `1` mediante creación automática de `StockMovement` inicial (`delta=+1`) en los flujos de alta normal (`POST /warehouses/{warehouse_id}/items`), commit de intake batch y `item.create` vía sync. Se añade registro de `change_log` de tipo `stock` para sincronización consistente entre clientes.
 - **v1.52 (2026-03-05):** Detalle de lote con control granular por borrador: la card de artículo seleccionado añade cierre explícito (`X`) y reapertura por click en mini-card del resumen; se incorporan acciones iconográficas con `tooltip` por artículo (`Re-procesar IA por foto`, `Re-procesar IA por título`, `Eliminar artículo`). Backend expone `POST /warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess` (modo `photo|name`) y `DELETE /warehouses/{warehouse_id}/intake/drafts/{draft_id}` con limpieza de media temporal por borrador.
+- **v1.53 (2026-03-05):** Observabilidad ampliada del pipeline LLM en backend: se añaden logs `INFO/DEBUG` por petición de IA con identificador de operación, orden de `model_priority`, intentos por modelo configurado y alias runtime, modelo ganador que resuelve cada petición (tags/aliases y draft por foto) y trazado explícito de fallback cuando falla un intento y se pasa al siguiente modelo/alias o a fallback heurístico.
 
 ---
 

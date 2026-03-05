@@ -5,6 +5,7 @@ import unicodedata
 from base64 import b64decode
 from binascii import Error as BinasciiError
 from collections.abc import Sequence
+from uuid import uuid4
 from urllib import error, request
 
 from app.core.llm import DEFAULT_GEMINI_MODEL_PRIORITY, SUPPORTED_GEMINI_MODELS, GeminiModelId, normalize_model_priority
@@ -34,6 +35,14 @@ _STOPWORDS = {
     "with",
     "garaje",
 }
+
+
+def _new_llm_operation_id() -> str:
+    return uuid4().hex[:10]
+
+
+def _short_exception(exc: Exception) -> str:
+    return " ".join(str(exc).strip().split())[:240] or exc.__class__.__name__
 
 
 def _normalize_text(raw: str) -> str:
@@ -479,10 +488,34 @@ def generate_tags_and_aliases(
 ) -> tuple[list[str], list[str]]:
     resolved_language = _resolve_output_language(output_language)
     models_to_try = _resolve_model_priority(model_priority, model)
+    operation_id = _new_llm_operation_id()
+    logger.info(
+        "LLM tags request started op=%s has_api_key=%s language=%s configured_models=%s",
+        operation_id,
+        bool(api_key),
+        resolved_language,
+        list(models_to_try),
+    )
     if api_key:
-        for configured_model in models_to_try:
+        for configured_idx, configured_model in enumerate(models_to_try, start=1):
             runtime_models = _runtime_model_candidates(configured_model)
-            for idx, runtime_model in enumerate(runtime_models):
+            logger.debug(
+                "LLM tags configured model attempt op=%s configured_step=%s/%s configured_model=%s runtime_candidates=%s",
+                operation_id,
+                configured_idx,
+                len(models_to_try),
+                configured_model,
+                runtime_models,
+            )
+            for runtime_idx, runtime_model in enumerate(runtime_models, start=1):
+                logger.debug(
+                    "LLM tags runtime attempt op=%s configured_model=%s runtime_step=%s/%s runtime_model=%s",
+                    operation_id,
+                    configured_model,
+                    runtime_idx,
+                    len(runtime_models),
+                    runtime_model,
+                )
                 try:
                     tags, aliases = _gemini_tags_and_aliases(
                         api_key=api_key,
@@ -493,18 +526,44 @@ def generate_tags_and_aliases(
                         timeout_seconds=timeout_seconds,
                     )
                     if tags:
+                        logger.info(
+                            "LLM tags request resolved op=%s winner_configured_model=%s winner_runtime_model=%s "
+                            "configured_step=%s/%s runtime_step=%s/%s tags=%s aliases=%s",
+                            operation_id,
+                            configured_model,
+                            runtime_model,
+                            configured_idx,
+                            len(models_to_try),
+                            runtime_idx,
+                            len(runtime_models),
+                            len(tags),
+                            len(aliases),
+                        )
                         return tags, aliases
                     raise ValueError("Gemini returned empty tags")
                 except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
                     is_not_found = isinstance(exc, error.HTTPError) and exc.code == 404
-                    if is_not_found and idx < len(runtime_models) - 1:
+                    if is_not_found and runtime_idx < len(runtime_models):
                         # Same logical model may be exposed as preview/latest alias.
                         logger.info(
-                            "Gemini model %s (configured as %s) not found; trying next alias",
-                            runtime_model,
+                            "LLM tags runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
+                            "fallback=next_runtime_alias",
+                            operation_id,
                             configured_model,
+                            runtime_model,
+                            _short_exception(exc),
                         )
                         continue
+                    has_next_configured = configured_idx < len(models_to_try)
+                    logger.info(
+                        "LLM tags runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
+                        "fallback=%s",
+                        operation_id,
+                        configured_model,
+                        runtime_model,
+                        _short_exception(exc),
+                        "next_configured_model" if has_next_configured else "heuristic_fallback",
+                    )
                     logger.warning(
                         "Gemini model %s (configured as %s) failed for tags/aliases: %s",
                         runtime_model,
@@ -513,7 +572,14 @@ def generate_tags_and_aliases(
                     )
                     break
 
-    return _heuristic_tags_and_aliases(name, description)
+    tags, aliases = _heuristic_tags_and_aliases(name, description)
+    logger.info(
+        "LLM tags request resolved via heuristic fallback op=%s tags=%s aliases=%s",
+        operation_id,
+        len(tags),
+        len(aliases),
+    )
+    return tags, aliases
 
 
 def generate_item_draft_from_photo(
@@ -529,6 +595,7 @@ def generate_item_draft_from_photo(
 ) -> dict[str, object]:
     resolved_language = _resolve_output_language(output_language)
     models_to_try = _resolve_model_priority(model_priority, model)
+    operation_id = _new_llm_operation_id()
     image_mime_type, image_b64_data = _parse_data_url(image_data_url)
     fallback = _heuristic_photo_draft(
         image_mime_type,
@@ -536,11 +603,39 @@ def generate_item_draft_from_photo(
         context_name=context_name,
         context_description=context_description,
     )
+    logger.info(
+        "LLM photo draft request started op=%s has_api_key=%s language=%s image_mime=%s configured_models=%s "
+        "has_context_name=%s has_context_description=%s",
+        operation_id,
+        bool(api_key),
+        resolved_language,
+        image_mime_type,
+        list(models_to_try),
+        bool(context_name),
+        bool(context_description),
+    )
 
     if api_key:
-        for configured_model in models_to_try:
+        for configured_idx, configured_model in enumerate(models_to_try, start=1):
             runtime_models = _runtime_model_candidates(configured_model)
-            for idx, runtime_model in enumerate(runtime_models):
+            logger.debug(
+                "LLM photo draft configured model attempt op=%s configured_step=%s/%s configured_model=%s "
+                "runtime_candidates=%s",
+                operation_id,
+                configured_idx,
+                len(models_to_try),
+                configured_model,
+                runtime_models,
+            )
+            for runtime_idx, runtime_model in enumerate(runtime_models, start=1):
+                logger.debug(
+                    "LLM photo draft runtime attempt op=%s configured_model=%s runtime_step=%s/%s runtime_model=%s",
+                    operation_id,
+                    configured_model,
+                    runtime_idx,
+                    len(runtime_models),
+                    runtime_model,
+                )
                 try:
                     draft = _gemini_photo_draft(
                         api_key=api_key,
@@ -553,18 +648,44 @@ def generate_item_draft_from_photo(
                         timeout_seconds=timeout_seconds,
                     )
                     if draft.get("name") and draft.get("tags"):
+                        logger.info(
+                            "LLM photo draft request resolved op=%s winner_configured_model=%s winner_runtime_model=%s "
+                            "configured_step=%s/%s runtime_step=%s/%s tags=%s confidence=%.3f",
+                            operation_id,
+                            configured_model,
+                            runtime_model,
+                            configured_idx,
+                            len(models_to_try),
+                            runtime_idx,
+                            len(runtime_models),
+                            len(draft.get("tags") or []),
+                            float(draft.get("confidence") or 0.0),
+                        )
                         return draft
                     raise ValueError("Gemini photo draft did not include required fields")
                 except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
                     is_not_found = isinstance(exc, error.HTTPError) and exc.code == 404
-                    if is_not_found and idx < len(runtime_models) - 1:
+                    if is_not_found and runtime_idx < len(runtime_models):
                         # Same logical model may be exposed as preview/latest alias.
                         logger.info(
-                            "Gemini model %s (configured as %s) not found; trying next alias",
-                            runtime_model,
+                            "LLM photo draft runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
+                            "fallback=next_runtime_alias",
+                            operation_id,
                             configured_model,
+                            runtime_model,
+                            _short_exception(exc),
                         )
                         continue
+                    has_next_configured = configured_idx < len(models_to_try)
+                    logger.info(
+                        "LLM photo draft runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
+                        "fallback=%s",
+                        operation_id,
+                        configured_model,
+                        runtime_model,
+                        _short_exception(exc),
+                        "next_configured_model" if has_next_configured else "heuristic_fallback",
+                    )
                     logger.warning(
                         "Gemini model %s (configured as %s) failed for photo draft: %s",
                         runtime_model,
@@ -573,4 +694,5 @@ def generate_item_draft_from_photo(
                     )
                     break
 
+    logger.info("LLM photo draft request resolved via heuristic fallback op=%s", operation_id)
     return fallback
