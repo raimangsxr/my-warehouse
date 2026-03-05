@@ -9,13 +9,20 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd --system app \
+    && useradd --system --create-home --gid app --uid 10001 app
+
 COPY pyproject.toml ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir . \
+    && mkdir -p /app/media \
+    && chown -R app:app /app
+
+USER app
 
 EXPOSE 8000
 

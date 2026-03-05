@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v1.55
-- **Última actualización:** 2026-03-05  
+- **Versión:** v1.65
+- **Última actualización:** 2026-03-06  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -94,6 +94,7 @@
 - **v1.62 (2026-03-05):** Ajuste de equilibrio visual en vista `Lista`: se recupera algo de espacio vertical de fila para legibilidad (sin volver al exceso), se reduce el ancho de `Ruta` y se amplía `Artículo` para priorizar el contenido principal.
 - **v1.63 (2026-03-05):** Coherencia operativa entre vistas `Cards` y `Lista`: en la tabla de inventario los controles de stock `-/+` se integran dentro del chip de stock (misma semántica que cards), y la columna `Acciones` se simplifica eliminando botones de stock duplicados.
 - **v1.64 (2026-03-05):** Ajuste fino de alineación en chip de stock de vista `Lista`: iconos de decremento/incremento (`-/+`) centrados verticalmente respecto al valor de stock para mejorar legibilidad y precisión visual.
+- **v1.65 (2026-03-06):** Hardening de contenedores rootless en despliegue: `backend/Dockerfile` ejecuta FastAPI/Uvicorn con usuario no privilegiado (`uid=10001`) y permisos de escritura sobre `/app/media`; `frontend/Dockerfile` migra a `nginxinc/nginx-unprivileged` con `listen 8080` interno; y `deploy/k8s/frontend.yaml` ajusta `containerPort/targetPort` a `8080` manteniendo el servicio expuesto en `80`.
 
 ---
 
@@ -574,8 +575,8 @@ Secciones:
 
 ### Despliegue (contenedores + Kubernetes)
 - Imágenes Docker:
-  - Backend: `backend/Dockerfile` (FastAPI + Uvicorn)
-  - Frontend: `frontend/Dockerfile` (build Angular + serving estático con Nginx SPA)
+  - Backend: `backend/Dockerfile` (FastAPI + Uvicorn) ejecutado como usuario no-root dedicado (`uid=10001`) con escritura permitida en `/app/media`.
+  - Frontend: `frontend/Dockerfile` (build Angular + serving estático con `nginxinc/nginx-unprivileged`) en puerto interno `8080` para ejecución sin privilegios.
 - Kubernetes (base en `deploy/k8s`):
   - `StatefulSet` + `Service` para PostgreSQL
   - `Job` de migraciones (`alembic upgrade head`)
@@ -588,6 +589,7 @@ Secciones:
   - SMTP password **solo** en backend (cifrado).
 - TLS obligatorio en despliegue.
 - Rate limiting en endpoints de auth/reset.
+- En contenedores de aplicación, ejecutar procesos como usuario no privilegiado (rootless) por defecto.
 
 ---
 
