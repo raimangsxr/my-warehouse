@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.33
+- **Versión:** v1.37
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -63,6 +63,10 @@
 - **v1.31 (2026-03-05):** Reorganización visual del bloque `product-actions` en cards: stock y acciones rápidas pasan a layout estructurado en dos filas (badge de stock + grid estable de acciones), eliminando saltos desordenados de botones y mejorando consistencia visual en móvil.
 - **v1.32 (2026-03-05):** Ajuste fino del badge de stock en cards: `product-stock-inline` pasa a ocupar siempre todo el ancho disponible, con valor centrado y botones `-/+` anclados a los lados con separación interna consistente respecto al borde.
 - **v1.33 (2026-03-05):** Refactor de filtro de tags en Home: la fila lineal de chips se reemplaza por una **nube de tags** con peso visual por frecuencia (tamaño tipográfico y cromática variable), wrapping responsive, estado activo más destacado y contador integrado por tag, manteniendo el filtrado por click y la acción de limpiar tag.
+- **v1.34 (2026-03-05):** Feedback transversal de acciones en frontend con snackbars Material (`MatSnackBar`) para confirmaciones y errores operativos. Se añade `NotificationService` reutilizable (success/error/info), estilos globales de snackbar por severidad y adopción en acciones principales de `home`, `boxes`, `box-detail`, `item-form`, `settings`, `warehouses`, `trash`, `conflicts`, `scan`, `item-photo-capture`, `accept-invite` y `shell` (logout).
+- **v1.35 (2026-03-05):** Hardening del flujo `/app/items/from-photo` ante fallos intermitentes de previsualización en móvil: validación de fichero más robusta (incluye `image/jpg`, tamaño 0 y fallback por extensión cuando el MIME llega vacío), preservación del archivo seleccionado aunque falle el render de la preview, y mensajes de error visibles/no silenciosos para que el usuario pueda continuar con "Analizar foto".
+- **v1.36 (2026-03-05):** Estabilización adicional de preview en `/app/items/from-photo` para móvil: la previsualización pasa de `blob:` URL temporal a `data URL` estable (`FileReader`) y se reutiliza en el análisis IA para minimizar desapariciones intermitentes tras mostrarse la imagen.
+- **v1.37 (2026-03-05):** Blindaje ante remount de vista en `/app/items/from-photo`: se añade estado temporal en servicio frontend (`file`, `preview`, flags) para restaurar automáticamente la foto seleccionada si el componente se vuelve a crear durante el flujo móvil, evitando que la preview desaparezca por pérdida de estado local.
 
 ---
 
@@ -220,6 +224,11 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Contenedores multimedia (video/preview de foto) usan ancho fluido y límites de alto para no romper el flujo vertical.
 - Contenido técnico largo (p. ej., payload JSON de conflictos, tokens y enlaces) fuerza `word-break`/`pre-wrap` para evitar desbordes.
 - En móvil no se permite overflow horizontal de la página en vistas operativas; cuando una sección tiene alta densidad (árboles, metadatos, acciones), la prioridad es reflow vertical (stack/grid) antes que scroll lateral.
+
+### Feedback de acciones
+- Las acciones explícitas de usuario (crear/guardar/mover/borrar/restaurar/sync/import/export/resolver conflictos) muestran feedback inmediato con snackbar en la esquina inferior derecha.
+- Se usan tres severidades visuales consistentes: `success` (confirmación), `error` (fallo), `info` (estado operativo no bloqueante, p. ej. comandos offline en cola).
+- Los mensajes inline existentes se mantienen para contexto persistente de pantalla; el snackbar cubre confirmación/error inmediata de la acción disparada.
 
 ### Home
 - Buscador arriba (input fijo).
@@ -403,6 +412,9 @@ Secciones:
 - [x] Desde toolbar (`icono cámara`), el usuario puede sacar/subir foto para inferir metadatos del artículo.
 - [x] Backend devuelve borrador estructurado (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`) con fallback local si Gemini falla o no está configurado.
 - [x] El formulario `/app/items/new` se abre pre-rellenado y mantiene edición manual completa; el usuario debe seleccionar/confirmar caja antes de guardar.
+- [x] Si el navegador no puede renderizar la preview de la foto (casos HEIC/compatibilidad), la UI mantiene el fichero seleccionado, muestra error visible y permite continuar con el análisis.
+- [x] La preview se genera con `data URL` estable en memoria para reducir pérdidas de imagen intermitentes en móvil tras captura.
+- [x] Si la vista de captura se remonta (render/navegación móvil), la foto seleccionada se restaura automáticamente desde estado temporal y no se pierde el flujo.
 
 ---
 
@@ -972,9 +984,9 @@ El servidor persiste `processed_commands` para no duplicar.
 - Captura/subida de imagen desde toolbar.
 - Inferencia de metadatos de item con Gemini Vision.
 - Prefill de `/app/items/new` para reducir fricción de alta.
-- Estado actual (2026-03-04): **completada (iteración inicial)**.
+- Estado actual (2026-03-05): **completada (iteración 3)**.
   - Backend: endpoint `POST /warehouses/{warehouse_id}/items/draft-from-photo`, validación de membresía/imagen y respuesta estructurada (`name`, `description`, `tags`, `aliases`, `confidence`, `warnings`, `llm_used`).
-  - Frontend: ruta `/app/items/from-photo`, captura/subida de foto (móvil/escritorio), análisis y navegación a formulario de alta pre-rellenado; en flujo contextual desde detalle de caja se propagan `boxId` + `lockBox` para fijar caja destino en `/app/items/new`.
+  - Frontend: ruta `/app/items/from-photo`, captura/subida de foto (móvil/escritorio), análisis y navegación a formulario de alta pre-rellenado; en flujo contextual desde detalle de caja se propagan `boxId` + `lockBox` para fijar caja destino en `/app/items/new`; el pre-análisis mantiene archivo seleccionado, fallback visible cuando falla la previsualización, render estable de preview con `data URL` y restauración automática del estado si el componente se recrea durante el flujo.
   - Seguridad: la API key Gemini permanece cifrada en backend; ante error o falta de configuración se aplica fallback heurístico no bloqueante.
   - Migración: no requerida (sin cambios de modelo en esta iteración).
   - Calidad: test backend `test_slice9_item_photo_draft.py` y build frontend OK.
