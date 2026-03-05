@@ -647,7 +647,7 @@ def resolve_conflict(
         )
     )
     if conflict is None:
-        logger.info(
+        logger.error(
             "Sync resolve failed: conflict not found warehouse_id=%s conflict_id=%s",
             payload.warehouse_id,
             payload.conflict_id,

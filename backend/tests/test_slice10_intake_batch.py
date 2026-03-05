@@ -115,6 +115,61 @@ def test_intake_batch_full_lifecycle(client):
     assert not intake_dir.exists()
 
 
+def test_intake_allows_uploading_new_photos_after_batch_committed(client):
+    headers = signup_and_login(client, "slice10-append-after-commit@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    box_id = create_box(client, headers, warehouse_id)
+
+    created = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        json={"target_box_id": box_id, "name": "Lote incremental"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["batch"]["id"]
+
+    png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
+    first_upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("first.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert first_upload.status_code == 201
+    first_draft_id = first_upload.json()["drafts"][0]["id"]
+
+    mark_ready = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{first_draft_id}",
+        json={
+            "name": "Articulo inicial",
+            "description": "Primer articulo",
+            "tags": ["inicial", "inventario", "lote"],
+            "aliases": ["primero"],
+            "status": "ready",
+        },
+        headers=headers,
+    )
+    assert mark_ready.status_code == 200
+
+    commit = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
+        json={"include_review": False},
+        headers=headers,
+    )
+    assert commit.status_code == 200
+    assert commit.json()["batch"]["status"] == "committed"
+
+    append_upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("second.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert append_upload.status_code == 201
+    append_payload = append_upload.json()
+    assert append_payload["uploaded_count"] == 1
+    assert append_payload["batch"]["status"] == "drafting"
+    assert append_payload["drafts"][0]["status"] == "uploaded"
+
+
 def test_intake_processing_without_llm_fallback_sets_error(client):
     headers = signup_and_login(client, "slice10-no-llm@example.com")
     warehouse_id = create_warehouse(client, headers)

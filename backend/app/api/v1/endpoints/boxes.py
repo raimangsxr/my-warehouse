@@ -581,7 +581,7 @@ def get_box_by_qr(
     logger.debug("QR lookup requested qr_token_length=%s user_id=%s", len(qr_token), current_user.id)
     box = db.scalar(select(Box).where(Box.qr_token == qr_token, Box.deleted_at.is_(None)))
     if box is None:
-        logger.info("QR lookup failed: token not found")
+        logger.error("QR lookup failed: token not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QR not found")
 
     membership = db.scalar(
@@ -591,7 +591,7 @@ def get_box_by_qr(
         )
     )
     if membership is None:
-        logger.info(
+        logger.error(
             "QR lookup denied warehouse_id=%s user_id=%s",
             box.warehouse_id,
             current_user.id,

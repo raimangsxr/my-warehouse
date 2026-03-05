@@ -96,7 +96,7 @@ def process_intake_batch(
             select(IntakeBatch).where(IntakeBatch.id == batch_id, IntakeBatch.warehouse_id == warehouse_id)
         )
         if batch is None:
-            logger.info("Intake worker aborted: batch not found warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
+            logger.error("Intake worker aborted: batch not found warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
             return
 
         query = (
@@ -143,7 +143,7 @@ def process_intake_batch(
                 try:
                     api_key = decrypt_secret(llm_setting.api_key_encrypted)
                 except Exception:  # noqa: BLE001
-                    logger.warning("Could not decrypt LLM API key for warehouse %s", warehouse_id)
+                    logger.error("Could not decrypt LLM API key for warehouse %s", warehouse_id)
         logger.debug(
             "Intake worker config warehouse_id=%s batch_id=%s pending=%s workers=%s language=%s",
             warehouse_id,
@@ -304,7 +304,7 @@ def _process_photo_url(
     try:
         image_data_url = _build_data_url_from_photo_url(photo_url, warehouse_id=warehouse_id)
     except ValueError as exc:
-        logger.debug("Draft processing rejected warehouse_id=%s reason=%s", warehouse_id, exc)
+        logger.error("Draft processing rejected warehouse_id=%s reason=%s", warehouse_id, exc)
         return {"error": str(exc)}
 
     try:
@@ -323,7 +323,7 @@ def _process_photo_url(
     except ValueError as exc:
         return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("LLM processing failed for %s: %s", photo_url, exc)
+        logger.error("LLM processing failed for %s: %s", photo_url, exc)
         return {"error": "No se pudo completar el analisis de la imagen."}
 
 

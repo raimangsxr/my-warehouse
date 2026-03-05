@@ -875,11 +875,15 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
 
     drafts.forEach((draft) => {
       const existing = this.draftEditors.get(draft.id);
+      const serverName = draft.name || '';
+      const serverDescription = draft.description || '';
+      const serverTagsText = (draft.tags || []).join(', ');
+      const serverAliasesText = (draft.aliases || []).join(', ');
       this.draftEditors.set(draft.id, {
-        name: existing?.name ?? draft.name ?? '',
-        description: existing?.description ?? draft.description ?? '',
-        tagsText: existing?.tagsText ?? (draft.tags || []).join(', '),
-        aliasesText: existing?.aliasesText ?? (draft.aliases || []).join(', ')
+        name: this.mergeEditorValue(existing?.name, serverName),
+        description: this.mergeEditorValue(existing?.description, serverDescription),
+        tagsText: this.mergeEditorValue(existing?.tagsText, serverTagsText),
+        aliasesText: this.mergeEditorValue(existing?.aliasesText, serverAliasesText)
       });
     });
 
@@ -951,6 +955,16 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   private setActionError(message: string): void {
     this.errorMessage = message;
     this.notificationService.error(message);
+  }
+
+  private mergeEditorValue(existingValue: string | undefined, serverValue: string): string {
+    if (existingValue === undefined) {
+      return serverValue;
+    }
+    if (!existingValue.trim() && serverValue.trim()) {
+      return serverValue;
+    }
+    return existingValue;
   }
 
   private reprocessDraft(draft: IntakeDraft, mode: 'photo' | 'name'): void {

@@ -26,16 +26,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         user_id = payload.get("sub")
         token_type = payload.get("type")
         if not user_id or token_type != "access":
-            logger.info("Invalid access token payload sub=%s type=%s", user_id, token_type)
+            logger.error("Invalid access token payload sub=%s type=%s", user_id, token_type)
             raise credentials_exception
         logger.debug("Access token decoded for user_id=%s", user_id)
     except JWTError as exc:
-        logger.info("JWT validation failed while resolving current user")
+        logger.error("JWT validation failed while resolving current user")
         raise credentials_exception from exc
 
     user = db.scalar(select(User).where(User.id == user_id))
     if user is None:
-        logger.info("Access token sub=%s references missing user", user_id)
+        logger.error("Access token sub=%s references missing user", user_id)
         raise credentials_exception
     logger.debug("Resolved authenticated user user_id=%s", user.id)
     return user
@@ -53,7 +53,7 @@ def require_warehouse_membership(
         )
     )
     if membership is None:
-        logger.info(
+        logger.error(
             "Warehouse access denied warehouse_id=%s user_id=%s",
             warehouse_id,
             current_user.id,

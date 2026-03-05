@@ -48,7 +48,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> UserRespons
     logger.debug("Signup requested email=%s", normalized_email)
     exists = db.scalar(select(User).where(User.email == normalized_email))
     if exists:
-        logger.info("Signup rejected: email already exists email=%s", normalized_email)
+        logger.error("Signup rejected: email already exists email=%s", normalized_email)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
     user = User(
@@ -69,7 +69,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     logger.debug("Login requested email=%s", normalized_email)
     user = db.scalar(select(User).where(User.email == normalized_email))
     if user is None or not verify_password(payload.password, user.password_hash):
-        logger.info("Login rejected for email=%s", normalized_email)
+        logger.error("Login rejected for email=%s", normalized_email)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     access_token = build_access_token(user.id)
@@ -91,17 +91,17 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
     try:
         token_payload = decode_token(payload.refresh_token)
     except Exception as exc:  # noqa: BLE001
-        logger.info("Refresh rejected: token decode failed")
+        logger.error("Refresh rejected: token decode failed")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
 
     if token_payload.get("type") != "refresh":
-        logger.info("Refresh rejected: invalid token type type=%s", token_payload.get("type"))
+        logger.error("Refresh rejected: invalid token type type=%s", token_payload.get("type"))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token type")
 
     token_hash_value = hash_token(payload.refresh_token)
     stored = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash_value))
     if stored is None or stored.revoked or stored.expires_at < utcnow():
-        logger.info("Refresh rejected: token expired/revoked")
+        logger.error("Refresh rejected: token expired/revoked")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
     stored.revoked = True
@@ -134,7 +134,7 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     logger.debug("Forgot-password requested email=%s", normalized_email)
     user = db.scalar(select(User).where(User.email == normalized_email))
     if user is None:
-        logger.info("Forgot-password requested for non-existing email=%s", normalized_email)
+        logger.error("Forgot-password requested for non-existing email=%s", normalized_email)
         return ForgotPasswordResponse(message="If the email exists, reset instructions were generated")
 
     raw_token = secrets.token_urlsafe(32)
@@ -164,12 +164,12 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     )
 
     if reset_token is None or reset_token.used or reset_token.expires_at < utcnow():
-        logger.info("Reset-password rejected: invalid or expired token")
+        logger.error("Reset-password rejected: invalid or expired token")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
 
     user = db.scalar(select(User).where(User.id == reset_token.user_id))
     if user is None:
-        logger.info("Reset-password rejected: user not found user_id=%s", reset_token.user_id)
+        logger.error("Reset-password rejected: user not found user_id=%s", reset_token.user_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user.password_hash = hash_password(payload.new_password)
@@ -188,7 +188,7 @@ def change_password(
 ) -> MessageResponse:
     logger.debug("Change-password requested user_id=%s", current_user.id)
     if not verify_password(payload.current_password, current_user.password_hash):
-        logger.info("Change-password rejected: current password mismatch user_id=%s", current_user.id)
+        logger.error("Change-password rejected: current password mismatch user_id=%s", current_user.id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
 
     current_user.password_hash = hash_password(payload.new_password)

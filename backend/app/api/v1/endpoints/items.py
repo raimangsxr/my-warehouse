@@ -176,7 +176,7 @@ def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *,
     try:
         api_key = decrypt_secret(llm_setting.api_key_encrypted)
     except Exception:  # noqa: BLE001
-        logger.info(
+        logger.error(
             "LLM autogen skipped warehouse_id=%s item_id=%s reason=api_key_decrypt_failed",
             warehouse_id,
             item.id,
@@ -401,7 +401,7 @@ def draft_item_from_photo(
             model_priority=normalize_model_priority(llm_setting.model_priority) if llm_setting else None,
         )
     except ValueError as exc:
-        logger.info("Draft-from-photo rejected warehouse_id=%s reason=%s", warehouse_id, exc)
+        logger.error("Draft-from-photo rejected warehouse_id=%s reason=%s", warehouse_id, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     raw_warnings = draft.get("warnings")

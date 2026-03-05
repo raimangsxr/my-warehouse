@@ -131,7 +131,7 @@ def get_warehouse(
 ) -> WarehouseResponse:
     warehouse = db.scalar(select(Warehouse).where(Warehouse.id == warehouse_id))
     if warehouse is None:
-        logger.info("Warehouse not found warehouse_id=%s", warehouse_id)
+        logger.error("Warehouse not found warehouse_id=%s", warehouse_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
     logger.debug("Warehouse details requested warehouse_id=%s", warehouse_id)
     return WarehouseResponse.model_validate(warehouse)
@@ -168,7 +168,7 @@ def create_invite(
     )
     warehouse = db.scalar(select(Warehouse).where(Warehouse.id == warehouse_id))
     if warehouse is None:
-        logger.info("Create invite failed: warehouse not found warehouse_id=%s", warehouse_id)
+        logger.error("Create invite failed: warehouse not found warehouse_id=%s", warehouse_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
     invite_token = secrets.token_urlsafe(32)
@@ -211,15 +211,15 @@ def accept_invite(
     token_hash_value = hash_token(token)
     invite = db.scalar(select(WarehouseInvite).where(WarehouseInvite.token_hash == token_hash_value))
     if invite is None:
-        logger.info("Accept invite failed: invite token not found")
+        logger.error("Accept invite failed: invite token not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
 
     if invite.accepted_at is not None or invite.expires_at < utcnow():
-        logger.info("Accept invite failed: invite already used or expired invite_id=%s", invite.id)
+        logger.error("Accept invite failed: invite already used or expired invite_id=%s", invite.id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite expired or already used")
 
     if invite.invitee_email and invite.invitee_email.lower() != current_user.email.lower():
-        logger.info(
+        logger.error(
             "Accept invite failed: email mismatch invite_id=%s expected=%s current=%s",
             invite.id,
             invite.invitee_email,

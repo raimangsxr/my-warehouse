@@ -427,8 +427,6 @@ def upload_batch_photos(
         len(files) if files else 0,
     )
     batch = _get_batch(db, warehouse_id, batch_id)
-    if batch.status == IntakeBatchStatus.committed.value:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch already committed")
 
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided")
@@ -471,10 +469,11 @@ def upload_batch_photos(
         .order_by(IntakeDraft.position.asc())
     ).all()
     logger.info(
-        "Intake photos uploaded warehouse_id=%s batch_id=%s uploaded=%s",
+        "Intake photos uploaded warehouse_id=%s batch_id=%s uploaded=%s batch_status=%s",
         warehouse_id,
         batch_id,
         len(refreshed),
+        batch.status,
     )
 
     return IntakeBatchUploadResponse(

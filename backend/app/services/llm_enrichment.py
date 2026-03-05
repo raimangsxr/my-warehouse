@@ -545,7 +545,7 @@ def generate_tags_and_aliases(
                     is_not_found = isinstance(exc, error.HTTPError) and exc.code == 404
                     if is_not_found and runtime_idx < len(runtime_models):
                         # Same logical model may be exposed as preview/latest alias.
-                        logger.info(
+                        logger.error(
                             "LLM tags runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
                             "fallback=next_runtime_alias",
                             operation_id,
@@ -555,7 +555,7 @@ def generate_tags_and_aliases(
                         )
                         continue
                     has_next_configured = configured_idx < len(models_to_try)
-                    logger.info(
+                    logger.error(
                         "LLM tags runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
                         "fallback=%s",
                         operation_id,
@@ -564,7 +564,7 @@ def generate_tags_and_aliases(
                         _short_exception(exc),
                         "next_configured_model" if has_next_configured else "heuristic_fallback",
                     )
-                    logger.warning(
+                    logger.error(
                         "Gemini model %s (configured as %s) failed for tags/aliases: %s",
                         runtime_model,
                         configured_model,
@@ -573,7 +573,7 @@ def generate_tags_and_aliases(
                     break
 
     tags, aliases = _heuristic_tags_and_aliases(name, description)
-    logger.info(
+    logger.error(
         "LLM tags request resolved via heuristic fallback op=%s tags=%s aliases=%s",
         operation_id,
         len(tags),
@@ -667,7 +667,7 @@ def generate_item_draft_from_photo(
                     is_not_found = isinstance(exc, error.HTTPError) and exc.code == 404
                     if is_not_found and runtime_idx < len(runtime_models):
                         # Same logical model may be exposed as preview/latest alias.
-                        logger.info(
+                        logger.error(
                             "LLM photo draft runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
                             "fallback=next_runtime_alias",
                             operation_id,
@@ -677,7 +677,7 @@ def generate_item_draft_from_photo(
                         )
                         continue
                     has_next_configured = configured_idx < len(models_to_try)
-                    logger.info(
+                    logger.error(
                         "LLM photo draft runtime failed op=%s configured_model=%s runtime_model=%s reason=%s "
                         "fallback=%s",
                         operation_id,
@@ -686,7 +686,7 @@ def generate_item_draft_from_photo(
                         _short_exception(exc),
                         "next_configured_model" if has_next_configured else "heuristic_fallback",
                     )
-                    logger.warning(
+                    logger.error(
                         "Gemini model %s (configured as %s) failed for photo draft: %s",
                         runtime_model,
                         configured_model,
@@ -694,5 +694,5 @@ def generate_item_draft_from_photo(
                     )
                     break
 
-    logger.info("LLM photo draft request resolved via heuristic fallback op=%s", operation_id)
+    logger.error("LLM photo draft request resolved via heuristic fallback op=%s", operation_id)
     return fallback
