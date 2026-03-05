@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import logging
 from pathlib import Path
 import shutil
 import uuid
@@ -29,15 +30,24 @@ from app.schemas.intake import (
     IntakeBatchStartResponse,
     IntakeBatchUploadResponse,
     IntakeBatchStatus,
+    IntakeDraftReprocessMode,
+    IntakeDraftReprocessRequest,
     IntakeDraftResponse,
     IntakeDraftStatus,
     IntakeDraftUpdateRequest,
 )
 from app.services.activity import record_activity
-from app.services.intake_processing import process_intake_batch, refresh_batch_rollup, resolve_batch_status_counts
+from app.services.intake_processing import (
+    DEFAULT_PARALLEL_WORKERS,
+    process_intake_batch,
+    refresh_batch_rollup,
+    resolve_batch_status_counts,
+)
+from app.services.stock import ensure_initial_stock_movement
 from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/intake", tags=["intake"])
+logger = logging.getLogger(__name__)
 
 _ALLOWED_CONTENT_TYPES = {
     "image/jpeg": "jpg",
@@ -184,6 +194,13 @@ def _store_batch_photo(request: Request, *, warehouse_id: str, batch_id: str, fi
     target.write_bytes(payload)
 
     relative_url = f"{settings.media_url_path.rstrip('/')}/{warehouse_id}/intake/{batch_id}/{filename}"
+    logger.debug(
+        "Stored intake photo warehouse_id=%s batch_id=%s filename=%s bytes=%s",
+        warehouse_id,
+        batch_id,
+        filename,
+        len(payload),
+    )
     return f"{str(request.base_url).rstrip('/')}{relative_url}"
 
 
@@ -220,6 +237,7 @@ def _move_draft_photo_to_items_storage(*, warehouse_id: str, photo_url: str) -> 
 
     parsed = urlsplit(photo_url)
     new_relative = f"{settings.media_url_path.rstrip('/')}/{warehouse_id}/items/{filename}"
+    logger.debug("Moved intake photo to item storage warehouse_id=%s filename=%s", warehouse_id, filename)
     return urlunsplit((parsed.scheme, parsed.netloc, new_relative, "", ""))
 
 
@@ -227,6 +245,7 @@ def _cleanup_batch_media_dir(*, warehouse_id: str, batch_id: str) -> None:
     batch_dir = Path(settings.media_root) / warehouse_id / "intake" / batch_id
     if batch_dir.exists():
         shutil.rmtree(batch_dir, ignore_errors=True)
+        logger.debug("Cleaned intake batch media directory warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
 
     intake_root = Path(settings.media_root) / warehouse_id / "intake"
     if intake_root.exists():
@@ -234,6 +253,54 @@ def _cleanup_batch_media_dir(*, warehouse_id: str, batch_id: str) -> None:
             intake_root.rmdir()
         except OSError:
             pass
+
+
+def _cleanup_empty_batch_dirs(*, warehouse_id: str, batch_id: str) -> None:
+    batch_dir = Path(settings.media_root) / warehouse_id / "intake" / batch_id
+    if batch_dir.exists():
+        try:
+            batch_dir.rmdir()
+        except OSError:
+            pass
+
+    intake_root = Path(settings.media_root) / warehouse_id / "intake"
+    if intake_root.exists():
+        try:
+            intake_root.rmdir()
+        except OSError:
+            pass
+
+
+def _cleanup_draft_temp_photo_file(*, warehouse_id: str, batch_id: str, photo_url: str) -> None:
+    parsed = urlsplit(photo_url)
+    raw_path = unquote(parsed.path or "")
+    media_url_path = settings.media_url_path.rstrip("/")
+    expected_prefix = f"{media_url_path}/{warehouse_id}/intake/{batch_id}/"
+    if not raw_path.startswith(expected_prefix):
+        return
+
+    relative_path = raw_path[len(f"{media_url_path}/{warehouse_id}/") :]
+    if not relative_path:
+        return
+
+    warehouse_root = (Path(settings.media_root) / warehouse_id).resolve()
+    file_path = (warehouse_root / relative_path).resolve()
+    if warehouse_root not in file_path.parents:
+        return
+    if file_path.exists() and file_path.is_file():
+        try:
+            file_path.unlink()
+        except OSError:
+            pass
+
+    _cleanup_empty_batch_dirs(warehouse_id=warehouse_id, batch_id=batch_id)
+
+
+def _normalize_optional_text(raw: object, *, max_len: int) -> str | None:
+    normalized = " ".join(str(raw or "").strip().split())
+    if not normalized:
+        return None
+    return normalized[:max_len]
 
 
 @router.get("/batches", response_model=list[IntakeBatchResponse])
@@ -246,6 +313,14 @@ def list_batches(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[IntakeBatchResponse]:
+    logger.debug(
+        "List intake batches requested warehouse_id=%s user_id=%s include_committed=%s only_mine=%s limit=%s",
+        warehouse_id,
+        current_user.id,
+        include_committed,
+        only_mine,
+        limit,
+    )
     query = select(IntakeBatch).where(IntakeBatch.warehouse_id == warehouse_id)
 
     if only_mine:
@@ -257,7 +332,14 @@ def list_batches(
     batch_ids = [batch.id for batch in batches]
     counts_by_batch = _resolve_status_counts_for_batches(db, batch_ids)
 
-    return [_serialize_batch(batch, counts_by_batch.get(batch.id, {})) for batch in batches]
+    response = [_serialize_batch(batch, counts_by_batch.get(batch.id, {})) for batch in batches]
+    logger.debug(
+        "List intake batches completed warehouse_id=%s user_id=%s count=%s",
+        warehouse_id,
+        current_user.id,
+        len(response),
+    )
+    return response
 
 
 @router.post("/batches", response_model=IntakeBatchDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -268,6 +350,13 @@ def create_batch(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> IntakeBatchDetailResponse:
+    logger.debug(
+        "Create intake batch requested warehouse_id=%s user_id=%s target_box_id=%s name=%s",
+        warehouse_id,
+        current_user.id,
+        payload.target_box_id,
+        payload.name,
+    )
     _get_active_box(db, warehouse_id, payload.target_box_id)
 
     batch = IntakeBatch(
@@ -282,6 +371,13 @@ def create_batch(
     status_counts = refresh_batch_rollup(db, batch)
     db.commit()
     db.refresh(batch)
+    logger.info(
+        "Intake batch created warehouse_id=%s batch_id=%s target_box_id=%s created_by=%s",
+        warehouse_id,
+        batch.id,
+        batch.target_box_id,
+        current_user.id,
+    )
 
     return IntakeBatchDetailResponse(
         batch=_serialize_batch(batch, status_counts),
@@ -303,6 +399,12 @@ def get_batch(
         .order_by(IntakeDraft.position.asc(), IntakeDraft.created_at.asc())
     ).all()
     status_counts = resolve_batch_status_counts(db, batch.id)
+    logger.debug(
+        "Get intake batch requested warehouse_id=%s batch_id=%s drafts=%s",
+        warehouse_id,
+        batch_id,
+        len(drafts),
+    )
     return IntakeBatchDetailResponse(
         batch=_serialize_batch(batch, status_counts),
         drafts=[_serialize_draft(draft) for draft in drafts],
@@ -318,6 +420,12 @@ def upload_batch_photos(
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> IntakeBatchUploadResponse:
+    logger.debug(
+        "Upload intake photos requested warehouse_id=%s batch_id=%s files=%s",
+        warehouse_id,
+        batch_id,
+        len(files) if files else 0,
+    )
     batch = _get_batch(db, warehouse_id, batch_id)
     if batch.status == IntakeBatchStatus.committed.value:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch already committed")
@@ -362,6 +470,12 @@ def upload_batch_photos(
         .where(IntakeDraft.id.in_([draft.id for draft in created]))
         .order_by(IntakeDraft.position.asc())
     ).all()
+    logger.info(
+        "Intake photos uploaded warehouse_id=%s batch_id=%s uploaded=%s",
+        warehouse_id,
+        batch_id,
+        len(refreshed),
+    )
 
     return IntakeBatchUploadResponse(
         batch=_serialize_batch(batch, status_counts),
@@ -379,9 +493,18 @@ def start_batch_processing(
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> IntakeBatchStartResponse:
+    logger.debug(
+        "Start intake processing requested warehouse_id=%s batch_id=%s retry_errors=%s",
+        warehouse_id,
+        batch_id,
+        payload.retry_errors,
+    )
     batch = _get_batch(db, warehouse_id, batch_id)
     if batch.status == IntakeBatchStatus.committed.value:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch already committed")
+
+    draft_ids_to_process: list[str] | None = None
+    max_parallel_workers = DEFAULT_PARALLEL_WORKERS
 
     if payload.retry_errors:
         error_drafts = db.scalars(
@@ -390,23 +513,46 @@ def start_batch_processing(
                 IntakeDraft.warehouse_id == warehouse_id,
                 IntakeDraft.status == IntakeDraftStatus.error.value,
             )
+            .order_by(IntakeDraft.position.asc(), IntakeDraft.created_at.asc())
         ).all()
+        draft_ids_to_process = [draft.id for draft in error_drafts]
         for draft in error_drafts:
             draft.status = IntakeDraftStatus.uploaded.value
             draft.error_message = None
         db.flush()
+        max_parallel_workers = 1
 
-    pending_count = db.scalar(
-        select(func.count(IntakeDraft.id)).where(
-            IntakeDraft.batch_id == batch_id,
-            IntakeDraft.warehouse_id == warehouse_id,
-            IntakeDraft.status == IntakeDraftStatus.uploaded.value,
-        )
+    pending_query = select(func.count(IntakeDraft.id)).where(
+        IntakeDraft.batch_id == batch_id,
+        IntakeDraft.warehouse_id == warehouse_id,
+        IntakeDraft.status == IntakeDraftStatus.uploaded.value,
     )
+    if draft_ids_to_process:
+        pending_query = pending_query.where(IntakeDraft.id.in_(draft_ids_to_process))
+
+    pending_count = db.scalar(pending_query)
+
+    if payload.retry_errors and not draft_ids_to_process:
+        status_counts = refresh_batch_rollup(db, batch)
+        db.commit()
+        logger.debug(
+            "Start intake processing skipped: no drafts in error warehouse_id=%s batch_id=%s",
+            warehouse_id,
+            batch_id,
+        )
+        return IntakeBatchStartResponse(
+            message="No hay articulos en error para reprocesar.",
+            batch=_serialize_batch(batch, status_counts),
+        )
 
     if not pending_count:
         status_counts = refresh_batch_rollup(db, batch)
         db.commit()
+        logger.debug(
+            "Start intake processing skipped: no pending drafts warehouse_id=%s batch_id=%s",
+            warehouse_id,
+            batch_id,
+        )
         return IntakeBatchStartResponse(
             message="No hay fotos pendientes para procesar.",
             batch=_serialize_batch(batch, status_counts),
@@ -418,11 +564,26 @@ def start_batch_processing(
     batch.finished_at = None
     db.commit()
 
-    background_tasks.add_task(process_intake_batch, warehouse_id=warehouse_id, batch_id=batch_id)
+    background_tasks.add_task(
+        process_intake_batch,
+        warehouse_id=warehouse_id,
+        batch_id=batch_id,
+        max_parallel_workers=max_parallel_workers,
+        draft_ids=draft_ids_to_process,
+    )
 
     status_counts = resolve_batch_status_counts(db, batch.id)
+    success_message = "Reprocesado secuencial de errores iniciado." if payload.retry_errors else "Procesamiento iniciado."
+    logger.info(
+        "Intake processing started warehouse_id=%s batch_id=%s pending=%s workers=%s retry_errors=%s",
+        warehouse_id,
+        batch_id,
+        int(pending_count or 0),
+        max_parallel_workers,
+        payload.retry_errors,
+    )
     return IntakeBatchStartResponse(
-        message="Procesamiento en paralelo iniciado.",
+        message=success_message,
         batch=_serialize_batch(batch, status_counts),
     )
 
@@ -435,6 +596,12 @@ def update_draft(
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> IntakeDraftResponse:
+    logger.debug(
+        "Update intake draft requested warehouse_id=%s draft_id=%s fields=%s",
+        warehouse_id,
+        draft_id,
+        sorted(payload.model_fields_set),
+    )
     draft = _get_draft(db, warehouse_id, draft_id)
 
     if draft.status == IntakeDraftStatus.committed.value:
@@ -463,7 +630,130 @@ def update_draft(
 
     db.commit()
     db.refresh(draft)
+    logger.info(
+        "Intake draft updated warehouse_id=%s draft_id=%s status=%s",
+        warehouse_id,
+        draft.id,
+        draft.status,
+    )
     return _serialize_draft(draft)
+
+
+@router.post("/drafts/{draft_id}/reprocess", response_model=IntakeBatchStartResponse)
+def reprocess_draft(
+    warehouse_id: str,
+    draft_id: str,
+    payload: IntakeDraftReprocessRequest,
+    background_tasks: BackgroundTasks,
+    _membership=Depends(require_warehouse_membership),
+    db: Session = Depends(get_db),
+) -> IntakeBatchStartResponse:
+    logger.debug(
+        "Reprocess intake draft requested warehouse_id=%s draft_id=%s mode=%s",
+        warehouse_id,
+        draft_id,
+        payload.mode.value,
+    )
+    draft = _get_draft(db, warehouse_id, draft_id)
+    if draft.status == IntakeDraftStatus.committed.value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft already committed")
+
+    batch = _get_batch(db, warehouse_id, draft.batch_id)
+    if batch.status == IntakeBatchStatus.committed.value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch already committed")
+    if batch.status == IntakeBatchStatus.processing.value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch is currently processing")
+
+    normalized_name = _normalize_optional_text(draft.name, max_len=160)
+    context_override: str | None = None
+    if payload.mode == IntakeDraftReprocessMode.name:
+        if not normalized_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Draft name is required for name-based reprocess",
+            )
+        draft.name = normalized_name
+        draft.suggested_name = f"__name_ctx__{uuid.uuid4().hex}"
+        context_override = normalized_name
+    else:
+        if normalized_name:
+            # Force photo-only run: suppress name context by aligning suggestion with current title.
+            draft.suggested_name = normalized_name
+        context_override = None
+
+    draft.status = IntakeDraftStatus.uploaded.value
+    draft.error_message = None
+    draft.warnings = []
+    draft.confidence = 0.0
+    draft.llm_used = False
+    db.flush()
+
+    batch.status = IntakeBatchStatus.processing.value
+    if batch.started_at is None:
+        batch.started_at = utcnow()
+    batch.finished_at = None
+    db.commit()
+
+    background_tasks.add_task(
+        process_intake_batch,
+        warehouse_id=warehouse_id,
+        batch_id=batch.id,
+        max_parallel_workers=1,
+        draft_ids=[draft.id],
+        context_name_overrides={draft.id: context_override},
+    )
+
+    status_counts = resolve_batch_status_counts(db, batch.id)
+    message = (
+        "Reprocesado del articulo iniciado (contexto por titulo)."
+        if payload.mode == IntakeDraftReprocessMode.name
+        else "Reprocesado del articulo iniciado (solo foto)."
+    )
+    logger.info(
+        "Intake draft reprocess started warehouse_id=%s batch_id=%s draft_id=%s mode=%s",
+        warehouse_id,
+        batch.id,
+        draft.id,
+        payload.mode.value,
+    )
+    return IntakeBatchStartResponse(
+        message=message,
+        batch=_serialize_batch(batch, status_counts),
+    )
+
+
+@router.delete("/drafts/{draft_id}", response_model=MessageResponse)
+def delete_draft(
+    warehouse_id: str,
+    draft_id: str,
+    _membership=Depends(require_warehouse_membership),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    logger.debug("Delete intake draft requested warehouse_id=%s draft_id=%s", warehouse_id, draft_id)
+    draft = _get_draft(db, warehouse_id, draft_id)
+    batch = _get_batch(db, warehouse_id, draft.batch_id)
+    if batch.status == IntakeBatchStatus.processing.value or draft.status == IntakeDraftStatus.processing.value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete draft while batch is processing")
+    draft_photo_url = draft.photo_url
+
+    db.delete(draft)
+    refresh_batch_rollup(db, batch)
+    db.commit()
+    _cleanup_draft_temp_photo_file(
+        warehouse_id=warehouse_id,
+        batch_id=batch.id,
+        photo_url=draft_photo_url,
+    )
+    if batch.status == IntakeBatchStatus.committed.value:
+        _cleanup_batch_media_dir(warehouse_id=warehouse_id, batch_id=batch.id)
+
+    logger.info(
+        "Intake draft deleted warehouse_id=%s batch_id=%s draft_id=%s",
+        warehouse_id,
+        batch.id,
+        draft_id,
+    )
+    return MessageResponse(message="Intake draft deleted")
 
 
 @router.post("/batches/{batch_id}/commit", response_model=IntakeBatchCommitResponse)
@@ -475,19 +765,22 @@ def commit_batch(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> IntakeBatchCommitResponse:
+    logger.info(
+        "Commit intake batch requested warehouse_id=%s batch_id=%s user_id=%s include_review=%s",
+        warehouse_id,
+        batch_id,
+        current_user.id,
+        payload.include_review,
+    )
     batch = _get_batch(db, warehouse_id, batch_id)
     _get_active_box(db, warehouse_id, batch.target_box_id)
-
-    allowed_statuses = [IntakeDraftStatus.ready.value]
-    if payload.include_review:
-        allowed_statuses.append(IntakeDraftStatus.review.value)
 
     candidates = db.scalars(
         select(IntakeDraft)
         .where(
             IntakeDraft.batch_id == batch_id,
             IntakeDraft.warehouse_id == warehouse_id,
-            IntakeDraft.status.in_(allowed_statuses),
+            IntakeDraft.status == IntakeDraftStatus.ready.value,
         )
         .order_by(IntakeDraft.position.asc())
     ).all()
@@ -533,8 +826,23 @@ def commit_batch(
             entity_version=item.version,
             payload={"name": item.name, "box_id": item.box_id},
         )
+        initial_stock_command_id, created_initial_stock = ensure_initial_stock_movement(
+            db,
+            warehouse_id=warehouse_id,
+            item_id=item.id,
+        )
+        if created_initial_stock:
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="stock",
+                entity_id=item.id,
+                action="adjust",
+                payload={"delta": 1, "command_id": initial_stock_command_id},
+            )
 
         draft.created_item_id = item.id
+        draft.photo_url = item_photo_url
         draft.status = IntakeDraftStatus.committed.value
         draft.error_message = None
         created += 1
@@ -560,6 +868,14 @@ def commit_batch(
     if batch.status == IntakeBatchStatus.committed.value:
         _cleanup_batch_media_dir(warehouse_id=warehouse_id, batch_id=batch.id)
 
+    logger.info(
+        "Commit intake batch completed warehouse_id=%s batch_id=%s created=%s skipped=%s errors=%s",
+        warehouse_id,
+        batch_id,
+        created,
+        skipped,
+        errors,
+    )
     return IntakeBatchCommitResponse(
         batch=_serialize_batch(batch, status_counts),
         created=created,
@@ -575,6 +891,7 @@ def delete_batch(
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
+    logger.debug("Delete intake batch requested warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
     batch = _get_batch(db, warehouse_id, batch_id)
     if batch.status == IntakeBatchStatus.processing.value:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete batch while processing")
@@ -582,4 +899,5 @@ def delete_batch(
     db.delete(batch)
     db.commit()
     _cleanup_batch_media_dir(warehouse_id=warehouse_id, batch_id=batch_id)
+    logger.info("Intake batch deleted warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
     return MessageResponse(message="Intake batch deleted")

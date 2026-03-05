@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.49
+- **Versión:** v1.52
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -79,6 +79,9 @@
 - **v1.47 (2026-03-05):** Robustez de parseo JSON en respuestas Gemini: el backend de enriquecimiento (foto/tags) ahora acepta JSON con texto envolvente o contenido adicional (p. ej. bloques markdown o texto tras el objeto JSON) usando extracción tolerante de la primera entidad JSON válida, evitando fallos `JSONDecodeError: Extra data` y reduciendo caídas a fallback heurístico por formato.
 - **v1.48 (2026-03-05):** Política de fallback configurable de modelos Gemini por warehouse: `llm_settings` añade `model_priority` (migración `20260305_0011_llm_model_priority`), `GET/PUT /settings/llm` incluye el orden completo de modelos y el backend aplica fallback en cascada para tags/aliases, draft por foto y intake batch (si un modelo falla por límite/error de request/formato, prueba el siguiente). Frontend Settings incorpora UI para reordenar prioridades (default: Gemini 3.1 Flash Lite → Gemini 3 Flash → Gemini 2.5 Flash → Gemini 2.5 Flash Lite).
 - **v1.49 (2026-03-05):** Corrección de 404 en modelos Gemini 3 al generar por foto/tags: cuando un ID configurado no existe con nombre estable (p. ej. `gemini-3-flash`), backend prueba variantes runtime (`-preview`/`-latest`) del mismo modelo antes de pasar al siguiente de `model_priority`, reduciendo falsos fallos por nomenclatura de versión.
+- **v1.50 (2026-03-05):** Refactor de lotes a módulo dedicado: se elimina el panel dinámico de lotes en sidenav y se añade sección `Lotes` con vista de listado (`/app/batches`) + detalle (`/app/batches/:batchId`). El detalle de lote pasa a flujo operativo por estados de UX `Nuevo/Procesado/Error/Guardado` con tablero por bloques (foto+título), acciones iconográficas con `tooltip` (añadir foto, guardar procesados, reprocesar errores, eliminar lote) y edición manual en error con acción `Marcar como procesado`. Backend intake elimina fallback local sin IA durante procesamiento de lote: si no hay resultado LLM válido, el draft queda en `error`; además `retry_errors=true` reprocesa **solo** errores en secuencia (1 a 1).
+- **v1.51 (2026-03-05):** Regla de stock inicial en altas de artículo: todo artículo nuevo nace con stock `1` mediante creación automática de `StockMovement` inicial (`delta=+1`) en los flujos de alta normal (`POST /warehouses/{warehouse_id}/items`), commit de intake batch y `item.create` vía sync. Se añade registro de `change_log` de tipo `stock` para sincronización consistente entre clientes.
+- **v1.52 (2026-03-05):** Detalle de lote con control granular por borrador: la card de artículo seleccionado añade cierre explícito (`X`) y reapertura por click en mini-card del resumen; se incorporan acciones iconográficas con `tooltip` por artículo (`Re-procesar IA por foto`, `Re-procesar IA por título`, `Eliminar artículo`). Backend expone `POST /warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess` (modo `photo|name`) y `DELETE /warehouses/{warehouse_id}/intake/drafts/{draft_id}` con limpieza de media temporal por borrador.
 
 ---
 
@@ -192,6 +195,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 ### Stock como eventos (movimientos)
 - El stock **no** se edita como un número “mutable” sin historial.
 - Se calcula como la suma de movimientos:
+  - `+1` inicial automático al crear un artículo (alta estándar, intake commit y alta por sync)
   - `+1` / `-1` (rápido)
   - (opcional futuro) ajuste “set to N”
 - Ventaja: mergeable en sync, reduce conflictos y da auditoría.
@@ -208,9 +212,11 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - `/warehouses` (lista + crear + seleccionar)
 - `/app` (shell)
   - `/app/home` (buscador + favoritos)
+  - `/app/batches` (listado de lotes de captura)
+  - `/app/batches/:batchId` (detalle operativo de lote)
   - `/app/items/new`
   - `/app/items/from-photo` (captura/subida + inferencia IA)
-  - `/app/items/intake-batch` (captura masiva por caja + revisión + commit)
+  - `/app/items/intake-batch` (ruta legacy redirigida a `/app/batches`)
   - `/app/items/:id` (detalle/edición)
   - `/app/boxes` (árbol de cajas)
   - `/app/boxes/:id` (detalle de caja)
@@ -223,11 +229,10 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 
 ### Shell (Material)
 - Toolbar superior con:
-  - escritorio: chip de warehouse activo + accesos directos (QR, cámara individual, captura masiva, settings, salir)
-  - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal, incluyendo acceso a captura masiva
+  - escritorio: chip de warehouse activo + accesos directos (QR, cámara individual, lotes, settings, salir)
+  - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal, incluyendo acceso a lotes
 - navegación lateral con iconografía y estado activo por sección
-- navegación lateral ampliada con sección dinámica `Lotes en borrador` (solo del usuario y no comprometidos) para reanudar capturas masivas pendientes en un click
-- cada lote del panel lateral incluye acciones explícitas de abrir y eliminar (esta última deshabilitada mientras el lote está en `processing`)
+- navegación lateral con módulo dedicado `Lotes` (enlace de primer nivel) que lleva a vista de listado y gestión de lotes
 - Responsive:
   - móvil: navegación compacta (sidenav overlay), toolbar optimizada para notch/safe-area y targets táctiles amplios
   - tablet/escritorio: sidenav persistente
@@ -288,7 +293,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Cada fila/card muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`.
 - La ruta es navegable por tramo en detalle de caja (navega a la caja correspondiente).
 - En alta por foto iniciada desde detalle, tras la inferencia IA la caja destino queda fijada a la caja actual (`lockBox`) en `/app/items/new`.
-- En captura masiva iniciada desde detalle, la caja destino del lote también queda fijada por contexto (`boxId` + `lockBox`) para evitar reasignaciones accidentales.
+- En captura masiva iniciada desde detalle, la caja destino del lote queda fijada por contexto (`boxId` + `lockBox`) en el módulo `/app/batches` para evitar reasignaciones accidentales.
 
 ### Scanner QR
 - Icono en header → vista escáner.
@@ -397,6 +402,7 @@ Secciones:
 ### EPIC D — Artículos
 **US-D1: Crear artículo**
 - [x] Campos: name (req), desc (opt), photo (opt), box (req), ubicación física (opt).
+- [x] Stock inicial obligatorio en alta: todo artículo nuevo nace con stock `1`.
 - [x] Enriquecimiento LLM (tags + alias) si habilitado.
 
 **US-D2: Editar artículo**
@@ -434,14 +440,18 @@ Secciones:
 - [x] Si la vista de captura se remonta (render/navegación móvil), la foto seleccionada se restaura automáticamente desde estado temporal y no se pierde el flujo.
 
 **US-D9: Captura masiva por caja + revisión operativa**
-- [x] Desde toolbar y detalle de caja (`collections`), el usuario puede crear un lote de captura masiva con caja destino fija.
+- [x] Existe módulo dedicado `Lotes` con vista de listado (`/app/batches`) y detalle (`/app/batches/:batchId`), accesible desde sidenav, toolbar y detalle de caja.
+- [x] El usuario puede crear lote por caja destino y abrirlo para gestión operativa temporal.
 - [x] El usuario puede subir `N` fotos en lote (multipart) sin pasar por formulario item por item.
-- [x] Backend procesa en paralelo los borradores y clasifica cada uno en `Lista` o `Revisión` según confianza/warnings.
-- [x] La UI permite edición inline de `name`, `description`, `tags`, `aliases` por borrador antes de confirmar.
-- [x] Acciones rápidas por borrador en iconos con `tooltip`: guardar, `Listo`, `Revisar`, `Rechazar`, `Reintentar IA`.
-- [x] `Reintentar IA` puede ejecutarse desde cualquier borrador no comprometido (no solo en error): si `name` fue cambiado respecto al sugerido por IA usa `foto + name`; si no fue cambiado, usa solo foto.
-- [x] En móvil, las acciones del panel de lote se muestran en grid uniforme (2 columnas) con botones de tamaño consistente y acción principal de commit a ancho completo.
-- [x] Commit masivo crea artículos en la caja destino para todos los borradores en `Listo`.
+- [x] Estados operativos de UX por artículo en lote: `Nuevo`, `Procesado`, `Error`, `Guardado`.
+- [x] En detalle de lote se muestra tablero resumen en 4 bloques (`Nuevo/Procesado/Error/Guardado`) con mini-cards (solo foto + título).
+- [x] Acciones del lote en iconos con `tooltip`: `Añadir artículo`, `Guardar procesados`, `Reprocesar errores`, `Eliminar lote`.
+- [x] Si el procesamiento IA falla en un artículo (incluyendo falta de API key o fallo de todos los modelos), el draft queda en `Error` sin fallback local no-IA.
+- [x] Desde `Error`, el usuario puede editar manualmente `name`, `description`, `tags`, `aliases` y marcar el draft como `Procesado`.
+- [x] `Reprocesar errores` actúa solo sobre drafts en `Error` y se ejecuta secuencialmente (1 a 1).
+- [x] `Guardar procesados` crea artículos en caja destino para drafts en estado procesado.
+- [x] La card de detalle del artículo seleccionado se puede cerrar con `X`; al pulsar una mini-card del resumen, el detalle se vuelve a abrir con el draft correspondiente.
+- [x] La card de artículo incluye acciones por draft con iconos + `tooltip`: reproceso IA por foto, reproceso IA por título (`name`) y eliminación del draft.
 
 ---
 
@@ -679,7 +689,12 @@ Secciones:
 - warehouse_id (FK)
 - batch_id (FK intake_batches.id)
 - photo_url
-- status (`uploaded|processing|ready|review|rejected|error|committed`)
+- status interno (`uploaded|processing|ready|review|rejected|error|committed`)
+  - mapeo UX actual:
+    - `Nuevo` = `uploaded|processing`
+    - `Procesado` = `ready|review`
+    - `Error` = `error|rejected`
+    - `Guardado` = `committed`
 - position (orden de captura/subida)
 - suggested_name (nullable): último nombre sugerido por IA para decidir si aplicar contexto manual en `Reintentar IA`
 - name (nullable), description (nullable)
@@ -784,6 +799,7 @@ Secciones:
 - `GET /warehouses/{warehouse_id}/items?q=...&favorites_only=...&stock_zero=...&with_photo=...`
   - respuesta incluye `box_is_inbound` para señalizar si la caja actual del artículo es la caja especial de entrada
 - `POST /warehouses/{warehouse_id}/items`
+  - crea artículo y registra movimiento inicial `stock_movements.delta=+1` (command_id determinista por item)
 - `POST /warehouses/{warehouse_id}/items/draft-from-photo`
   - body: `{ "image_data_url": "data:image/...;base64,..." }`
   - respuesta: `{ "name", "description", "tags", "aliases", "confidence", "warnings", "llm_used" }`
@@ -802,21 +818,30 @@ Stock:
   - body: `{ "target_box_id": "...", "name?": "..." }`
   - crea lote y fija caja destino.
 - `GET /warehouses/{warehouse_id}/intake/batches?include_committed=false&only_mine=true&limit=20`
-  - lista lotes para reanudación desde UI (ordenados por `updated_at` desc).
-  - por defecto devuelve solo lotes abiertos creados por el usuario actual.
+  - lista lotes para módulo de gestión (ordenados por `updated_at` desc).
+  - por defecto devuelve solo lotes abiertos creados por el usuario actual; la UI de módulo puede pedir `include_committed=true` y/o `only_mine=false`.
 - `GET /warehouses/{warehouse_id}/intake/batches/{batch_id}`
   - devuelve `batch` + `drafts` para refresco/polling.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` (multipart `files[]`)
   - sube N imágenes al storage backend temporal del lote (`/media/{warehouse_id}/intake/{batch_id}`) y crea `intake_drafts` en estado `uploaded`.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/start`
   - body: `{ "retry_errors": bool }`
-  - encola/procesa en paralelo borradores `uploaded`.
+  - `retry_errors=false`: procesa borradores `uploaded` (flujo normal de nuevos).
+  - `retry_errors=true`: reprocesa **solo** borradores `error` de forma secuencial (1 a 1).
+  - en procesamiento de intake, si IA no devuelve resultado válido, el draft queda en `error` (sin fallback local no-IA).
 - `PATCH /warehouses/{warehouse_id}/intake/drafts/{draft_id}`
-  - edición manual de metadatos + cambio de estado (`ready|review|rejected|uploaded`).
+  - edición manual de metadatos + cambio de estado permitido (`ready|review|rejected|uploaded|error`), bloqueando transiciones manuales a `processing|committed`.
+- `POST /warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess`
+  - body: `{ "mode": "photo" | "name" }` (`photo` por defecto).
+  - `mode=photo`: reproceso de un único draft usando solo la imagen.
+  - `mode=name`: reproceso de un único draft usando imagen + título manual (`name`) como contexto autoritativo.
+- `DELETE /warehouses/{warehouse_id}/intake/drafts/{draft_id}`
+  - elimina un artículo temporal del lote (si no está procesando) y limpia su foto temporal del storage de intake.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/commit`
-  - body: `{ "include_review": false }`
-  - crea items para drafts en `ready` (y opcionalmente `review`).
-  - mueve cada foto comprometida desde carpeta temporal del lote a storage definitivo de artículos (`/media/{warehouse_id}/items`) y actualiza `items.photo_url`.
+  - body: `{ "include_review": false }` (campo legacy, no requerido para flujo actual).
+  - crea items para drafts en `ready` (estado UX `Procesado`).
+  - cada item creado registra stock inicial `+1` vía `stock_movements`.
+  - mueve cada foto guardada desde carpeta temporal del lote a storage definitivo de artículos (`/media/{warehouse_id}/items`) y actualiza `items.photo_url`.
 - `DELETE /warehouses/{warehouse_id}/intake/batches/{batch_id}`
   - elimina lote si no está en procesamiento y limpia su carpeta temporal de media.
 
@@ -872,13 +897,13 @@ Stock:
 ### Tags
 - No se introducen manualmente en el flujo normal.
 - Se generan por LLM al crear/editar artículo (si habilitado).
-- En captura masiva (`/app/items/intake-batch`), se permite ajuste manual inline antes del commit.
+- En captura masiva (`/app/batches/:batchId`), se permite ajuste manual inline antes del guardado de procesados.
 - Nube de tags: chips interactivos para filtrar con codificación visual por frecuencia (tamaño/color), contador por tag y estado activo resaltado.
 
 ### Alias
 - No se introducen manualmente en el flujo normal.
 - Generados por LLM al crear/editar artículo (si habilitado).
-- En captura masiva (`/app/items/intake-batch`), se permite ajuste manual inline antes del commit.
+- En captura masiva (`/app/batches/:batchId`), se permite ajuste manual inline antes del guardado de procesados.
 
 ---
 
@@ -1102,12 +1127,12 @@ El servidor persiste `processed_commands` para no duplicar.
 
 ### Slice 10 — Captura masiva por caja (batch intake + commit)
 - Crear lotes por caja y subir N fotos sin pasar por formulario individual.
-- Procesamiento paralelo de borradores en backend con clasificación automática (`ready`/`review`) por confianza.
-- Revisión operativa en frontend con edición inline (`name`, `description`, `tags`, `aliases`) y acciones por estado.
-- Commit masivo para crear items en la caja destino.
+- Procesamiento IA de borradores con salida operativa por estados de UX (`Nuevo|Procesado|Error|Guardado`).
+- Revisión operativa en frontend con tablero por estados, edición inline y acciones de lote iconográficas.
+- Guardado masivo para crear items en la caja destino a partir de `Procesado`.
 - Estado actual (2026-03-05): **completada**.
-  - Backend: modelos `intake_batches`, `intake_drafts`; endpoints `/warehouses/{warehouse_id}/intake/...`; procesamiento paralelo server-side desde `photo_url`; commit masivo con creación de `items` y `change_log`.
-  - Frontend: ruta `/app/items/intake-batch`; subida múltiple, polling de progreso, revisión por borrador y commit de listos; accesos en shell y detalle de caja (`collections`).
+  - Backend: modelos `intake_batches`, `intake_drafts`; endpoints `/warehouses/{warehouse_id}/intake/...`; reproceso secuencial de errores y sin fallback local cuando falla IA en intake; commit de procesados con creación de `items` y `change_log`.
+  - Frontend: módulo `/app/batches` + detalle `/app/batches/:batchId`; creación/listado de lotes, subida múltiple, procesamiento, edición manual en error, guardado de procesados y accesos en shell y detalle de caja (`collections`).
   - Migración: `20260305_0009_intake_batches`.
   - Calidad: test backend `test_slice10_intake_batch.py` y build frontend OK.
 
@@ -1149,3 +1174,4 @@ Para considerar una slice “Done”:
 - **A-017 (2026-03-05):** En Slice 10, el procesamiento paralelo de intake se ejecuta en backend con `ThreadPoolExecutor` y estados persistidos en DB (sin broker externo). Es una solución simple/reversible para esta fase; si se requiere resiliencia multi-worker/procesos, se migrará a cola distribuida dedicada (p. ej. Redis/Celery o equivalente) conservando el contrato REST.
 - **A-018 (2026-03-05):** Se asume correspondencia directa entre nombres comerciales pedidos y IDs de API Gemini: `Gemini 3.1 Flash Lite`→`gemini-3.1-flash-lite`, `Gemini 3 Flash`→`gemini-3-flash`, `Gemini 2.5 Flash`→`gemini-2.5-flash`, `Gemini 2.5 Flash Lite`→`gemini-2.5-flash-lite`.
 - **A-019 (2026-03-05):** Algunos modelos Gemini 3 pueden exponerse como IDs `preview/latest` y devolver `404` en el ID base. Backend aplica resolución runtime (`-preview`, `-latest`, `-preview-latest`) antes de pasar al siguiente modelo del fallback.
+- **A-020 (2026-03-05):** En el nuevo detalle por bloques (`Nuevo/Procesado/Error/Guardado`), los drafts guardados permanecen visibles en `Guardado` como trazabilidad ligera (foto+título) y dejan de ser editables; la imagen temporal se limpia al moverse al storage definitivo de items durante el guardado.

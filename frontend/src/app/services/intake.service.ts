@@ -69,6 +69,8 @@ export interface IntakeBatchStartResponse {
   batch: IntakeBatch;
 }
 
+export type IntakeDraftReprocessMode = 'photo' | 'name';
+
 export interface IntakeBatchCommitResponse {
   batch: IntakeBatch;
   created: number;
@@ -131,6 +133,21 @@ export class IntakeService {
     }
   ): Observable<IntakeDraft> {
     return this.http.patch<IntakeDraft>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/intake/drafts/${draftId}`, payload);
+  }
+
+  reprocessDraft(
+    warehouseId: string,
+    draftId: string,
+    mode: IntakeDraftReprocessMode
+  ): Observable<IntakeBatchStartResponse> {
+    return this.http.post<IntakeBatchStartResponse>(
+      `${environment.apiBaseUrl}/warehouses/${warehouseId}/intake/drafts/${draftId}/reprocess`,
+      { mode }
+    );
+  }
+
+  deleteDraft(warehouseId: string, draftId: string): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/intake/drafts/${draftId}`);
   }
 
   commitBatch(

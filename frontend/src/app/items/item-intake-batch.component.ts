@@ -1,28 +1,26 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Subscription, forkJoin, of } from 'rxjs';
-import { catchError, finalize } from 'rxjs/operators';
+import { Subscription } from 'rxjs';
+import { finalize, switchMap } from 'rxjs/operators';
 
-import { BoxService, BoxTreeNode } from '../services/box.service';
 import {
   IntakeBatch,
-  IntakeBatchStatus,
   IntakeDraft,
-  IntakeDraftStatus,
   IntakeService
 } from '../services/intake.service';
 import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
+
+type IntakeUiStatus = 'new' | 'processed' | 'error' | 'saved';
 
 interface DraftEditorState {
   name: string;
@@ -37,223 +35,280 @@ interface DraftEditorState {
   imports: [
     CommonModule,
     FormsModule,
-    RouterLink,
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
     MatTooltipModule
   ],
   template: `
-    <div class="app-page">
-      <header class="page-header">
+    <div class="app-page" *ngIf="batch">
+      <header class="page-header intake-header">
         <div>
-          <h1 class="page-title">Captura masiva por caja</h1>
+          <h1 class="page-title">{{ batchTitle() }}</h1>
           <p class="page-subtitle">
-            Sube N fotos, procesa en paralelo y valida nombre, descripción, tags y aliases antes de crear artículos.
+            Creado hace {{ daysSinceCreated(batch.created_at) }} día(s) · {{ drafts.length }} artículo(s) en gestión temporal.
           </p>
+        </div>
+        <div class="batch-actions" role="group" aria-label="Acciones del lote">
+          <button mat-icon-button type="button" matTooltip="Añadir artículo (foto)" aria-label="Añadir artículo" (click)="openPicker()" [disabled]="uploading || isProcessing">
+            <mat-icon>add_a_photo</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            type="button"
+            matTooltip="Guardar procesados"
+            aria-label="Guardar procesados"
+            (click)="commitProcessed()"
+            [disabled]="isProcessing || processedCount === 0 || committing"
+          >
+            <mat-icon>save</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            type="button"
+            matTooltip="Reprocesar errores"
+            aria-label="Reprocesar errores"
+            (click)="reprocessErrorsSequentially()"
+            [disabled]="isProcessing || errorCount === 0"
+          >
+            <mat-icon>auto_awesome</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            color="warn"
+            type="button"
+            matTooltip="Eliminar lote"
+            aria-label="Eliminar lote"
+            (click)="deleteBatch()"
+            [disabled]="isProcessing || committing"
+          >
+            <mat-icon>delete</mat-icon>
+          </button>
         </div>
       </header>
 
-      <mat-card class="surface-card">
+      <mat-card class="surface-card" *ngIf="isProcessing">
+        <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+      </mat-card>
+
+      <mat-card class="surface-card compact-card">
         <mat-card-content>
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
-          <div class="status-line" *ngIf="boxLocked">
-            Caja fijada por contexto: los artículos del lote se crearán en la caja seleccionada.
-          </div>
-
-          <div class="form-row">
-            <mat-form-field>
-              <mat-label>Caja destino</mat-label>
-              <mat-select [(ngModel)]="targetBoxId" [disabled]="boxLocked || !!batch">
-                <mat-option *ngFor="let node of boxes" [value]="node.box.id">
-                  {{ boxPathLabel(node) }}
-                </mat-option>
-              </mat-select>
-            </mat-form-field>
-
-            <mat-form-field class="grow">
-              <mat-label>Nombre del lote (opcional)</mat-label>
-              <input matInput [(ngModel)]="batchName" [disabled]="!!batch" maxlength="120" />
-            </mat-form-field>
-          </div>
-
-          <div class="inline-actions create-actions">
-            <button mat-flat-button color="primary" type="button" (click)="createBatch()" [disabled]="loading || !!batch || !targetBoxId">
-              Crear lote
-            </button>
-            <button mat-stroked-button type="button" [routerLink]="cancelLink">Cancelar</button>
-          </div>
-        </mat-card-content>
-      </mat-card>
-
-      <mat-card class="surface-card" *ngIf="batch">
-        <mat-progress-bar *ngIf="isProcessing" mode="indeterminate"></mat-progress-bar>
-        <mat-card-content>
-          <section class="batch-toolbar">
-            <div>
-              <p class="results-title">Lote {{ batch.name || batch.id.slice(0, 8) }}</p>
-              <p class="results-count">
-                Estado {{ statusLabel(batch.status) }} · {{ batch.committed_count }}/{{ batch.total_count }} comprometidos
-              </p>
-            </div>
-            <div class="inline-actions wrap-actions batch-actions">
-              <button mat-flat-button color="primary" type="button" (click)="openPicker()" [disabled]="uploading || isProcessing">
-                <mat-icon>add_a_photo</mat-icon>
-                Añadir fotos
-              </button>
-              <button mat-stroked-button type="button" (click)="startProcessing(false)" [disabled]="isProcessing || uploadedCount === 0">
-                Procesar pendientes
-              </button>
-              <button mat-stroked-button type="button" (click)="acceptAllReview()" [disabled]="reviewCount === 0 || isProcessing">
-                Aceptar revisión
-              </button>
-              <button mat-stroked-button type="button" (click)="startProcessing(true)" [disabled]="isProcessing || errorCount === 0">
-                Reintentar errores
-              </button>
-              <button mat-stroked-button color="warn" type="button" (click)="deleteBatch()" [disabled]="isProcessing || committing">
-                Eliminar lote
-              </button>
-              <button
-                mat-flat-button
-                color="accent"
-                type="button"
-                class="batch-action-primary"
-                (click)="commitReady()"
-                [disabled]="isProcessing || readyCount === 0 || committing"
-              >
-                Crear {{ readyCount }} artículos
-              </button>
-            </div>
-          </section>
-
-          <input
-            #photoInput
-            type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif,.png,.jpg,.jpeg,.webp,.heic,.heif"
-            capture="environment"
-            multiple
-            (change)="onFilesSelected($event)"
-            class="sr-only-input"
-          />
-
-          <div class="inline-actions chips-row mt-10">
-            <span class="inline-chip">Subidas: {{ uploadedCount }}</span>
-            <span class="inline-chip">Procesando: {{ processingCount }}</span>
-            <span class="inline-chip">Listas: {{ readyCount }}</span>
-            <span class="inline-chip">Revisión: {{ reviewCount }}</span>
-            <span class="inline-chip">Errores: {{ errorCount }}</span>
-            <span class="inline-chip">Rechazadas: {{ rejectedCount }}</span>
-            <span class="inline-chip">Comprometidas: {{ committedCount }}</span>
-          </div>
-        </mat-card-content>
-      </mat-card>
-
-      <mat-card class="surface-card" *ngIf="batch">
-        <mat-card-content>
-          <div class="empty-state" *ngIf="drafts.length === 0">Todavía no hay fotos en este lote.</div>
-
-          <div class="drafts-grid" *ngIf="drafts.length > 0">
-            <article class="draft-card" *ngFor="let draft of drafts; trackBy: trackByDraftId">
-              <img [src]="draft.photo_url" [alt]="draft.name || 'Borrador'" class="draft-photo" />
-              <div class="draft-body">
-                <div class="draft-head">
-                  <span class="inline-chip">{{ statusLabel(draft.status) }}</span>
-                  <span class="inline-chip" *ngIf="draft.confidence > 0">Conf {{ confidencePercent(draft.confidence) }}%</span>
-                </div>
-
-                <mat-form-field class="full-width compact-field">
-                  <mat-label>Nombre</mat-label>
-                  <input matInput [(ngModel)]="editorFor(draft).name" [disabled]="isDraftLocked(draft)" maxlength="160" />
-                </mat-form-field>
-
-                <mat-form-field class="full-width compact-field">
-                  <mat-label>Descripción</mat-label>
-                  <textarea
-                    matInput
-                    rows="2"
-                    [(ngModel)]="editorFor(draft).description"
-                    [disabled]="isDraftLocked(draft)"
-                    maxlength="1000"
-                  ></textarea>
-                </mat-form-field>
-
-                <div class="form-row compact-row">
-                  <mat-form-field class="compact-field">
-                    <mat-label>Tags</mat-label>
-                    <input matInput [(ngModel)]="editorFor(draft).tagsText" [disabled]="isDraftLocked(draft)" />
-                  </mat-form-field>
-
-                  <mat-form-field class="compact-field">
-                    <mat-label>Aliases</mat-label>
-                    <input matInput [(ngModel)]="editorFor(draft).aliasesText" [disabled]="isDraftLocked(draft)" />
-                  </mat-form-field>
-                </div>
-
-                <p class="status-line" *ngIf="draft.warnings.length > 0">{{ draft.warnings.join(' · ') }}</p>
-                <p class="error" *ngIf="draft.error_message">{{ draft.error_message }}</p>
-
-                <div class="inline-actions draft-action-icons">
-                  <button
-                    mat-icon-button
-                    type="button"
-                    matTooltip="Guardar borrador"
-                    aria-label="Guardar borrador"
-                    (click)="saveDraft(draft)"
-                    [disabled]="isDraftLocked(draft)"
-                  >
-                    <mat-icon>save</mat-icon>
-                  </button>
-                  <button
-                    mat-icon-button
-                    type="button"
-                    matTooltip="Marcar como listo"
-                    aria-label="Marcar como listo"
-                    (click)="setDraftStatus(draft, 'ready')"
-                    [disabled]="isDraftLocked(draft)"
-                  >
-                    <mat-icon>check_circle</mat-icon>
-                  </button>
-                  <button
-                    mat-icon-button
-                    type="button"
-                    matTooltip="Marcar para revisión"
-                    aria-label="Marcar para revisión"
-                    (click)="setDraftStatus(draft, 'review')"
-                    [disabled]="isDraftLocked(draft)"
-                  >
-                    <mat-icon>rate_review</mat-icon>
-                  </button>
-                  <button
-                    mat-icon-button
-                    color="warn"
-                    type="button"
-                    matTooltip="Rechazar borrador"
-                    aria-label="Rechazar borrador"
-                    (click)="setDraftStatus(draft, 'rejected')"
-                    [disabled]="isDraftLocked(draft)"
-                  >
-                    <mat-icon>block</mat-icon>
-                  </button>
-                  <button
-                    mat-icon-button
-                    type="button"
-                    matTooltip="Reintentar IA"
-                    aria-label="Reintentar IA"
-                    (click)="retryDraft(draft)"
-                    [disabled]="isProcessing || draft.status === 'committed'"
-                  >
-                    <mat-icon>auto_awesome</mat-icon>
-                  </button>
-                </div>
+          <div class="status-board" *ngIf="drafts.length > 0; else emptyBatch">
+            <section class="status-column">
+              <header class="status-column-head">
+                <h2>Nuevo</h2>
+                <span class="inline-chip">{{ newCount }}</span>
+              </header>
+              <div class="status-items">
+                <button
+                  type="button"
+                  class="status-item"
+                  *ngFor="let draft of draftsByUiStatus('new'); trackBy: trackByDraftId"
+                  [class.status-item-active]="draft.id === selectedDraftId"
+                  (click)="selectDraft(draft.id)"
+                >
+                  <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
+                  <span>{{ draftTitle(draft) }}</span>
+                </button>
+                <p class="status-empty" *ngIf="draftsByUiStatus('new').length === 0">Sin artículos</p>
               </div>
-            </article>
+            </section>
+
+            <section class="status-column">
+              <header class="status-column-head">
+                <h2>Procesado</h2>
+                <span class="inline-chip">{{ processedCount }}</span>
+              </header>
+              <div class="status-items">
+                <button
+                  type="button"
+                  class="status-item"
+                  *ngFor="let draft of draftsByUiStatus('processed'); trackBy: trackByDraftId"
+                  [class.status-item-active]="draft.id === selectedDraftId"
+                  (click)="selectDraft(draft.id)"
+                >
+                  <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
+                  <span>{{ draftTitle(draft) }}</span>
+                </button>
+                <p class="status-empty" *ngIf="draftsByUiStatus('processed').length === 0">Sin artículos</p>
+              </div>
+            </section>
+
+            <section class="status-column">
+              <header class="status-column-head">
+                <h2>Error</h2>
+                <span class="inline-chip">{{ errorCount }}</span>
+              </header>
+              <div class="status-items">
+                <button
+                  type="button"
+                  class="status-item"
+                  *ngFor="let draft of draftsByUiStatus('error'); trackBy: trackByDraftId"
+                  [class.status-item-active]="draft.id === selectedDraftId"
+                  (click)="selectDraft(draft.id)"
+                >
+                  <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
+                  <span>{{ draftTitle(draft) }}</span>
+                </button>
+                <p class="status-empty" *ngIf="draftsByUiStatus('error').length === 0">Sin artículos</p>
+              </div>
+            </section>
+
+            <section class="status-column">
+              <header class="status-column-head">
+                <h2>Guardado</h2>
+                <span class="inline-chip">{{ savedCount }}</span>
+              </header>
+              <div class="status-items">
+                <button
+                  type="button"
+                  class="status-item"
+                  *ngFor="let draft of draftsByUiStatus('saved'); trackBy: trackByDraftId"
+                  [class.status-item-active]="draft.id === selectedDraftId"
+                  (click)="selectDraft(draft.id)"
+                >
+                  <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
+                  <span>{{ draftTitle(draft) }}</span>
+                </button>
+                <p class="status-empty" *ngIf="draftsByUiStatus('saved').length === 0">Sin artículos</p>
+              </div>
+            </section>
+          </div>
+
+          <ng-template #emptyBatch>
+            <div class="empty-state">Todavía no hay artículos en este lote.</div>
+          </ng-template>
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card class="surface-card" *ngIf="selectedDraft as draft">
+        <mat-card-content>
+          <div class="editor-header">
+            <p class="editor-title">Detalle de artículo</p>
+            <button
+              mat-icon-button
+              type="button"
+              matTooltip="Cerrar detalle"
+              aria-label="Cerrar detalle"
+              (click)="closeSelectedDraft()"
+            >
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+
+          <div class="editor-grid">
+            <img [src]="draft.photo_url" [alt]="draftTitle(draft)" class="editor-photo" />
+
+            <div>
+              <div class="inline-actions chips-row">
+                <span class="inline-chip">Estado: {{ uiStatusLabel(uiStatusOf(draft)) }}</span>
+                <span class="inline-chip" *ngIf="draft.confidence > 0">Confianza: {{ confidencePercent(draft.confidence) }}%</span>
+              </div>
+
+              <mat-form-field class="full-width compact-field">
+                <mat-label>Nombre</mat-label>
+                <input matInput [(ngModel)]="editorFor(draft).name" [disabled]="isDraftReadOnly(draft)" maxlength="160" />
+              </mat-form-field>
+
+              <mat-form-field class="full-width compact-field">
+                <mat-label>Descripción</mat-label>
+                <textarea
+                  matInput
+                  rows="3"
+                  [(ngModel)]="editorFor(draft).description"
+                  [disabled]="isDraftReadOnly(draft)"
+                  maxlength="1000"
+                ></textarea>
+              </mat-form-field>
+
+              <div class="form-row compact-row">
+                <mat-form-field class="compact-field">
+                  <mat-label>Tags</mat-label>
+                  <input matInput [(ngModel)]="editorFor(draft).tagsText" [disabled]="isDraftReadOnly(draft)" />
+                </mat-form-field>
+
+                <mat-form-field class="compact-field">
+                  <mat-label>Aliases</mat-label>
+                  <input matInput [(ngModel)]="editorFor(draft).aliasesText" [disabled]="isDraftReadOnly(draft)" />
+                </mat-form-field>
+              </div>
+
+              <p class="status-line" *ngIf="draft.warnings.length > 0">{{ draft.warnings.join(' · ') }}</p>
+              <p class="error" *ngIf="draft.error_message">{{ draft.error_message }}</p>
+
+              <div class="inline-actions editor-actions">
+                <button
+                  mat-icon-button
+                  type="button"
+                  matTooltip="Guardar cambios"
+                  aria-label="Guardar cambios"
+                  (click)="saveDraft(draft)"
+                  [disabled]="isDraftReadOnly(draft)"
+                >
+                  <mat-icon>save</mat-icon>
+                </button>
+                <button
+                  mat-icon-button
+                  type="button"
+                  matTooltip="Re-procesar con IA (foto)"
+                  aria-label="Re-procesar con IA por foto"
+                  (click)="reprocessDraftByPhoto(draft)"
+                  [disabled]="isDraftReadOnly(draft)"
+                >
+                  <mat-icon>photo_camera</mat-icon>
+                </button>
+                <button
+                  mat-icon-button
+                  type="button"
+                  matTooltip="Re-procesar con IA (título)"
+                  aria-label="Re-procesar con IA por título"
+                  (click)="reprocessDraftByName(draft)"
+                  [disabled]="isDraftReadOnly(draft)"
+                >
+                  <mat-icon>title</mat-icon>
+                </button>
+                <button
+                  mat-icon-button
+                  color="primary"
+                  type="button"
+                  matTooltip="Marcar como procesado"
+                  aria-label="Marcar como procesado"
+                  *ngIf="uiStatusOf(draft) === 'error'"
+                  (click)="markErrorAsProcessed(draft)"
+                  [disabled]="isDraftReadOnly(draft)"
+                >
+                  <mat-icon>check_circle</mat-icon>
+                </button>
+                <button
+                  mat-icon-button
+                  color="warn"
+                  type="button"
+                  matTooltip="Eliminar artículo"
+                  aria-label="Eliminar artículo"
+                  (click)="deleteDraft(draft)"
+                  [disabled]="isDraftReadOnly(draft)"
+                >
+                  <mat-icon>delete</mat-icon>
+                </button>
+              </div>
+            </div>
           </div>
         </mat-card-content>
       </mat-card>
+
+      <input
+        #photoInput
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif,.png,.jpg,.jpeg,.webp,.heic,.heif"
+        capture="environment"
+        multiple
+        (change)="onFilesSelected($event)"
+        class="sr-only-input"
+      />
     </div>
   `,
   styles: [
@@ -262,100 +317,157 @@ interface DraftEditorState {
         display: none;
       }
 
-      .batch-toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
+      .intake-header {
+        align-items: flex-start;
       }
 
-      .wrap-actions {
-        flex-wrap: wrap;
+      .batch-actions {
+        display: inline-flex;
+        gap: 2px;
+        border: 1px solid var(--border-soft);
+        border-radius: 999px;
+        background: linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
+        padding: 2px;
       }
 
-      .create-actions .mat-mdc-button-base,
-      .batch-actions .mat-mdc-button-base {
-        min-height: 40px;
-      }
-
-      .chips-row {
-        flex-wrap: wrap;
-      }
-
-      .drafts-grid {
+      .status-board {
         display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
       }
 
-      .draft-card {
-        display: grid;
-        grid-template-columns: 116px minmax(0, 1fr);
-        gap: 10px;
+      .status-column {
         border: 1px solid var(--border-soft);
         border-radius: 12px;
-        padding: 10px;
         background: #ffffff;
-      }
-
-      .draft-photo {
-        width: 100%;
-        height: 116px;
-        object-fit: cover;
-        border-radius: 10px;
-        border: 1px solid var(--border-soft);
-        background: #f4f7fc;
-      }
-
-      .draft-body {
+        padding: 8px;
         min-width: 0;
       }
 
-      .draft-head {
+      .status-column-head {
         display: flex;
-        gap: 8px;
         align-items: center;
-        margin-bottom: 6px;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
       }
 
-      .compact-row {
-        gap: 8px;
+      .status-column-head h2 {
+        margin: 0;
+        font-size: 0.92rem;
+      }
+
+      .status-items {
+        display: grid;
+        gap: 6px;
+      }
+
+      .status-item {
+        width: 100%;
+        border: 1px solid var(--border-soft);
+        border-radius: 10px;
+        background: #f8fbff;
+        padding: 6px;
+        text-align: left;
+        cursor: pointer;
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 6px;
+        align-items: center;
+      }
+
+      .status-item img {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        border: 1px solid var(--border-soft);
+        object-fit: cover;
+        background: #eef3fb;
+      }
+
+      .status-item span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.8rem;
+        color: var(--text-1);
+      }
+
+      .status-item-active {
+        border-color: rgba(57, 73, 171, 0.45);
+        background: rgba(57, 73, 171, 0.08);
+      }
+
+      .status-empty {
+        margin: 0;
+        font-size: 0.78rem;
+        color: var(--text-3);
+      }
+
+      .editor-grid {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .editor-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+
+      .editor-title {
+        margin: 0;
+        font-weight: 600;
+        color: var(--text-1);
+      }
+
+      .editor-photo {
+        width: 100%;
+        height: 220px;
+        border-radius: 12px;
+        border: 1px solid var(--border-soft);
+        object-fit: cover;
+        background: #eef3fb;
       }
 
       .compact-field {
         margin-bottom: -1.05em;
       }
 
-      .draft-action-icons {
+      .compact-row {
+        gap: 8px;
+      }
+
+      .chips-row {
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+      }
+
+      .editor-actions {
+        margin-top: 8px;
         gap: 4px;
       }
 
-      @media (max-width: 760px) {
-        .create-actions,
-        .batch-actions {
-          width: 100%;
-          display: grid;
+      @media (max-width: 1200px) {
+        .status-board {
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
         }
+      }
 
-        .create-actions .mat-mdc-button-base,
-        .batch-actions .mat-mdc-button-base {
-          width: 100%;
-          justify-content: center;
-          margin: 0;
-        }
-
-        .batch-action-primary {
-          grid-column: 1 / -1;
-        }
-
-        .draft-card {
+      @media (max-width: 760px) {
+        .status-board {
           grid-template-columns: 1fr;
         }
 
-        .draft-photo {
-          height: 190px;
+        .editor-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .editor-photo {
+          height: 220px;
         }
       }
     `
@@ -366,28 +478,21 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
 
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
 
-  boxes: BoxTreeNode[] = [];
-  targetBoxId: string | null = null;
-  boxLocked = false;
-  cancelLink: string[] = ['/app/home'];
-
-  batchName = '';
   batch: IntakeBatch | null = null;
   drafts: IntakeDraft[] = [];
+  selectedDraftId: string | null = null;
 
-  loading = false;
   uploading = false;
   committing = false;
   errorMessage = '';
 
   private readonly draftEditors = new Map<string, DraftEditorState>();
-  private readonly boxPathById = new Map<string, string>();
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
-  private routeQuerySub?: Subscription;
+  private routeParamSub?: Subscription;
+  private detailPanelClosedManually = false;
 
   constructor(
     private readonly warehouseService: WarehouseService,
-    private readonly boxService: BoxService,
     private readonly intakeService: IntakeService,
     private readonly notificationService: NotificationService,
     private readonly route: ActivatedRoute,
@@ -400,71 +505,145 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.loadBoxes();
-    this.routeQuerySub = this.route.queryParamMap.subscribe((params) => {
-      const queryBoxId = params.get('boxId');
-      const lockBox = params.get('lockBox');
-      const queryBatchId = params.get('batchId');
-
-      if (queryBoxId) {
-        this.targetBoxId = queryBoxId;
-        this.cancelLink = ['/app/boxes', queryBoxId];
-      } else if (!this.batch) {
-        this.cancelLink = ['/app/home'];
+    this.routeParamSub = this.route.paramMap.subscribe((params) => {
+      const batchId = params.get('batchId');
+      if (!batchId) {
+        this.router.navigate(['/app/batches']).catch(() => {});
+        return;
       }
-      this.boxLocked = lockBox === '1' || lockBox === 'true';
-
-      if (queryBatchId) {
-        if (this.batch?.id !== queryBatchId) {
-          this.loadBatch(queryBatchId);
-        }
-      } else if (this.batch) {
-        this.batch = null;
-        this.drafts = [];
-        this.stopAutoRefresh();
-        this.draftEditors.clear();
+      if (this.batch?.id !== batchId) {
+        this.detailPanelClosedManually = false;
+        this.selectedDraftId = null;
+        this.loadBatch(batchId);
       }
     });
   }
 
   ngOnDestroy(): void {
-    this.routeQuerySub?.unsubscribe();
+    this.routeParamSub?.unsubscribe();
     this.stopAutoRefresh();
   }
 
-  createBatch(): void {
-    if (!this.selectedWarehouseId || !this.targetBoxId || this.loading || this.batch) {
-      return;
+  get selectedDraft(): IntakeDraft | null {
+    if (!this.selectedDraftId) {
+      return null;
+    }
+    return this.drafts.find((draft) => draft.id === this.selectedDraftId) || null;
+  }
+
+  get newCount(): number {
+    return this.draftsByUiStatus('new').length;
+  }
+
+  get processedCount(): number {
+    return this.draftsByUiStatus('processed').length;
+  }
+
+  get errorCount(): number {
+    return this.draftsByUiStatus('error').length;
+  }
+
+  get savedCount(): number {
+    return this.draftsByUiStatus('saved').length;
+  }
+
+  get isProcessing(): boolean {
+    return this.batch?.status === 'processing' || this.drafts.some((draft) => draft.status === 'processing');
+  }
+
+  trackByDraftId(_index: number, draft: IntakeDraft): string {
+    return draft.id;
+  }
+
+  batchTitle(): string {
+    if (!this.batch) {
+      return 'Lote';
+    }
+    return this.batch.name || `Lote ${this.batch.id.slice(0, 8)}`;
+  }
+
+  daysSinceCreated(createdAt: string): number {
+    const createdMs = new Date(createdAt).getTime();
+    if (Number.isNaN(createdMs)) {
+      return 0;
+    }
+    const elapsed = Date.now() - createdMs;
+    return Math.max(0, Math.floor(elapsed / 86_400_000));
+  }
+
+  uiStatusOf(draft: IntakeDraft): IntakeUiStatus {
+    if (draft.status === 'uploaded' || draft.status === 'processing') {
+      return 'new';
+    }
+    if (draft.status === 'ready' || draft.status === 'review') {
+      return 'processed';
+    }
+    if (draft.status === 'committed') {
+      return 'saved';
+    }
+    return 'error';
+  }
+
+  uiStatusLabel(status: IntakeUiStatus): string {
+    const labels: Record<IntakeUiStatus, string> = {
+      new: 'Nuevo',
+      processed: 'Procesado',
+      error: 'Error',
+      saved: 'Guardado'
+    };
+    return labels[status];
+  }
+
+  draftsByUiStatus(status: IntakeUiStatus): IntakeDraft[] {
+    return this.drafts.filter((draft) => this.uiStatusOf(draft) === status);
+  }
+
+  selectDraft(draftId: string): void {
+    this.detailPanelClosedManually = false;
+    this.selectedDraftId = draftId;
+  }
+
+  closeSelectedDraft(): void {
+    this.selectedDraftId = null;
+    this.detailPanelClosedManually = true;
+  }
+
+  draftTitle(draft: IntakeDraft): string {
+    const name = (draft.name || '').trim();
+    if (name) {
+      return name;
+    }
+    const fallbackByStatus: Record<IntakeUiStatus, string> = {
+      new: 'Artículo nuevo',
+      processed: 'Artículo procesado',
+      error: 'Artículo con error',
+      saved: 'Artículo guardado'
+    };
+    return fallbackByStatus[this.uiStatusOf(draft)];
+  }
+
+  confidencePercent(value: number): number {
+    return Math.round(value * 100);
+  }
+
+  editorFor(draft: IntakeDraft): DraftEditorState {
+    const existing = this.draftEditors.get(draft.id);
+    if (existing) {
+      return existing;
     }
 
-    this.loading = true;
-    this.errorMessage = '';
-    this.intakeService
-      .createBatch(this.selectedWarehouseId, {
-        target_box_id: this.targetBoxId,
-        name: this.batchName.trim() || null
-      })
-      .pipe(finalize(() => (this.loading = false)))
-      .subscribe({
-        next: (response) => {
-          this.applyBatchPayload(response.batch, response.drafts);
-          this.notificationService.success('Lote creado. Puedes empezar a subir fotos.');
-          this.router
-            .navigate([], {
-              relativeTo: this.route,
-              queryParams: {
-                boxId: this.targetBoxId,
-                lockBox: this.boxLocked ? 1 : null,
-                batchId: response.batch.id
-              },
-              queryParamsHandling: 'merge'
-            })
-            .catch(() => {});
-        },
-        error: () => {
-          this.setActionError('No se pudo crear el lote.');
-        }
-      });
+    const nextState: DraftEditorState = {
+      name: draft.name || '',
+      description: draft.description || '',
+      tagsText: (draft.tags || []).join(', '),
+      aliasesText: (draft.aliases || []).join(', ')
+    };
+    this.draftEditors.set(draft.id, nextState);
+    return nextState;
+  }
+
+  isDraftReadOnly(draft: IntakeDraft): boolean {
+    return this.committing || draft.status === 'processing' || draft.status === 'committed';
   }
 
   openPicker(): void {
@@ -508,7 +687,143 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       });
   }
 
-  startProcessing(retryErrors: boolean): void {
+  saveDraft(draft: IntakeDraft): void {
+    if (!this.selectedWarehouseId || this.isDraftReadOnly(draft)) {
+      return;
+    }
+
+    const editor = this.editorFor(draft);
+    this.intakeService
+      .updateDraft(this.selectedWarehouseId, draft.id, {
+        name: editor.name.trim() || null,
+        description: editor.description.trim() || null,
+        tags: splitCsv(editor.tagsText),
+        aliases: splitCsv(editor.aliasesText)
+      })
+      .subscribe({
+        next: (updated) => {
+          this.replaceDraft(updated);
+          this.notificationService.success('Artículo actualizado.');
+        },
+        error: () => {
+          this.setActionError('No se pudieron guardar los cambios del artículo.');
+        }
+      });
+  }
+
+  markErrorAsProcessed(draft: IntakeDraft): void {
+    if (!this.selectedWarehouseId || this.isDraftReadOnly(draft) || this.uiStatusOf(draft) !== 'error') {
+      return;
+    }
+
+    const editor = this.editorFor(draft);
+    const normalizedName = editor.name.trim();
+    if (!normalizedName) {
+      this.setActionError('El nombre es obligatorio para marcar el artículo como procesado.');
+      return;
+    }
+
+    this.intakeService
+      .updateDraft(this.selectedWarehouseId, draft.id, {
+        name: normalizedName,
+        description: editor.description.trim() || null,
+        tags: splitCsv(editor.tagsText),
+        aliases: splitCsv(editor.aliasesText),
+        status: 'ready'
+      })
+      .subscribe({
+        next: (updated) => {
+          this.replaceDraft(updated);
+          this.notificationService.success('Artículo marcado como procesado.');
+        },
+        error: () => {
+          this.setActionError('No se pudo marcar el artículo como procesado.');
+        }
+      });
+  }
+
+  reprocessDraftByPhoto(draft: IntakeDraft): void {
+    this.reprocessDraft(draft, 'photo');
+  }
+
+  reprocessDraftByName(draft: IntakeDraft): void {
+    this.reprocessDraft(draft, 'name');
+  }
+
+  deleteDraft(draft: IntakeDraft): void {
+    const warehouseId = this.selectedWarehouseId;
+    if (!warehouseId || this.isDraftReadOnly(draft)) {
+      return;
+    }
+
+    const label = this.draftTitle(draft);
+    const confirmed = window.confirm(`¿Eliminar el artículo "${label}" del lote?`);
+    if (!confirmed) {
+      return;
+    }
+
+    this.intakeService.deleteDraft(warehouseId, draft.id).subscribe({
+      next: () => {
+        this.notificationService.success('Artículo eliminado del lote.');
+        if (this.batch) {
+          this.loadBatch(this.batch.id, true);
+        }
+      },
+      error: () => {
+        this.setActionError('No se pudo eliminar el artículo del lote.');
+      }
+    });
+  }
+
+  commitProcessed(): void {
+    if (!this.selectedWarehouseId || !this.batch || this.processedCount === 0 || this.committing) {
+      return;
+    }
+
+    this.committing = true;
+    this.intakeService
+      .commitBatch(this.selectedWarehouseId, this.batch.id)
+      .pipe(finalize(() => (this.committing = false)))
+      .subscribe({
+        next: (response) => {
+          this.batch = response.batch;
+          this.loadBatch(response.batch.id, true);
+          this.notificationService.success(`Se guardaron ${response.created} artículo(s) procesados.`);
+        },
+        error: () => {
+          this.setActionError('No se pudieron guardar los artículos procesados.');
+        }
+      });
+  }
+
+  reprocessErrorsSequentially(): void {
+    this.startProcessing(true);
+  }
+
+  deleteBatch(): void {
+    if (!this.selectedWarehouseId || !this.batch || this.isProcessing) {
+      return;
+    }
+
+    const label = this.batchTitle();
+    const confirmed = window.confirm(`¿Eliminar el lote "${label}"? Esta acción no se puede deshacer.`);
+    if (!confirmed) {
+      return;
+    }
+
+    this.intakeService.deleteBatch(this.selectedWarehouseId, this.batch.id).subscribe({
+      next: () => {
+        this.notificationService.success('Lote eliminado.');
+        this.stopAutoRefresh();
+        this.router.navigate(['/app/batches']).catch(() => {});
+      },
+      error: () => {
+        this.setActionError('No se pudo eliminar el lote.');
+      }
+    });
+  }
+
+  private startProcessing(retryErrors: boolean): void {
     if (!this.selectedWarehouseId || !this.batch || this.isProcessing) {
       return;
     }
@@ -525,281 +840,6 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     });
   }
 
-  saveDraft(draft: IntakeDraft): void {
-    if (!this.selectedWarehouseId || this.isDraftLocked(draft)) {
-      return;
-    }
-
-    const editor = this.editorFor(draft);
-    this.intakeService
-      .updateDraft(this.selectedWarehouseId, draft.id, {
-        name: editor.name.trim() || null,
-        description: editor.description.trim() || null,
-        tags: splitCsv(editor.tagsText),
-        aliases: splitCsv(editor.aliasesText)
-      })
-      .subscribe({
-        next: (updated) => {
-          this.replaceDraft(updated);
-          this.notificationService.success('Borrador actualizado.');
-        },
-        error: () => {
-          this.setActionError('No se pudo guardar el borrador.');
-        }
-      });
-  }
-
-  setDraftStatus(draft: IntakeDraft, statusValue: IntakeDraftStatus): void {
-    if (!this.selectedWarehouseId || this.isDraftLocked(draft)) {
-      return;
-    }
-
-    const editor = this.editorFor(draft);
-    this.intakeService
-      .updateDraft(this.selectedWarehouseId, draft.id, {
-        name: editor.name.trim() || null,
-        description: editor.description.trim() || null,
-        tags: splitCsv(editor.tagsText),
-        aliases: splitCsv(editor.aliasesText),
-        status: statusValue
-      })
-      .subscribe({
-        next: (updated) => {
-          this.replaceDraft(updated);
-          this.refreshBatchRollupFromDrafts();
-        },
-        error: () => {
-          this.setActionError('No se pudo actualizar el estado del borrador.');
-        }
-      });
-  }
-
-  retryDraft(draft: IntakeDraft): void {
-    if (!this.selectedWarehouseId || !this.batch || draft.status === 'committed' || this.isProcessing) {
-      return;
-    }
-
-    const editor = this.editorFor(draft);
-    this.intakeService
-      .updateDraft(this.selectedWarehouseId, draft.id, {
-        name: editor.name.trim() || null,
-        description: editor.description.trim() || null,
-        tags: splitCsv(editor.tagsText),
-        aliases: splitCsv(editor.aliasesText),
-        status: 'uploaded'
-      })
-      .subscribe({
-        next: () => {
-          this.loadBatch(this.batch!.id, true);
-          this.startProcessing(false);
-        },
-        error: () => {
-          this.setActionError('No se pudo reencolar el borrador para análisis.');
-        }
-      });
-  }
-
-  acceptAllReview(): void {
-    if (!this.selectedWarehouseId || this.reviewCount === 0) {
-      return;
-    }
-
-    const requests = this.drafts
-      .filter((draft) => draft.status === 'review')
-      .map((draft) => {
-        const editor = this.editorFor(draft);
-        return this.intakeService
-          .updateDraft(this.selectedWarehouseId!, draft.id, {
-            name: editor.name.trim() || null,
-            description: editor.description.trim() || null,
-            tags: splitCsv(editor.tagsText),
-            aliases: splitCsv(editor.aliasesText),
-            status: 'ready'
-          })
-          .pipe(catchError(() => of(null)));
-      });
-
-    if (requests.length === 0) {
-      return;
-    }
-
-    forkJoin(requests).subscribe({
-      next: (results) => {
-        const updated = results.filter((row): row is IntakeDraft => !!row);
-        if (updated.length > 0) {
-          updated.forEach((draft) => this.replaceDraft(draft));
-          this.refreshBatchRollupFromDrafts();
-          this.notificationService.success(`Se marcaron ${updated.length} borradores como listos.`);
-        }
-      },
-      error: () => {
-        this.setActionError('No se pudieron aceptar todos los borradores en revisión.');
-      }
-    });
-  }
-
-  commitReady(): void {
-    if (!this.selectedWarehouseId || !this.batch || this.readyCount === 0 || this.committing) {
-      return;
-    }
-
-    this.committing = true;
-    this.intakeService
-      .commitBatch(this.selectedWarehouseId, this.batch.id)
-      .pipe(finalize(() => (this.committing = false)))
-      .subscribe({
-        next: (response) => {
-          this.batch = response.batch;
-          this.loadBatch(response.batch.id, true);
-          this.notificationService.success(`Se crearon ${response.created} artículos en la caja destino.`);
-        },
-        error: () => {
-          this.setActionError('No se pudo completar el commit del lote.');
-        }
-      });
-  }
-
-  deleteBatch(): void {
-    if (!this.selectedWarehouseId || !this.batch || this.isProcessing) {
-      return;
-    }
-
-    const label = this.batch.name || this.batch.id.slice(0, 8);
-    const confirmed = window.confirm(`¿Eliminar el lote "${label}"? Esta acción no se puede deshacer.`);
-    if (!confirmed) {
-      return;
-    }
-
-    this.intakeService.deleteBatch(this.selectedWarehouseId, this.batch.id).subscribe({
-      next: () => {
-        this.notificationService.success('Lote eliminado.');
-        this.batch = null;
-        this.drafts = [];
-        this.draftEditors.clear();
-        this.stopAutoRefresh();
-        this.router
-          .navigate([], {
-            relativeTo: this.route,
-            queryParams: { batchId: null },
-            queryParamsHandling: 'merge'
-          })
-          .catch(() => {});
-      },
-      error: () => {
-        this.setActionError('No se pudo eliminar el lote.');
-      }
-    });
-  }
-
-  statusLabel(statusValue: IntakeDraftStatus | IntakeBatchStatus): string {
-    const labels: Record<string, string> = {
-      drafting: 'Borrador',
-      processing: 'Procesando',
-      review: 'Revisión',
-      committed: 'Comprometido',
-      uploaded: 'Subida',
-      ready: 'Lista',
-      rejected: 'Rechazada',
-      error: 'Error'
-    };
-    return labels[statusValue] || statusValue;
-  }
-
-  editorFor(draft: IntakeDraft): DraftEditorState {
-    const existing = this.draftEditors.get(draft.id);
-    if (existing) {
-      return existing;
-    }
-
-    const nextState: DraftEditorState = {
-      name: draft.name || '',
-      description: draft.description || '',
-      tagsText: (draft.tags || []).join(', '),
-      aliasesText: (draft.aliases || []).join(', ')
-    };
-    this.draftEditors.set(draft.id, nextState);
-    return nextState;
-  }
-
-  boxPathLabel(node: BoxTreeNode): string {
-    return this.boxPathById.get(node.box.id) || node.box.name;
-  }
-
-  trackByDraftId(_index: number, draft: IntakeDraft): string {
-    return draft.id;
-  }
-
-  confidencePercent(value: number): number {
-    return Math.round(value * 100);
-  }
-
-  isDraftLocked(draft: IntakeDraft): boolean {
-    return this.isProcessing || draft.status === 'committed' || this.committing;
-  }
-
-  get isProcessing(): boolean {
-    return this.batch?.status === 'processing' || this.processingCount > 0;
-  }
-
-  get uploadedCount(): number {
-    return this.countByStatus('uploaded');
-  }
-
-  get processingCount(): number {
-    return this.countByStatus('processing');
-  }
-
-  get readyCount(): number {
-    return this.countByStatus('ready');
-  }
-
-  get reviewCount(): number {
-    return this.countByStatus('review');
-  }
-
-  get errorCount(): number {
-    return this.countByStatus('error');
-  }
-
-  get rejectedCount(): number {
-    return this.countByStatus('rejected');
-  }
-
-  get committedCount(): number {
-    return this.countByStatus('committed');
-  }
-
-  private countByStatus(statusValue: IntakeDraftStatus): number {
-    return this.drafts.filter((draft) => draft.status === statusValue).length;
-  }
-
-  private loadBoxes(): void {
-    if (!this.selectedWarehouseId) {
-      return;
-    }
-
-    this.boxService.tree(this.selectedWarehouseId).subscribe({
-      next: (nodes) => {
-        this.boxes = nodes;
-        this.boxPathById.clear();
-
-        const pathByLevel: string[] = [];
-        nodes.forEach((node) => {
-          pathByLevel[node.level] = node.box.name;
-          pathByLevel.length = node.level + 1;
-          this.boxPathById.set(node.box.id, pathByLevel.join(' > '));
-        });
-
-        if (!this.targetBoxId && nodes.length > 0) {
-          this.targetBoxId = nodes[0].box.id;
-        }
-      },
-      error: () => {
-        this.setActionError('No se pudieron cargar las cajas del warehouse.');
-      }
-    });
-  }
-
   private loadBatch(batchId: string, silent = false): void {
     if (!this.selectedWarehouseId) {
       return;
@@ -808,7 +848,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     this.intakeService.getBatch(this.selectedWarehouseId, batchId).subscribe({
       next: (response) => {
         this.applyBatchPayload(response.batch, response.drafts);
-        if (this.batch?.status === 'processing' || this.processingCount > 0 || this.uploadedCount > 0) {
+        if (this.isProcessing || this.newCount > 0) {
           this.startAutoRefresh();
         } else {
           this.stopAutoRefresh();
@@ -816,7 +856,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       },
       error: () => {
         if (!silent) {
-          this.setActionError('No se pudo cargar el lote de captura masiva.');
+          this.setActionError('No se pudo cargar el lote.');
         }
       }
     });
@@ -825,7 +865,6 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   private applyBatchPayload(batch: IntakeBatch, drafts: IntakeDraft[]): void {
     this.batch = batch;
     this.drafts = drafts;
-    this.targetBoxId = batch.target_box_id;
 
     const validIds = new Set(drafts.map((draft) => draft.id));
     Array.from(this.draftEditors.keys()).forEach((id) => {
@@ -835,13 +874,16 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     });
 
     drafts.forEach((draft) => {
+      const existing = this.draftEditors.get(draft.id);
       this.draftEditors.set(draft.id, {
-        name: draft.name || '',
-        description: draft.description || '',
-        tagsText: (draft.tags || []).join(', '),
-        aliasesText: (draft.aliases || []).join(', ')
+        name: existing?.name ?? draft.name ?? '',
+        description: existing?.description ?? draft.description ?? '',
+        tagsText: existing?.tagsText ?? (draft.tags || []).join(', '),
+        aliasesText: existing?.aliasesText ?? (draft.aliases || []).join(', ')
       });
     });
+
+    this.syncSelectedDraft();
   }
 
   private replaceDraft(updated: IntakeDraft): void {
@@ -859,30 +901,29 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       tagsText: (updated.tags || []).join(', '),
       aliasesText: (updated.aliases || []).join(', ')
     });
+    this.syncSelectedDraft();
   }
 
-  private refreshBatchRollupFromDrafts(): void {
-    if (!this.batch) {
+  private syncSelectedDraft(): void {
+    if (this.selectedDraftId && this.drafts.some((draft) => draft.id === this.selectedDraftId)) {
       return;
     }
 
-    const statusCounts: Record<string, number> = {
-      uploaded: this.uploadedCount,
-      processing: this.processingCount,
-      ready: this.readyCount,
-      review: this.reviewCount,
-      rejected: this.rejectedCount,
-      error: this.errorCount,
-      committed: this.committedCount
-    };
+    if (this.detailPanelClosedManually) {
+      this.selectedDraftId = null;
+      return;
+    }
 
-    this.batch = {
-      ...this.batch,
-      total_count: this.drafts.length,
-      processed_count: this.readyCount + this.reviewCount + this.rejectedCount + this.errorCount + this.committedCount,
-      committed_count: this.committedCount,
-      status_counts: statusCounts
-    };
+    const byPriority = ['error', 'processed', 'new', 'saved'] as IntakeUiStatus[];
+    for (const status of byPriority) {
+      const candidate = this.draftsByUiStatus(status)[0];
+      if (candidate) {
+        this.selectedDraftId = candidate.id;
+        return;
+      }
+    }
+
+    this.selectedDraftId = null;
   }
 
   private startAutoRefresh(): void {
@@ -910,6 +951,43 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   private setActionError(message: string): void {
     this.errorMessage = message;
     this.notificationService.error(message);
+  }
+
+  private reprocessDraft(draft: IntakeDraft, mode: 'photo' | 'name'): void {
+    const warehouseId = this.selectedWarehouseId;
+    if (!warehouseId || this.isDraftReadOnly(draft)) {
+      return;
+    }
+
+    const editor = this.editorFor(draft);
+    const normalizedName = editor.name.trim();
+    if (mode === 'name' && !normalizedName) {
+      this.setActionError('El artículo necesita un título para reprocesar por nombre.');
+      return;
+    }
+
+    this.intakeService
+      .updateDraft(warehouseId, draft.id, {
+        name: normalizedName || null,
+        description: editor.description.trim() || null,
+        tags: splitCsv(editor.tagsText),
+        aliases: splitCsv(editor.aliasesText)
+      })
+      .pipe(switchMap(() => this.intakeService.reprocessDraft(warehouseId, draft.id, mode)))
+      .subscribe({
+        next: (response) => {
+          this.notificationService.info(response.message);
+          if (this.batch) {
+            this.loadBatch(this.batch.id, true);
+          } else {
+            this.batch = response.batch;
+          }
+          this.startAutoRefresh();
+        },
+        error: () => {
+          this.setActionError('No se pudo iniciar el reprocesado del artículo.');
+        }
+      });
   }
 }
 

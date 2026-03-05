@@ -75,7 +75,7 @@ type DetailViewMode = 'cards' | 'list';
           <button
             mat-icon-button
             type="button"
-            [routerLink]="['/app/items/intake-batch']"
+            [routerLink]="['/app/batches']"
             [queryParams]="{ boxId: box.id, lockBox: 1 }"
             matTooltip="Captura masiva"
           >

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     secret_encryption_key: str = "change-me-secret-key"
     media_root: str = "./media"
     media_url_path: str = "/media"
+    log_level: str = "INFO"
 
 
 settings = Settings()

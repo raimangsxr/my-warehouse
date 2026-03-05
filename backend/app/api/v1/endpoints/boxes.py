@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,6 +30,7 @@ from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/boxes", tags=["boxes"])
 qr_router = APIRouter(prefix="/boxes", tags=["boxes"])
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -199,6 +201,12 @@ def get_tree(
     for root_id in roots:
         visit(root_id, 0)
 
+    logger.debug(
+        "Box tree listed warehouse_id=%s include_deleted=%s nodes=%s",
+        warehouse_id,
+        include_deleted,
+        len(ordered_nodes),
+    )
     return ordered_nodes
 
 
@@ -210,6 +218,11 @@ def create_box(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BoxResponse:
+    logger.debug(
+        "Create box requested warehouse_id=%s parent_box_id=%s",
+        warehouse_id,
+        payload.parent_box_id,
+    )
     if payload.parent_box_id:
         _get_box(db, warehouse_id, payload.parent_box_id)
 
@@ -245,6 +258,12 @@ def create_box(
     )
     db.commit()
     db.refresh(box)
+    logger.info(
+        "Box created warehouse_id=%s box_id=%s parent_box_id=%s",
+        warehouse_id,
+        box.id,
+        box.parent_box_id,
+    )
     return BoxResponse.model_validate(box)
 
 
@@ -256,6 +275,7 @@ def get_box(
     db: Session = Depends(get_db),
 ) -> BoxResponse:
     box = _get_box(db, warehouse_id, box_id)
+    logger.debug("Box details requested warehouse_id=%s box_id=%s", warehouse_id, box_id)
     return BoxResponse.model_validate(box)
 
 
@@ -285,7 +305,7 @@ def get_box_items_recursive(
     stocks = _stock_map(db, item_ids)
     favorites = _favorite_set(db, current_user.id, item_ids)
 
-    return [
+    response = [
         BoxItemResponse(
             id=item.id,
             warehouse_id=item.warehouse_id,
@@ -308,6 +328,15 @@ def get_box_items_recursive(
         )
         for item in items
     ]
+    logger.debug(
+        "Box items listed warehouse_id=%s box_id=%s query=%s subtree_boxes=%s items=%s",
+        warehouse_id,
+        box_id,
+        q,
+        len(subtree_ids),
+        len(response),
+    )
+    return response
 
 
 @router.patch("/{box_id}", response_model=BoxResponse)
@@ -348,6 +377,9 @@ def update_box(
         )
         db.commit()
         db.refresh(box)
+        logger.info("Box updated warehouse_id=%s box_id=%s", warehouse_id, box.id)
+    else:
+        logger.debug("Box update no-op warehouse_id=%s box_id=%s", warehouse_id, box.id)
 
     return BoxResponse.model_validate(box)
 
@@ -360,6 +392,12 @@ def move_box(
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> BoxResponse:
+    logger.debug(
+        "Move box requested warehouse_id=%s box_id=%s new_parent_box_id=%s",
+        warehouse_id,
+        box_id,
+        payload.new_parent_box_id,
+    )
     box = _get_box(db, warehouse_id, box_id)
     if box.is_inbound and payload.new_parent_box_id is not None:
         raise HTTPException(
@@ -391,6 +429,12 @@ def move_box(
     )
     db.commit()
     db.refresh(box)
+    logger.info(
+        "Box moved warehouse_id=%s box_id=%s new_parent_box_id=%s",
+        warehouse_id,
+        box.id,
+        box.parent_box_id,
+    )
     return BoxResponse.model_validate(box)
 
 
@@ -403,6 +447,12 @@ def delete_box(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
+    logger.debug(
+        "Delete box requested warehouse_id=%s box_id=%s force=%s",
+        warehouse_id,
+        box_id,
+        payload.force,
+    )
     box = _get_box(db, warehouse_id, box_id)
     if box.is_inbound:
         raise HTTPException(
@@ -466,6 +516,13 @@ def delete_box(
         metadata={"recursive_boxes": len(subtree_ids), "recursive_items": len(items)},
     )
     db.commit()
+    logger.info(
+        "Box deleted recursively warehouse_id=%s box_id=%s boxes=%s items=%s",
+        warehouse_id,
+        box_id,
+        len(subtree_ids),
+        len(items),
+    )
     return MessageResponse(message="Box moved to trash")
 
 
@@ -479,6 +536,7 @@ def restore_box(
 ) -> BoxResponse:
     box = _get_box(db, warehouse_id, box_id, include_deleted=True)
     if box.deleted_at is None:
+        logger.debug("Restore box no-op warehouse_id=%s box_id=%s", warehouse_id, box_id)
         return BoxResponse.model_validate(box)
 
     if box.parent_box_id:
@@ -510,6 +568,7 @@ def restore_box(
     )
     db.commit()
     db.refresh(box)
+    logger.info("Box restored warehouse_id=%s box_id=%s", warehouse_id, box.id)
     return BoxResponse.model_validate(box)
 
 
@@ -519,8 +578,10 @@ def get_box_by_qr(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BoxByQrResponse:
+    logger.debug("QR lookup requested qr_token_length=%s user_id=%s", len(qr_token), current_user.id)
     box = db.scalar(select(Box).where(Box.qr_token == qr_token, Box.deleted_at.is_(None)))
     if box is None:
+        logger.info("QR lookup failed: token not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QR not found")
 
     membership = db.scalar(
@@ -530,8 +591,19 @@ def get_box_by_qr(
         )
     )
     if membership is None:
+        logger.info(
+            "QR lookup denied warehouse_id=%s user_id=%s",
+            box.warehouse_id,
+            current_user.id,
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to warehouse")
 
+    logger.info(
+        "QR lookup resolved warehouse_id=%s box_id=%s user_id=%s",
+        box.warehouse_id,
+        box.id,
+        current_user.id,
+    )
     return BoxByQrResponse(
         box_id=box.id,
         warehouse_id=box.warehouse_id,

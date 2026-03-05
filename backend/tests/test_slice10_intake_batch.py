@@ -109,9 +109,125 @@ def test_intake_batch_full_lifecycle(client):
     assert items.status_code == 200
     assert len(items.json()) == 2
     assert all(item["box_id"] == box_id for item in items.json())
+    assert all(item["stock"] == 1 for item in items.json())
     assert all(item["photo_url"] for item in items.json())
     assert all(f"/media/{warehouse_id}/items/" in item["photo_url"] for item in items.json())
     assert not intake_dir.exists()
+
+
+def test_intake_processing_without_llm_fallback_sets_error(client):
+    headers = signup_and_login(client, "slice10-no-llm@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    box_id = create_box(client, headers, warehouse_id)
+
+    created = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        json={"target_box_id": box_id, "name": "Lote sin LLM"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["batch"]["id"]
+
+    png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("no-llm.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert upload.status_code == 201
+
+    start = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
+        json={"retry_errors": False},
+        headers=headers,
+    )
+    assert start.status_code == 200
+
+    detail = client.get(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    drafts = detail.json()["drafts"]
+    assert len(drafts) == 1
+    assert drafts[0]["status"] == "error"
+    assert drafts[0]["llm_used"] is False
+    assert "API key" in (drafts[0]["error_message"] or "")
+
+
+def test_retry_errors_only_processes_error_drafts(client, monkeypatch):
+    from app.services import intake_processing as intake_service
+
+    headers = signup_and_login(client, "slice10-retry-errors@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    box_id = create_box(client, headers, warehouse_id)
+
+    created = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        json={"target_box_id": box_id, "name": "Lote retry errores"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["batch"]["id"]
+
+    png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[
+            ("files", ("retry-a.png", png_bytes, "image/png")),
+            ("files", ("retry-b.png", png_bytes, "image/png")),
+        ],
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    drafts = upload.json()["drafts"]
+    assert len(drafts) == 2
+
+    error_draft_id = drafts[0]["id"]
+    untouched_draft_id = drafts[1]["id"]
+
+    mark_error = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{error_draft_id}",
+        json={"status": "error"},
+        headers=headers,
+    )
+    assert mark_error.status_code == 200
+    assert mark_error.json()["status"] == "error"
+
+    processed_calls = 0
+
+    def fake_process_photo_url(**_kwargs):
+        nonlocal processed_calls
+        processed_calls += 1
+        return {
+            "name": "Articulo reprocesado",
+            "description": "Reproceso de error.",
+            "tags": ["reproceso", "inventario", "manual"],
+            "aliases": ["retry"],
+            "confidence": 0.9,
+            "warnings": [],
+            "llm_used": True,
+        }
+
+    monkeypatch.setattr(intake_service, "_process_photo_url", fake_process_photo_url)
+
+    start_retry = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
+        json={"retry_errors": True},
+        headers=headers,
+    )
+    assert start_retry.status_code == 200
+    assert "secuencial" in start_retry.json()["message"].lower()
+
+    detail = client.get(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    detail_by_id = {draft["id"]: draft for draft in detail.json()["drafts"]}
+    assert detail_by_id[error_draft_id]["status"] == "ready"
+    assert detail_by_id[untouched_draft_id]["status"] == "uploaded"
+    assert processed_calls == 1
 
 
 def test_intake_batch_requires_membership(client):
@@ -147,6 +263,25 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     headers = signup_and_login(client, "slice10-retry@example.com")
     warehouse_id = create_warehouse(client, headers)
     box_id = create_box(client, headers, warehouse_id)
+    llm_put = client.put(
+        "/api/v1/settings/llm",
+        params={"warehouse_id": warehouse_id},
+        json={
+            "provider": "gemini",
+            "language": "es",
+            "model_priority": [
+                "gemini-3.1-flash-lite",
+                "gemini-3-flash",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+            ],
+            "api_key": "gemini-secret-key",
+            "auto_tags_enabled": True,
+            "auto_alias_enabled": True,
+        },
+        headers=headers,
+    )
+    assert llm_put.status_code == 200
 
     created = client.post(
         f"/api/v1/warehouses/{warehouse_id}/intake/batches",
@@ -403,3 +538,169 @@ def test_delete_batch_removes_temporary_media_folder(client):
     )
     assert deleted.status_code == 200
     assert not batch_dir.exists()
+
+
+def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
+    from app.services import intake_processing as intake_service
+
+    headers = signup_and_login(client, "slice10-draft-reprocess@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    box_id = create_box(client, headers, warehouse_id)
+    llm_put = client.put(
+        "/api/v1/settings/llm",
+        params={"warehouse_id": warehouse_id},
+        json={
+            "provider": "gemini",
+            "language": "es",
+            "model_priority": [
+                "gemini-3.1-flash-lite",
+                "gemini-3-flash",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+            ],
+            "api_key": "gemini-secret-key",
+            "auto_tags_enabled": True,
+            "auto_alias_enabled": True,
+        },
+        headers=headers,
+    )
+    assert llm_put.status_code == 200
+
+    created = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        json={"target_box_id": box_id, "name": "Lote reproceso draft"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["batch"]["id"]
+
+    png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("draft-reprocess.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    draft_id = upload.json()["drafts"][0]["id"]
+
+    captured_context_names: list[str | None] = []
+
+    def fake_generate(
+        _image_data_url: str,
+        *,
+        context_name: str | None = None,
+        context_description: str | None = None,
+        **_kwargs,
+    ):
+        captured_context_names.append(context_name)
+        index = len(captured_context_names)
+        return {
+            "name": f"Nombre IA {index}",
+            "description": "Descripcion IA",
+            "tags": ["tag-a", "tag-b"],
+            "aliases": ["alias-a"],
+            "confidence": 0.91,
+            "warnings": [],
+            "llm_used": True,
+        }
+
+    monkeypatch.setattr(intake_service, "generate_item_draft_from_photo", fake_generate)
+
+    set_base_name = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        json={"name": "Nombre manual base", "status": "error"},
+        headers=headers,
+    )
+    assert set_base_name.status_code == 200
+
+    reprocess_photo = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess",
+        json={"mode": "photo"},
+        headers=headers,
+    )
+    assert reprocess_photo.status_code == 200
+    assert "solo foto" in reprocess_photo.json()["message"].lower()
+
+    detail_photo = client.get(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        headers=headers,
+    )
+    assert detail_photo.status_code == 200
+    draft_after_photo = detail_photo.json()["drafts"][0]
+    assert draft_after_photo["status"] == "ready"
+    assert draft_after_photo["name"] == "Nombre IA 1"
+    assert captured_context_names[0] is None
+
+    set_manual_name = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        json={"name": "Taladro manual 18V", "status": "error"},
+        headers=headers,
+    )
+    assert set_manual_name.status_code == 200
+
+    reprocess_name = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess",
+        json={"mode": "name"},
+        headers=headers,
+    )
+    assert reprocess_name.status_code == 200
+    assert "titulo" in reprocess_name.json()["message"].lower()
+
+    detail_name = client.get(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        headers=headers,
+    )
+    assert detail_name.status_code == 200
+    draft_after_name = detail_name.json()["drafts"][0]
+    assert draft_after_name["status"] == "ready"
+    assert draft_after_name["name"] == "Taladro manual 18V"
+    assert captured_context_names[1] == "Taladro manual 18V"
+    assert len(captured_context_names) == 2
+
+
+def test_delete_draft_removes_temp_photo_and_draft_row(client):
+    headers = signup_and_login(client, "slice10-delete-draft@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    box_id = create_box(client, headers, warehouse_id)
+
+    created = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        json={"target_box_id": box_id, "name": "Lote borrar draft"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["batch"]["id"]
+
+    png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("delete-draft.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    draft_id = upload.json()["drafts"][0]["id"]
+
+    batch_dir = Path(settings.media_root) / warehouse_id / "intake" / batch_id
+    assert batch_dir.exists()
+    assert len(list(batch_dir.iterdir())) == 1
+
+    deleted = client.delete(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 200
+
+    detail = client.get(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["drafts"] == []
+    assert not batch_dir.exists()
+
+    patch_deleted = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        json={"name": "No existe"},
+        headers=headers,
+    )
+    assert patch_deleted.status_code == 404

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import logging
 import secrets
 import uuid
 
@@ -26,9 +27,11 @@ from app.schemas.sync import (
     SyncResolveRequest,
     SyncResolveResponse,
 )
+from app.services.stock import ensure_initial_stock_movement
 from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -85,6 +88,13 @@ def _create_or_get_conflict(
 ) -> SyncConflict:
     existing = db.scalar(select(SyncConflict).where(SyncConflict.command_id == command_id))
     if existing is not None:
+        logger.debug(
+            "Sync conflict reused warehouse_id=%s command_id=%s entity_type=%s entity_id=%s",
+            warehouse_id,
+            command_id,
+            entity_type,
+            entity_id,
+        )
         return existing
 
     conflict = SyncConflict(
@@ -100,6 +110,14 @@ def _create_or_get_conflict(
     )
     db.add(conflict)
     db.flush()
+    logger.info(
+        "Sync conflict created warehouse_id=%s conflict_id=%s command_id=%s entity_type=%s entity_id=%s",
+        warehouse_id,
+        conflict.id,
+        command_id,
+        entity_type,
+        entity_id,
+    )
     return conflict
 
 
@@ -142,6 +160,14 @@ def _apply_sync_command(
     payload: dict,
 ) -> SyncConflict | None:
     command_type = command_type.strip().lower()
+    logger.debug(
+        "Applying sync command warehouse_id=%s command_id=%s command_type=%s entity_id=%s base_version=%s",
+        warehouse_id,
+        command_id,
+        command_type,
+        entity_id,
+        base_version,
+    )
 
     if command_type == "box.create":
         parent_box_id = payload.get("parent_box_id")
@@ -294,6 +320,11 @@ def _apply_sync_command(
             db.flush()
         else:
             item = existing
+        initial_stock_command_id, created_initial_stock = ensure_initial_stock_movement(
+            db,
+            warehouse_id=warehouse_id,
+            item_id=item.id,
+        )
 
         append_change_log(
             db,
@@ -304,6 +335,15 @@ def _apply_sync_command(
             entity_version=item.version,
             payload={"name": item.name, "box_id": item.box_id},
         )
+        if created_initial_stock:
+            append_change_log(
+                db,
+                warehouse_id=warehouse_id,
+                entity_type="stock",
+                entity_id=item.id,
+                action="adjust",
+                payload={"delta": 1, "command_id": initial_stock_command_id},
+            )
         return None
 
     if command_type in {"item.update", "item.delete", "item.restore", "item.favorite", "item.unfavorite"}:
@@ -440,6 +480,13 @@ def push_commands(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SyncPushResponse:
+    logger.info(
+        "Sync push requested warehouse_id=%s user_id=%s device_id=%s commands=%s",
+        payload.warehouse_id,
+        current_user.id,
+        payload.device_id,
+        len(payload.commands),
+    )
     applied_command_ids: list[str] = []
     skipped_command_ids: list[str] = []
     conflicts: list[SyncConflictResponse] = []
@@ -451,18 +498,21 @@ def push_commands(
     for command in payload.commands:
         if command.command_id in seen_in_request:
             skipped_command_ids.append(command.command_id)
+            logger.debug("Sync push skipped duplicate-in-request command_id=%s", command.command_id)
             continue
         seen_in_request.add(command.command_id)
 
         processed = db.scalar(select(ProcessedCommand).where(ProcessedCommand.command_id == command.command_id))
         if processed is not None:
             skipped_command_ids.append(command.command_id)
+            logger.debug("Sync push skipped already processed command_id=%s", command.command_id)
             continue
 
         existing_conflict = db.scalar(select(SyncConflict).where(SyncConflict.command_id == command.command_id))
         if existing_conflict is not None:
             conflicts.append(_serialize_conflict(existing_conflict))
             skipped_command_ids.append(command.command_id)
+            logger.debug("Sync push skipped existing conflict command_id=%s", command.command_id)
             continue
 
         conflict = _apply_sync_command(
@@ -477,6 +527,7 @@ def push_commands(
         )
         if conflict is not None:
             conflicts.append(_serialize_conflict(conflict))
+            logger.debug("Sync push generated conflict command_id=%s", command.command_id)
             continue
 
         db.add(
@@ -494,6 +545,14 @@ def push_commands(
         db.scalar(select(func.coalesce(func.max(ChangeLog.seq), 0)).where(ChangeLog.warehouse_id == payload.warehouse_id))
         or 0
     )
+    logger.info(
+        "Sync push completed warehouse_id=%s applied=%s skipped=%s conflicts=%s last_seq=%s",
+        payload.warehouse_id,
+        len(applied_command_ids),
+        len(skipped_command_ids),
+        len(conflicts),
+        int(last_seq),
+    )
     return SyncPushResponse(
         applied_command_ids=applied_command_ids,
         skipped_command_ids=skipped_command_ids,
@@ -510,6 +569,12 @@ def pull_changes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SyncPullResponse:
+    logger.debug(
+        "Sync pull requested warehouse_id=%s user_id=%s since_seq=%s",
+        warehouse_id,
+        current_user.id,
+        since_seq,
+    )
     require_warehouse_membership(warehouse_id, current_user=current_user, db=db)
 
     change_rows = db.scalars(
@@ -544,11 +609,20 @@ def pull_changes(
         for row in change_rows
     ]
 
-    return SyncPullResponse(
+    response = SyncPullResponse(
         changes=changes,
         conflicts=[_serialize_conflict(row) for row in conflict_rows],
         last_seq=int(last_seq),
     )
+    logger.info(
+        "Sync pull completed warehouse_id=%s user_id=%s changes=%s conflicts=%s last_seq=%s",
+        warehouse_id,
+        current_user.id,
+        len(response.changes),
+        len(response.conflicts),
+        response.last_seq,
+    )
+    return response
 
 
 @router.post("/resolve", response_model=SyncResolveResponse)
@@ -557,6 +631,13 @@ def resolve_conflict(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SyncResolveResponse:
+    logger.info(
+        "Sync resolve requested warehouse_id=%s conflict_id=%s user_id=%s resolution=%s",
+        payload.warehouse_id,
+        payload.conflict_id,
+        current_user.id,
+        payload.resolution.value,
+    )
     require_warehouse_membership(payload.warehouse_id, current_user=current_user, db=db)
 
     conflict = db.scalar(
@@ -566,8 +647,14 @@ def resolve_conflict(
         )
     )
     if conflict is None:
+        logger.info(
+            "Sync resolve failed: conflict not found warehouse_id=%s conflict_id=%s",
+            payload.warehouse_id,
+            payload.conflict_id,
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conflict not found")
     if conflict.status != "open":
+        logger.debug("Sync resolve skipped: conflict already resolved conflict_id=%s", conflict.id)
         return SyncResolveResponse(message="Conflict already resolved", conflict=_serialize_conflict(conflict))
 
     if payload.resolution == SyncConflictResolution.keep_server:
@@ -576,6 +663,7 @@ def resolve_conflict(
         conflict.resolved_by = current_user.id
         db.commit()
         db.refresh(conflict)
+        logger.info("Sync conflict resolved with server state conflict_id=%s", conflict.id)
         return SyncResolveResponse(message="Conflict resolved with server state", conflict=_serialize_conflict(conflict))
 
     source_payload = payload.payload or {}
@@ -642,4 +730,5 @@ def resolve_conflict(
 
     db.commit()
     db.refresh(conflict)
+    logger.info("Sync conflict resolved conflict_id=%s entity_type=%s", conflict.id, conflict.entity_type)
     return SyncResolveResponse(message="Conflict resolved", conflict=_serialize_conflict(conflict))

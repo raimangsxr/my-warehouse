@@ -23,7 +23,6 @@ from app.services.secret_store import decrypt_secret
 logger = logging.getLogger(__name__)
 
 DEFAULT_PARALLEL_WORKERS = 4
-AUTO_READY_CONFIDENCE = 0.78
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 _ALLOWED_SUFFIX_MIME = {
     ".jpg": "image/jpeg",
@@ -81,16 +80,26 @@ def process_intake_batch(
     batch_id: str,
     *,
     max_parallel_workers: int = DEFAULT_PARALLEL_WORKERS,
+    draft_ids: list[str] | None = None,
+    context_name_overrides: dict[str, str | None] | None = None,
 ) -> None:
+    logger.info(
+        "Intake worker started warehouse_id=%s batch_id=%s max_parallel_workers=%s draft_filter=%s",
+        warehouse_id,
+        batch_id,
+        max_parallel_workers,
+        len(draft_ids) if draft_ids else 0,
+    )
     db = SessionLocal()
     try:
         batch = db.scalar(
             select(IntakeBatch).where(IntakeBatch.id == batch_id, IntakeBatch.warehouse_id == warehouse_id)
         )
         if batch is None:
+            logger.info("Intake worker aborted: batch not found warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
             return
 
-        pending = db.scalars(
+        query = (
             select(IntakeDraft)
             .where(
                 IntakeDraft.batch_id == batch_id,
@@ -98,11 +107,19 @@ def process_intake_batch(
                 IntakeDraft.status == IntakeDraftStatus.uploaded.value,
             )
             .order_by(IntakeDraft.position.asc(), IntakeDraft.created_at.asc())
-        ).all()
+        )
+        if draft_ids:
+            query = query.where(IntakeDraft.id.in_(draft_ids))
+        pending = db.scalars(query).all()
 
         if not pending:
             refresh_batch_rollup(db, batch)
             db.commit()
+            logger.debug(
+                "Intake worker no pending drafts warehouse_id=%s batch_id=%s",
+                warehouse_id,
+                batch_id,
+            )
             return
 
         for draft in pending:
@@ -127,6 +144,14 @@ def process_intake_batch(
                     api_key = decrypt_secret(llm_setting.api_key_encrypted)
                 except Exception:  # noqa: BLE001
                     logger.warning("Could not decrypt LLM API key for warehouse %s", warehouse_id)
+        logger.debug(
+            "Intake worker config warehouse_id=%s batch_id=%s pending=%s workers=%s language=%s",
+            warehouse_id,
+            batch_id,
+            len(pending),
+            max(1, min(max_parallel_workers, len(pending), 8)),
+            output_language,
+        )
 
         jobs = [
             {
@@ -137,15 +162,17 @@ def process_intake_batch(
             }
             for draft in pending
         ]
-        context_by_draft_id = {
-            str(job["draft_id"]): {
-                "name_context": _resolve_name_context(
+        context_by_draft_id: dict[str, dict[str, str | None]] = {}
+        for job in jobs:
+            draft_id = str(job["draft_id"])
+            if context_name_overrides is not None and draft_id in context_name_overrides:
+                name_context = context_name_overrides[draft_id]
+            else:
+                name_context = _resolve_name_context(
                     current_name=job.get("current_name"),
                     suggested_name=job.get("suggested_name"),
-                ),
-            }
-            for job in jobs
-        }
+                )
+            context_by_draft_id[draft_id] = {"name_context": name_context}
 
         workers = max(1, min(max_parallel_workers, len(jobs), 8))
         results: dict[str, dict[str, object]] = {}
@@ -183,6 +210,8 @@ def process_intake_batch(
             )
         ).all()
 
+        success_count = 0
+        error_count = 0
         for draft in processed_drafts:
             payload = results.get(draft.id, {})
             context = context_by_draft_id.get(draft.id, {})
@@ -194,6 +223,7 @@ def process_intake_batch(
                 draft.warnings = []
                 draft.llm_used = False
                 draft.confidence = 0.0
+                error_count += 1
                 continue
 
             payload_name = _normalize_optional_text(payload.get("name"), max_len=160)
@@ -213,21 +243,25 @@ def process_intake_batch(
             draft.warnings = [str(w) for w in (payload.get("warnings") or [])][:5]
             draft.llm_used = bool(payload.get("llm_used"))
             draft.error_message = None
-            draft.status = _resolve_draft_result_status(
-                confidence=draft.confidence,
-                warnings=draft.warnings,
-            )
+            draft.status = _resolve_draft_result_status()
+            success_count += 1
 
         refresh_batch_rollup(db, batch)
         db.commit()
+        logger.info(
+            "Intake worker completed warehouse_id=%s batch_id=%s success=%s errors=%s total=%s",
+            warehouse_id,
+            batch_id,
+            success_count,
+            error_count,
+            len(processed_drafts),
+        )
     finally:
         db.close()
 
 
-def _resolve_draft_result_status(*, confidence: float, warnings: list[str]) -> str:
-    if confidence >= AUTO_READY_CONFIDENCE and not warnings:
-        return IntakeDraftStatus.ready.value
-    return IntakeDraftStatus.review.value
+def _resolve_draft_result_status() -> str:
+    return IntakeDraftStatus.ready.value
 
 
 def _normalize_optional_text(raw: object, *, max_len: int) -> str | None:
@@ -263,13 +297,18 @@ def _process_photo_url(
     context_name: str | None,
     context_description: str | None,
 ) -> dict[str, object]:
+    if not api_key:
+        logger.debug("Skipping draft processing without API key warehouse_id=%s", warehouse_id)
+        return {"error": "No hay API key de IA configurada para procesar el lote."}
+
     try:
         image_data_url = _build_data_url_from_photo_url(photo_url, warehouse_id=warehouse_id)
     except ValueError as exc:
+        logger.debug("Draft processing rejected warehouse_id=%s reason=%s", warehouse_id, exc)
         return {"error": str(exc)}
 
     try:
-        return generate_item_draft_from_photo(
+        draft = generate_item_draft_from_photo(
             image_data_url,
             api_key=api_key,
             output_language=output_language,
@@ -277,6 +316,10 @@ def _process_photo_url(
             context_name=context_name,
             context_description=context_description,
         )
+        if not bool(draft.get("llm_used")):
+            logger.debug("Draft processing returned llm_used=false warehouse_id=%s", warehouse_id)
+            return {"error": "No se pudo completar el analisis del articulo con IA."}
+        return draft
     except ValueError as exc:
         return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001

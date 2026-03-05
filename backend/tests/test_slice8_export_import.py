@@ -54,7 +54,7 @@ def test_export_import_roundtrip_between_warehouses(client):
     assert len(snapshot["boxes"]) == 2
     assert len([box for box in snapshot["boxes"] if box["is_inbound"]]) == 1
     assert len(snapshot["items"]) == 1
-    assert len(snapshot["stock_movements"]) == 1
+    assert len(snapshot["stock_movements"]) == 2
 
     target_warehouse_id = create_warehouse(client, headers, "Target")
     imported = client.post(
@@ -66,14 +66,14 @@ def test_export_import_roundtrip_between_warehouses(client):
     imported_body = imported.json()
     assert imported_body["boxes_upserted"] == 2
     assert imported_body["items_upserted"] == 1
-    assert imported_body["stock_movements_upserted"] == 1
+    assert imported_body["stock_movements_upserted"] == 2
 
     target_items = client.get(f"/api/v1/warehouses/{target_warehouse_id}/items", headers=headers)
     assert target_items.status_code == 200
     items_body = target_items.json()
     assert len(items_body) == 1
     assert items_body[0]["name"] == "LED Bulb"
-    assert items_body[0]["stock"] == 1
+    assert items_body[0]["stock"] == 2
 
     target_boxes = client.get(f"/api/v1/warehouses/{target_warehouse_id}/boxes/tree", headers=headers)
     assert target_boxes.status_code == 200

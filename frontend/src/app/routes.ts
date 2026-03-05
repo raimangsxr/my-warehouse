@@ -12,6 +12,7 @@ import { authGuard, guestGuard } from './core/auth.guard';
 import { HomeComponent } from './home/home.component';
 import { AcceptInviteComponent } from './invites/accept-invite.component';
 import { ItemFormComponent } from './items/item-form.component';
+import { IntakeBatchesComponent } from './items/intake-batches.component';
 import { ItemIntakeBatchComponent } from './items/item-intake-batch.component';
 import { ItemPhotoCaptureComponent } from './items/item-photo-capture.component';
 import { ScanComponent } from './scan/scan.component';
@@ -35,8 +36,10 @@ export const routes: Routes = [
       { path: 'home', component: HomeComponent },
       { path: 'boxes', component: BoxesComponent },
       { path: 'boxes/:id', component: BoxDetailComponent },
+      { path: 'batches', component: IntakeBatchesComponent },
+      { path: 'batches/:batchId', component: ItemIntakeBatchComponent },
       { path: 'items/new', component: ItemFormComponent },
-      { path: 'items/intake-batch', component: ItemIntakeBatchComponent },
+      { path: 'items/intake-batch', redirectTo: 'batches', pathMatch: 'full' },
       { path: 'items/from-photo', component: ItemPhotoCaptureComponent },
       { path: 'items/:id', component: ItemFormComponent },
       { path: 'scan', component: ScanComponent },

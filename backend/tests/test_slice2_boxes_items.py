@@ -99,6 +99,7 @@ def test_items_favorites_stock_and_batch(client):
         headers=headers,
     )
     assert item.status_code == 201
+    assert item.json()["stock"] == 1
     item_id = item.json()["id"]
 
     fav = client.post(
@@ -116,7 +117,7 @@ def test_items_favorites_stock_and_batch(client):
         headers=headers,
     )
     assert inc_stock.status_code == 200
-    assert inc_stock.json()["stock"] == 1
+    assert inc_stock.json()["stock"] == 2
 
     # Same command_id should be idempotent.
     inc_stock_repeat = client.post(
@@ -125,7 +126,7 @@ def test_items_favorites_stock_and_batch(client):
         headers=headers,
     )
     assert inc_stock_repeat.status_code == 200
-    assert inc_stock_repeat.json()["stock"] == 1
+    assert inc_stock_repeat.json()["stock"] == 2
 
     move_batch = client.post(
         f"/api/v1/warehouses/{warehouse_id}/items/batch",

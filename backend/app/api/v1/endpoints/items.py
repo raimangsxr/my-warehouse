@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
@@ -29,9 +30,11 @@ from app.schemas.item import (
 from app.services.activity import record_activity
 from app.services.llm_enrichment import generate_item_draft_from_photo, generate_tags_and_aliases
 from app.services.secret_store import decrypt_secret
+from app.services.stock import ensure_initial_stock_movement
 from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/items", tags=["items"])
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -155,16 +158,37 @@ def _serialize_item(
 
 def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *, changed_text: bool) -> None:
     if not changed_text:
+        logger.debug(
+            "LLM autogen skipped warehouse_id=%s item_id=%s reason=unchanged_text",
+            warehouse_id,
+            item.id,
+        )
         return
     llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
     if llm_setting is None or not llm_setting.api_key_encrypted:
+        logger.debug(
+            "LLM autogen skipped warehouse_id=%s item_id=%s reason=missing_llm_configuration",
+            warehouse_id,
+            item.id,
+        )
         return
 
     try:
         api_key = decrypt_secret(llm_setting.api_key_encrypted)
     except Exception:  # noqa: BLE001
+        logger.info(
+            "LLM autogen skipped warehouse_id=%s item_id=%s reason=api_key_decrypt_failed",
+            warehouse_id,
+            item.id,
+        )
         return
 
+    logger.debug(
+        "LLM autogen started warehouse_id=%s item_id=%s language=%s",
+        warehouse_id,
+        item.id,
+        llm_setting.language,
+    )
     tags, aliases = generate_tags_and_aliases(
         item.name,
         item.description,
@@ -176,6 +200,13 @@ def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *,
         item.tags = tags
     if llm_setting.auto_alias_enabled:
         item.aliases = aliases
+    logger.info(
+        "LLM autogen completed warehouse_id=%s item_id=%s tags=%s aliases=%s",
+        warehouse_id,
+        item.id,
+        len(item.tags or []),
+        len(item.aliases or []),
+    )
 
 
 @router.get("", response_model=list[ItemResponse])
@@ -191,6 +222,18 @@ def list_items(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ItemResponse]:
+    logger.debug(
+        "List items requested warehouse_id=%s user_id=%s q=%s tag=%s favorites_only=%s "
+        "stock_zero=%s with_photo=%s include_deleted=%s",
+        warehouse_id,
+        current_user.id,
+        q,
+        tag,
+        favorites_only,
+        stock_zero,
+        with_photo,
+        include_deleted,
+    )
     query = select(Item).where(Item.warehouse_id == warehouse_id)
     if not include_deleted:
         query = query.where(Item.deleted_at.is_(None))
@@ -244,6 +287,12 @@ def list_items(
     if stock_zero:
         serialized = [item for item in serialized if item.stock == 0]
 
+    logger.debug(
+        "List items completed warehouse_id=%s user_id=%s returned=%s",
+        warehouse_id,
+        current_user.id,
+        len(serialized),
+    )
     return serialized
 
 
@@ -255,6 +304,12 @@ def create_item(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ItemResponse:
+    logger.debug(
+        "Create item requested warehouse_id=%s user_id=%s box_id=%s",
+        warehouse_id,
+        current_user.id,
+        payload.box_id,
+    )
     _get_active_box(db, warehouse_id, payload.box_id)
 
     item = Item(
@@ -270,6 +325,11 @@ def create_item(
     _apply_llm_autogen_if_enabled(db, warehouse_id, item, changed_text=True)
     db.add(item)
     db.flush()
+    initial_stock_command_id, created_initial_stock = ensure_initial_stock_movement(
+        db,
+        warehouse_id=warehouse_id,
+        item_id=item.id,
+    )
     record_activity(
         db,
         warehouse_id=warehouse_id,
@@ -288,10 +348,27 @@ def create_item(
         entity_version=item.version,
         payload={"name": item.name, "box_id": item.box_id},
     )
+    if created_initial_stock:
+        append_change_log(
+            db,
+            warehouse_id=warehouse_id,
+            entity_type="stock",
+            entity_id=item.id,
+            action="adjust",
+            payload={"delta": 1, "command_id": initial_stock_command_id},
+        )
     db.commit()
     db.refresh(item)
     boxes_by_id = _active_boxes_map(db, warehouse_id)
-    return _serialize_item(boxes_by_id, item, stock=0, favorite=False)
+    stock = _stock_map(db, [item.id]).get(item.id, 0)
+    logger.info(
+        "Item created warehouse_id=%s item_id=%s box_id=%s initial_stock_created=%s",
+        warehouse_id,
+        item.id,
+        item.box_id,
+        created_initial_stock,
+    )
+    return _serialize_item(boxes_by_id, item, stock=stock, favorite=False)
 
 
 @router.post("/draft-from-photo", response_model=ItemPhotoDraftResponse)
@@ -301,6 +378,7 @@ def draft_item_from_photo(
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> ItemPhotoDraftResponse:
+    logger.debug("Draft-from-photo requested warehouse_id=%s", warehouse_id)
     llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
     api_key: str | None = None
     pre_warnings: list[str] = []
@@ -323,11 +401,18 @@ def draft_item_from_photo(
             model_priority=normalize_model_priority(llm_setting.model_priority) if llm_setting else None,
         )
     except ValueError as exc:
+        logger.info("Draft-from-photo rejected warehouse_id=%s reason=%s", warehouse_id, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     raw_warnings = draft.get("warnings")
     model_warnings = raw_warnings if isinstance(raw_warnings, list) else []
     warnings = [*pre_warnings, *[str(w) for w in model_warnings if str(w).strip()]]
+    logger.info(
+        "Draft-from-photo completed warehouse_id=%s llm_used=%s warnings=%s",
+        warehouse_id,
+        bool(draft.get("llm_used")),
+        len(warnings[:5]),
+    )
     return ItemPhotoDraftResponse(
         name=str(draft.get("name") or "Articulo sin identificar")[:160],
         description=(str(draft.get("description"))[:1000] if draft.get("description") else None),
@@ -351,6 +436,12 @@ def get_item(
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
     boxes_by_id = _active_boxes_map(db, warehouse_id)
+    logger.debug(
+        "Item details requested warehouse_id=%s item_id=%s user_id=%s",
+        warehouse_id,
+        item_id,
+        current_user.id,
+    )
     return _serialize_item(boxes_by_id, item, stock=stock, favorite=favorite)
 
 
@@ -363,6 +454,13 @@ def update_item(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ItemResponse:
+    logger.debug(
+        "Update item requested warehouse_id=%s item_id=%s user_id=%s fields=%s",
+        warehouse_id,
+        item_id,
+        current_user.id,
+        sorted(payload.model_fields_set),
+    )
     item = _get_item(db, warehouse_id, item_id)
 
     changed = False
@@ -414,6 +512,9 @@ def update_item(
         )
         db.commit()
         db.refresh(item)
+        logger.info("Item updated warehouse_id=%s item_id=%s", warehouse_id, item.id)
+    else:
+        logger.debug("Item update no-op warehouse_id=%s item_id=%s", warehouse_id, item.id)
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
@@ -450,6 +551,7 @@ def delete_item(
         metadata={"name": item.name},
     )
     db.commit()
+    logger.info("Item deleted warehouse_id=%s item_id=%s by_user=%s", warehouse_id, item.id, current_user.id)
     return MessageResponse(message="Item moved to trash")
 
 
@@ -486,6 +588,9 @@ def restore_item(
         )
         db.commit()
         db.refresh(item)
+        logger.info("Item restored warehouse_id=%s item_id=%s by_user=%s", warehouse_id, item.id, current_user.id)
+    else:
+        logger.debug("Item restore no-op warehouse_id=%s item_id=%s", warehouse_id, item.id)
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
@@ -520,6 +625,13 @@ def set_favorite(
         payload={"user_id": current_user.id, "is_favorite": payload.is_favorite},
     )
     db.commit()
+    logger.info(
+        "Favorite flag set warehouse_id=%s item_id=%s user_id=%s value=%s",
+        warehouse_id,
+        item.id,
+        current_user.id,
+        payload.is_favorite,
+    )
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     boxes_by_id = _active_boxes_map(db, warehouse_id)
@@ -535,6 +647,14 @@ def adjust_stock(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ItemResponse:
+    logger.debug(
+        "Stock adjust requested warehouse_id=%s item_id=%s user_id=%s delta=%s command_id=%s",
+        warehouse_id,
+        item_id,
+        current_user.id,
+        payload.delta,
+        payload.command_id,
+    )
     if payload.delta not in (-1, 1):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="delta must be +1 or -1")
 
@@ -579,6 +699,21 @@ def adjust_stock(
                 metadata={"delta": payload.delta},
             )
             db.commit()
+            logger.info(
+                "Stock adjusted warehouse_id=%s item_id=%s user_id=%s delta=%s command_id=%s",
+                warehouse_id,
+                item.id,
+                current_user.id,
+                payload.delta,
+                payload.command_id,
+            )
+    else:
+        logger.debug(
+            "Stock adjust skipped as duplicate warehouse_id=%s item_id=%s command_id=%s",
+            warehouse_id,
+            item.id,
+            payload.command_id,
+        )
 
     stock = _stock_map(db, [item.id]).get(item.id, 0)
     favorite = item.id in _favorite_set(db, current_user.id, [item.id])
@@ -594,6 +729,13 @@ def batch_action(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
+    logger.debug(
+        "Batch action requested warehouse_id=%s user_id=%s action=%s items=%s",
+        warehouse_id,
+        current_user.id,
+        payload.action.value,
+        len(payload.item_ids),
+    )
     unique_ids = list(dict.fromkeys(payload.item_ids))
     items = db.scalars(
         select(Item).where(
@@ -685,4 +827,11 @@ def batch_action(
         metadata={"count": len(unique_ids)},
     )
     db.commit()
+    logger.info(
+        "Batch action applied warehouse_id=%s user_id=%s action=%s unique_items=%s",
+        warehouse_id,
+        current_user.id,
+        payload.action.value,
+        len(unique_ids),
+    )
     return MessageResponse(message=f"Batch action '{payload.action.value}' applied to {len(unique_ids)} items")

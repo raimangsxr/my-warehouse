@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,6 +31,7 @@ from app.services.sync_log import append_change_log
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 invites_router = APIRouter(prefix="/invites", tags=["warehouses"])
 INBOUND_BOX_DEFAULT_NAME = "Entrada de mercancias"
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -54,7 +56,9 @@ def list_warehouses(
         .where(Membership.user_id == current_user.id)
         .order_by(Warehouse.created_at.desc())
     )
-    return [WarehouseResponse.model_validate(r) for r in rows.all()]
+    warehouses = rows.all()
+    logger.debug("Listed warehouses user_id=%s count=%s", current_user.id, len(warehouses))
+    return [WarehouseResponse.model_validate(r) for r in warehouses]
 
 
 @router.post("", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
@@ -63,6 +67,7 @@ def create_warehouse(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> WarehouseResponse:
+    logger.debug("Create warehouse requested user_id=%s name=%s", current_user.id, payload.name)
     warehouse = Warehouse(name=payload.name.strip(), created_by=current_user.id)
     db.add(warehouse)
     db.flush()
@@ -114,6 +119,7 @@ def create_warehouse(
     )
     db.commit()
     db.refresh(warehouse)
+    logger.info("Warehouse created warehouse_id=%s created_by=%s", warehouse.id, current_user.id)
     return WarehouseResponse.model_validate(warehouse)
 
 
@@ -125,7 +131,9 @@ def get_warehouse(
 ) -> WarehouseResponse:
     warehouse = db.scalar(select(Warehouse).where(Warehouse.id == warehouse_id))
     if warehouse is None:
+        logger.info("Warehouse not found warehouse_id=%s", warehouse_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
+    logger.debug("Warehouse details requested warehouse_id=%s", warehouse_id)
     return WarehouseResponse.model_validate(warehouse)
 
 
@@ -136,9 +144,11 @@ def get_members(
     db: Session = Depends(get_db),
 ) -> list[MemberResponse]:
     members = db.scalars(select(Membership).where(Membership.warehouse_id == warehouse_id))
+    memberships = members.all()
+    logger.debug("Warehouse members listed warehouse_id=%s count=%s", warehouse_id, len(memberships))
     return [
         MemberResponse(user_id=m.user_id, warehouse_id=m.warehouse_id, created_at=m.created_at)
-        for m in members.all()
+        for m in memberships
     ]
 
 
@@ -150,8 +160,15 @@ def create_invite(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> WarehouseInviteResponse:
+    logger.debug(
+        "Create invite requested warehouse_id=%s requested_by=%s email=%s",
+        warehouse_id,
+        current_user.id,
+        payload.email.lower().strip() if payload.email else None,
+    )
     warehouse = db.scalar(select(Warehouse).where(Warehouse.id == warehouse_id))
     if warehouse is None:
+        logger.info("Create invite failed: warehouse not found warehouse_id=%s", warehouse_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
     invite_token = secrets.token_urlsafe(32)
@@ -175,6 +192,7 @@ def create_invite(
     db.commit()
 
     invite_url = f"{settings.frontend_url.rstrip('/')}/invites/{invite_token}"
+    logger.info("Invite created warehouse_id=%s invite_id=%s", warehouse_id, invite.id)
     return WarehouseInviteResponse(
         warehouse_id=warehouse_id,
         invite_token=invite_token,
@@ -189,15 +207,24 @@ def accept_invite(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> InviteAcceptResponse:
+    logger.debug("Accept invite requested user_id=%s", current_user.id)
     token_hash_value = hash_token(token)
     invite = db.scalar(select(WarehouseInvite).where(WarehouseInvite.token_hash == token_hash_value))
     if invite is None:
+        logger.info("Accept invite failed: invite token not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
 
     if invite.accepted_at is not None or invite.expires_at < utcnow():
+        logger.info("Accept invite failed: invite already used or expired invite_id=%s", invite.id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite expired or already used")
 
     if invite.invitee_email and invite.invitee_email.lower() != current_user.email.lower():
+        logger.info(
+            "Accept invite failed: email mismatch invite_id=%s expected=%s current=%s",
+            invite.id,
+            invite.invitee_email,
+            current_user.email,
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invite does not belong to this email")
 
     existing = db.scalar(
@@ -220,6 +247,12 @@ def accept_invite(
         metadata={"invitee_email": current_user.email},
     )
     db.commit()
+    logger.info(
+        "Invite accepted invite_id=%s warehouse_id=%s user_id=%s",
+        invite.id,
+        invite.warehouse_id,
+        current_user.id,
+    )
     return InviteAcceptResponse(message="Invite accepted", warehouse_id=invite.warehouse_id)
 
 
@@ -237,6 +270,13 @@ def get_activity(
         .order_by(ActivityEvent.created_at.desc())
         .limit(safe_limit)
     ).all()
+    logger.debug(
+        "Warehouse activity listed warehouse_id=%s requested_limit=%s resolved_limit=%s count=%s",
+        warehouse_id,
+        limit,
+        safe_limit,
+        len(events),
+    )
     return [
         ActivityEventResponse(
             id=event.id,

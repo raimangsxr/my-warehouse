@@ -21,6 +21,11 @@ class IntakeBatchStatus(str, Enum):
     committed = "committed"
 
 
+class IntakeDraftReprocessMode(str, Enum):
+    photo = "photo"
+    name = "name"
+
+
 class IntakeBatchCreateRequest(BaseModel):
     target_box_id: str
     name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -40,6 +45,10 @@ class IntakeDraftUpdateRequest(BaseModel):
     tags: list[str] | None = None
     aliases: list[str] | None = None
     status: IntakeDraftStatus | None = None
+
+
+class IntakeDraftReprocessRequest(BaseModel):
+    mode: IntakeDraftReprocessMode = IntakeDraftReprocessMode.photo
 
 
 class IntakeDraftResponse(BaseModel):
