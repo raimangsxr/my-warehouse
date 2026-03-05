@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, HostListener, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -10,6 +10,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 import { generateUuid } from '../core/uuid';
 import { ItemCardComponent } from '../items/item-card.component';
@@ -91,17 +93,16 @@ type DetailViewMode = 'cards' | 'list';
             <span class="inline-chip">Token QR: {{ box.qr_token }}</span>
           </div>
 
-          <form [formGroup]="searchForm" (ngSubmit)="loadItems()" class="form-row mt-10">
+          <div [formGroup]="searchForm" class="form-row mt-10">
             <mat-form-field class="grow">
               <mat-label>Buscar dentro de esta caja</mat-label>
               <mat-icon matPrefix>search</mat-icon>
               <input matInput formControlName="q" />
             </mat-form-field>
             <div class="inline-actions">
-              <button mat-flat-button color="primary" type="submit">Buscar</button>
-              <button mat-stroked-button type="button" (click)="searchForm.reset({ q: '' }); loadItems()">Limpiar</button>
+              <button mat-stroked-button type="button" (click)="clearSearch()">Limpiar</button>
             </div>
-          </form>
+          </div>
         </mat-card-content>
       </mat-card>
 
@@ -330,9 +331,10 @@ type DetailViewMode = 'cards' | 'list';
     `
   ]
 })
-export class BoxDetailComponent implements OnInit {
+export class BoxDetailComponent implements OnInit, OnDestroy {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
   private readonly viewModeStorageKey = 'box_detail_view_mode';
+  private readonly destroy$ = new Subject<void>();
 
   box: Box | null = null;
   items: BoxItem[] = [];
@@ -384,6 +386,15 @@ export class BoxDetailComponent implements OnInit {
         this.router.navigateByUrl('/app/boxes');
       }
     });
+
+    this.searchForm.controls.q.valueChanges
+      .pipe(debounceTime(300), distinctUntilChanged(), takeUntil(this.destroy$))
+      .subscribe(() => this.loadItems());
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   @HostListener('window:keydown.escape')
@@ -428,6 +439,11 @@ export class BoxDetailComponent implements OnInit {
         this.notificationService.error('No se pudieron cargar los artículos de la caja.');
       }
     });
+  }
+
+  clearSearch(): void {
+    this.searchForm.reset({ q: '' }, { emitEvent: false });
+    this.loadItems();
   }
 
   toggleFavorite(item: BoxItem): void {

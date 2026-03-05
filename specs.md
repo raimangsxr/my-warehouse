@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.54
+- **Versión:** v1.55
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -84,6 +84,7 @@
 - **v1.52 (2026-03-05):** Detalle de lote con control granular por borrador: la card de artículo seleccionado añade cierre explícito (`X`) y reapertura por click en mini-card del resumen; se incorporan acciones iconográficas con `tooltip` por artículo (`Re-procesar IA por foto`, `Re-procesar IA por título`, `Eliminar artículo`). Backend expone `POST /warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess` (modo `photo|name`) y `DELETE /warehouses/{warehouse_id}/intake/drafts/{draft_id}` con limpieza de media temporal por borrador.
 - **v1.53 (2026-03-05):** Observabilidad ampliada del pipeline LLM en backend: se añaden logs `INFO/DEBUG` por petición de IA con identificador de operación, orden de `model_priority`, intentos por modelo configurado y alias runtime, modelo ganador que resuelve cada petición (tags/aliases y draft por foto) y trazado explícito de fallback cuando falla un intento y se pasa al siguiente modelo/alias o a fallback heurístico.
 - **v1.54 (2026-03-05):** Hardening de observabilidad y flujo de lotes: todos los fallos backend registrados con logging de severidad `ERROR` (incluyendo fallos de autenticación/acceso y fallos de IA/fallback por modelo), `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` permite añadir nuevas fotos a lotes previamente `committed` (reabriendo estado operativo del lote), y en frontend detalle de lote sincroniza correctamente los campos del editor al llegar resultados IA para artículos recién añadidos (evita formulario en blanco tras procesado sin necesidad de refrescar la página).
+- **v1.55 (2026-03-05):** UX de búsqueda en frontend sin acción explícita de submit: se elimina el botón `Buscar` en Home y Detalle de caja, y ambos buscadores funcionan en tiempo real mientras se escribe con `debounce` (300ms), manteniendo botón `Limpiar` para reset inmediato de filtros.
 
 ---
 
@@ -290,7 +291,7 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 ### Detalle de caja (clave)
 - Header: nombre caja + QR + código corto (pequeño bajo QR).
 - Acciones de cabecera en iconos con tooltip: `print` (imprimir etiqueta), `add` (nuevo elemento), `photo_camera` (alta por foto contextual) y `collections` (captura masiva contextual).
-- Buscador interno.
+- Buscador interno incremental con `debounce` (actualiza resultados al escribir, sin botón `Buscar`).
 - Lista de artículos recursivos renderizada con los mismos componentes reutilizables que Home (`item-card` / `item-list`) para mantener consistencia visual y funcional.
 - Cada fila/card muestra ruta completa (breadcrumb) `Caja raíz > … > Caja actual > …`.
 - La ruta es navegable por tramo en detalle de caja (navega a la caja correspondiente).

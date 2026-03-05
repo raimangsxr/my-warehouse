@@ -82,7 +82,7 @@ type HomeViewMode = 'cards' | 'list';
 
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
 
-          <form [formGroup]="filtersForm" class="form-stack" (ngSubmit)="loadItems()">
+          <div [formGroup]="filtersForm" class="form-stack">
             <div class="form-row home-filter-row">
               <mat-form-field class="grow">
                 <mat-label>Buscar artículo</mat-label>
@@ -96,7 +96,6 @@ type HomeViewMode = 'cards' | 'list';
             </div>
 
             <div class="inline-actions">
-              <button mat-flat-button color="primary" type="submit">Buscar</button>
               <button mat-stroked-button type="button" (click)="clearFilters()">Limpiar</button>
             </div>
 
@@ -122,7 +121,7 @@ type HomeViewMode = 'cards' | 'list';
                 </button>
               </div>
             </div>
-          </form>
+          </div>
         </mat-card-content>
       </mat-card>
 
@@ -1010,7 +1009,7 @@ export class HomeComponent implements OnInit, OnDestroy {
 
   clearFilters(): void {
     this.activeTag = null;
-    this.filtersForm.reset({ q: '', favoritesOnly: false, stockZero: false });
+    this.filtersForm.reset({ q: '', favoritesOnly: false, stockZero: false }, { emitEvent: false });
     this.loadItems();
   }
 
