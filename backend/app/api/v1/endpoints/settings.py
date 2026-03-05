@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.llm import DEFAULT_GEMINI_MODEL_PRIORITY, normalize_model_priority
 from app.db.session import get_db
 from app.models.item import Item
 from app.models.llm_setting import LLMSetting
@@ -144,6 +145,7 @@ def get_llm_settings(
             warehouse_id=warehouse_id,
             provider="gemini",
             language="es",
+            model_priority=list(DEFAULT_GEMINI_MODEL_PRIORITY),
             auto_tags_enabled=True,
             auto_alias_enabled=True,
             has_api_key=False,
@@ -161,6 +163,7 @@ def get_llm_settings(
         warehouse_id=warehouse_id,
         provider=setting.provider,
         language=setting.language,
+        model_priority=normalize_model_priority(setting.model_priority),
         auto_tags_enabled=setting.auto_tags_enabled,
         auto_alias_enabled=setting.auto_alias_enabled,
         has_api_key=bool(setting.api_key_encrypted),
@@ -182,6 +185,7 @@ def update_llm_settings(
             warehouse_id=warehouse_id,
             provider=payload.provider,
             language=payload.language,
+            model_priority=list(payload.model_priority),
             auto_tags_enabled=payload.auto_tags_enabled,
             auto_alias_enabled=payload.auto_alias_enabled,
             updated_by=current_user.id,
@@ -190,6 +194,7 @@ def update_llm_settings(
 
     setting.provider = payload.provider
     setting.language = payload.language
+    setting.model_priority = list(payload.model_priority)
     setting.auto_tags_enabled = payload.auto_tags_enabled
     setting.auto_alias_enabled = payload.auto_alias_enabled
     setting.updated_by = current_user.id
@@ -246,6 +251,7 @@ def reprocess_llm_item(
         item.description,
         api_key=api_key,
         output_language=llm_setting.language,
+        model_priority=normalize_model_priority(llm_setting.model_priority),
     )
     if "tags" in selected_fields:
         item.tags = tags

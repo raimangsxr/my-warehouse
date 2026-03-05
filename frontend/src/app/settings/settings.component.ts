@@ -14,7 +14,7 @@ import { Subscription } from 'rxjs';
 
 import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
-import { SettingsService } from '../services/settings.service';
+import { GeminiModelId, SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
 import { TransferService, WarehouseExportPayload } from '../services/transfer.service';
 import { WarehouseService } from '../services/warehouse.service';
@@ -200,6 +200,44 @@ import { WarehouseService } from '../services/warehouse.service';
               <mat-checkbox formControlName="autoAliasEnabled">Auto-alias</mat-checkbox>
             </div>
 
+            <div class="model-priority-section">
+              <div class="model-priority-header">
+                <strong>Orden de fallback de modelos</strong>
+                <button mat-stroked-button type="button" (click)="resetModelPriority()" [disabled]="llmLoading">
+                  Restablecer orden por defecto
+                </button>
+              </div>
+              <p class="status-line">Si un modelo falla (RPM/TPM/RPD o error de request), se prueba el siguiente.</p>
+              <div class="model-priority-list">
+                <div class="model-priority-row" *ngFor="let modelId of llmModelPriority; let index = index">
+                  <div class="model-priority-label">
+                    <span class="priority-chip">{{ index + 1 }}</span>
+                    <span>{{ getGeminiModelLabel(modelId) }}</span>
+                  </div>
+                  <div class="model-priority-actions">
+                    <button
+                      mat-icon-button
+                      type="button"
+                      (click)="moveModelPriority(index, -1)"
+                      [disabled]="llmLoading || index === 0"
+                      aria-label="Subir prioridad"
+                    >
+                      <mat-icon>arrow_upward</mat-icon>
+                    </button>
+                    <button
+                      mat-icon-button
+                      type="button"
+                      (click)="moveModelPriority(index, 1)"
+                      [disabled]="llmLoading || index === llmModelPriority.length - 1"
+                      aria-label="Bajar prioridad"
+                    >
+                      <mat-icon>arrow_downward</mat-icon>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="inline-actions">
               <button mat-flat-button color="primary" [disabled]="llmLoading">
                 {{ llmLoading ? 'Guardando...' : 'Guardar LLM' }}
@@ -270,9 +308,67 @@ import { WarehouseService } from '../services/warehouse.service';
         max-width: 100%;
       }
 
+      .model-priority-section {
+        display: grid;
+        gap: 8px;
+      }
+
+      .model-priority-header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .model-priority-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .model-priority-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid rgba(127, 127, 127, 0.25);
+        border-radius: 10px;
+      }
+
+      .model-priority-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .model-priority-actions {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .priority-chip {
+        display: inline-flex;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        background: rgba(25, 118, 210, 0.12);
+        color: #0d47a1;
+        flex-shrink: 0;
+      }
+
       @media (max-width: 600px) {
         .import-input {
           width: 100%;
+        }
+
+        .model-priority-header {
+          align-items: stretch;
         }
       }
     `
@@ -280,6 +376,13 @@ import { WarehouseService } from '../services/warehouse.service';
 })
 export class SettingsComponent implements OnInit, OnDestroy {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
+  readonly geminiModelCatalog: ReadonlyArray<{ id: GeminiModelId; label: string }> = [
+    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
+    { id: 'gemini-3-flash', label: 'Gemini 3 Flash' },
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' }
+  ];
+  readonly defaultLlmModelPriority: GeminiModelId[] = this.geminiModelCatalog.map((model) => model.id);
 
   passwordLoading = false;
   passwordError = '';
@@ -295,6 +398,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   llmError = '';
   llmMessage = '';
   llmApiKeyVisible = false;
+  llmModelPriority: GeminiModelId[] = [...this.defaultLlmModelPriority];
 
   syncLoading = false;
   syncMessage = '';
@@ -442,6 +546,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       .updateLlmSettings(this.selectedWarehouseId, {
         provider: raw.provider.trim(),
         language: raw.language,
+        model_priority: [...this.llmModelPriority],
         api_key: raw.apiKey || null,
         auto_tags_enabled: raw.autoTagsEnabled,
         auto_alias_enabled: raw.autoAliasEnabled
@@ -452,6 +557,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
           this.llmMessage = 'LLM guardado.';
           this.notificationService.success(this.llmMessage);
           this.llmForm.patchValue({ apiKey: res.api_key_value || '' });
+          this.llmModelPriority = this.normalizeModelPriority(res.model_priority);
           this.llmApiKeyVisible = false;
         },
         error: () => {
@@ -460,6 +566,25 @@ export class SettingsComponent implements OnInit, OnDestroy {
           this.notificationService.error(this.llmError);
         }
       });
+  }
+
+  getGeminiModelLabel(modelId: GeminiModelId): string {
+    return this.geminiModelCatalog.find((entry) => entry.id === modelId)?.label || modelId;
+  }
+
+  moveModelPriority(index: number, offset: -1 | 1): void {
+    const target = index + offset;
+    if (target < 0 || target >= this.llmModelPriority.length) {
+      return;
+    }
+    const next = [...this.llmModelPriority];
+    const [selected] = next.splice(index, 1);
+    next.splice(target, 0, selected);
+    this.llmModelPriority = next;
+  }
+
+  resetModelPriority(): void {
+    this.llmModelPriority = [...this.defaultLlmModelPriority];
   }
 
   toggleLlmApiKeyVisibility(): void {
@@ -599,7 +724,23 @@ export class SettingsComponent implements OnInit, OnDestroy {
           autoTagsEnabled: llm.auto_tags_enabled,
           autoAliasEnabled: llm.auto_alias_enabled
         });
+        this.llmModelPriority = this.normalizeModelPriority(llm.model_priority);
       }
     });
+  }
+
+  private normalizeModelPriority(input: GeminiModelId[] | null | undefined): GeminiModelId[] {
+    if (!input || input.length !== this.defaultLlmModelPriority.length) {
+      return [...this.defaultLlmModelPriority];
+    }
+    const unique = Array.from(new Set(input));
+    if (unique.length !== this.defaultLlmModelPriority.length) {
+      return [...this.defaultLlmModelPriority];
+    }
+    const allowed = new Set(this.defaultLlmModelPriority);
+    if (unique.some((model) => !allowed.has(model))) {
+      return [...this.defaultLlmModelPriority];
+    }
+    return [...input];
   }
 }

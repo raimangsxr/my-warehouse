@@ -66,6 +66,13 @@ def test_draft_from_photo_rejects_invalid_data_url(client):
 def test_draft_from_photo_uses_llm_when_configured(client, monkeypatch):
     from app.api.v1.endpoints import items as items_endpoint
 
+    custom_priority = [
+        "gemini-2.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash",
+        "gemini-2.5-flash-lite",
+    ]
+
     headers = signup_and_login(client, "slice9-llm@example.com")
     warehouse_id = create_warehouse(client, headers)
     llm_put = client.put(
@@ -74,6 +81,7 @@ def test_draft_from_photo_uses_llm_when_configured(client, monkeypatch):
         json={
             "provider": "gemini",
             "language": "en",
+            "model_priority": custom_priority,
             "api_key": "gemini-secret-key",
             "auto_tags_enabled": True,
             "auto_alias_enabled": True,
@@ -87,10 +95,12 @@ def test_draft_from_photo_uses_llm_when_configured(client, monkeypatch):
         *,
         api_key: str | None = None,
         output_language: str = "es",
+        model_priority: list[str] | None = None,
         **_kwargs,
     ):
         assert api_key == "gemini-secret-key"
         assert output_language == "en"
+        assert model_priority == custom_priority
         return {
             "name": "Taladro inalambrico",
             "description": "Herramienta electrica para perforar.",

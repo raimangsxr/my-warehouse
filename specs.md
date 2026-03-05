@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.47
+- **Versión:** v1.49
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -77,6 +77,8 @@
 - **v1.45 (2026-03-05):** Gestión de borrado de lotes y ajuste visual del panel lateral: se habilita eliminación explícita de lote desde `/app/items/intake-batch` y desde la sección `Lotes en borrador` del shell (con bloqueo en estado `processing`), y se refactoriza su presentación en sidenav a filas compactas con acción de abrir + eliminar para evitar desalineaciones de tamaño/alineación en móvil y escritorio.
 - **v1.46 (2026-03-05):** Storage temporal por lote en intake masivo: las fotos de borradores se guardan en carpeta temporal por lote (`/media/{warehouse_id}/intake/{batch_id}/...`) para permitir reanudación fiable; al crear artículos en commit se mueven a storage definitivo de producto (`/media/{warehouse_id}/items/...`) y se limpia la carpeta temporal del lote cuando ya no aplica (batch comprometido o eliminado).
 - **v1.47 (2026-03-05):** Robustez de parseo JSON en respuestas Gemini: el backend de enriquecimiento (foto/tags) ahora acepta JSON con texto envolvente o contenido adicional (p. ej. bloques markdown o texto tras el objeto JSON) usando extracción tolerante de la primera entidad JSON válida, evitando fallos `JSONDecodeError: Extra data` y reduciendo caídas a fallback heurístico por formato.
+- **v1.48 (2026-03-05):** Política de fallback configurable de modelos Gemini por warehouse: `llm_settings` añade `model_priority` (migración `20260305_0011_llm_model_priority`), `GET/PUT /settings/llm` incluye el orden completo de modelos y el backend aplica fallback en cascada para tags/aliases, draft por foto y intake batch (si un modelo falla por límite/error de request/formato, prueba el siguiente). Frontend Settings incorpora UI para reordenar prioridades (default: Gemini 3.1 Flash Lite → Gemini 3 Flash → Gemini 2.5 Flash → Gemini 2.5 Flash Lite).
+- **v1.49 (2026-03-05):** Corrección de 404 en modelos Gemini 3 al generar por foto/tags: cuando un ID configurado no existe con nombre estable (p. ej. `gemini-3-flash`), backend prueba variantes runtime (`-preview`/`-latest`) del mismo modelo antes de pasar al siguiente de `model_priority`, reduciendo falsos fallos por nomenclatura de versión.
 
 ---
 
@@ -304,6 +306,7 @@ Secciones:
    - Provider en selector (actualmente opción única: `Gemini`)
    - API key (guardada cifrada en backend) precargada en input oculto con toggle mostrar/ocultar
    - idioma de salida para generación (`es` por defecto, `en` opcional)
+   - orden de prioridad de modelos Gemini configurable (reordenable) para fallback automático en cascada
    - toggles: auto-tags / auto-alias
    - acceso rápido desde cards de artículos: botón `Reprocesar tags` (sin bloque manual por `item_id` en Settings)
 5) Offline/Sync:
@@ -483,6 +486,7 @@ Secciones:
 **US-G2: Config Gemini API key**
 - [x] Guardada cifrada en backend.
 - [x] Idioma de salida configurable (`es` por defecto, `en` opcional) y persistido por warehouse.
+- [x] Orden de prioridad de modelos Gemini configurable por warehouse (fallback en cascada).
 - [x] Toggles auto-tags/auto-alias.
 - [x] Reprocesar tags/alias.
 
@@ -714,6 +718,7 @@ Secciones:
 - warehouse_id (PK/FK)
 - provider = "gemini"
 - language = "es" | "en" (default "es")
+- model_priority (json array ordenado, obligatorio): `["gemini-3.1-flash-lite","gemini-3-flash","gemini-2.5-flash","gemini-2.5-flash-lite"]`
 - api_key_encrypted
 - auto_tags_enabled (bool)
 - auto_alias_enabled (bool)
@@ -829,9 +834,9 @@ Stock:
 - `POST /settings/smtp/test?warehouse_id=...`
 
 - `GET /settings/llm?warehouse_id=...`
-  - respuesta incluye: `{ warehouse_id, provider, language, auto_tags_enabled, auto_alias_enabled, has_api_key, api_key_value }`
+  - respuesta incluye: `{ warehouse_id, provider, language, model_priority, auto_tags_enabled, auto_alias_enabled, has_api_key, api_key_value }`
 - `PUT /settings/llm?warehouse_id=...`
-  - body incluye: `{ provider, language, api_key?, auto_tags_enabled, auto_alias_enabled }`
+  - body incluye: `{ provider, language, model_priority, api_key?, auto_tags_enabled, auto_alias_enabled }`
 - `POST /settings/llm/reprocess-item/{item_id}?warehouse_id=...`
   - body: `{ "fields": ["tags" | "aliases", ...] }` (opcional, por defecto `["tags","aliases"]`)
   - respuesta: `{ message, item_id, processed_fields, tags, aliases }`
@@ -933,7 +938,13 @@ El servidor persiste `processed_commands` para no duplicar.
 - Se guarda cifrada en backend (por warehouse).
 
 ### Modelo y endpoint
-- Modelo por defecto recomendado (costo/latencia): `gemini-2.5-flash-lite`.
+- Orden por defecto de fallback (prioridad alta→baja):
+  - `gemini-3.1-flash-lite` (Gemini 3.1 Flash Lite)
+  - `gemini-3-flash` (Gemini 3 Flash)
+  - `gemini-2.5-flash` (Gemini 2.5 Flash)
+  - `gemini-2.5-flash-lite` (Gemini 2.5 Flash Lite)
+- El orden se configura por warehouse en `llm_settings.model_priority` desde Settings (UI con reordenación).
+- Si un ID exacto devuelve `404` por nomenclatura/versionado del proveedor, backend intenta alias runtime del mismo modelo (`-preview`, `-latest`, `-preview-latest`) antes de saltar al siguiente de la prioridad.
 - Endpoint REST Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`.
 - La generación de tags/alias se hace a partir de `item.name` + `item.description`.
 - Para alta por foto, backend envía la imagen (data URL base64) como `inline_data` a Gemini y obtiene borrador de metadatos de artículo.
@@ -945,17 +956,20 @@ El servidor persiste `processed_commands` para no duplicar.
 - Tags: 3–10, normalizados, sin duplicados.
 - Alias: 0–5, no repetir nombre, útiles para búsqueda.
 - Idioma de salida configurable por warehouse (`llm_settings.language`): por defecto español (`es`), opcional inglés (`en`).
+- Política de fallback LLM: ante error de request/límite/formato en un modelo, backend prueba automáticamente el siguiente de `model_priority` antes de caer a heurístico local.
 - Preferir tags existentes (backend incluye lista al prompt).
 
 ### Flujo
 - Al crear/editar item (si cambia name/desc):
   - backend llama Gemini con `name + description` y genera tags/alias en el idioma configurado
-  - si Gemini no responde o devuelve formato inválido, backend aplica fallback heurístico para no bloquear la operación
+  - si falla el primer modelo, backend reintenta secuencialmente con el resto de `model_priority`
+  - si todos fallan, backend aplica fallback heurístico para no bloquear la operación
   - UI refleja estado “generando tags…”
 - Al crear item desde foto:
   - frontend captura/sube imagen y llama `POST /warehouses/{warehouse_id}/items/draft-from-photo`
   - backend intenta inferir `name/description/tags/aliases` con Gemini Vision en el idioma configurado
-  - si falla Gemini o no hay API key válida, backend devuelve fallback no bloqueante con advertencias
+  - si falla el primer modelo, backend reintenta secuencialmente con el resto de `model_priority`
+  - si todos fallan o no hay API key válida, backend devuelve fallback no bloqueante con advertencias
   - frontend abre `/app/items/new` con datos pre-rellenados para confirmación del usuario
 - En captura masiva por lote:
   - frontend crea `intake_batch`, sube `files[]` y dispara `start`
@@ -1049,11 +1063,11 @@ El servidor persiste `processed_commands` para no duplicar.
 - settings Gemini + autogen tags/alias.
 - reprocesado manual.
 - Estado actual (2026-02-22): **completada**.
-  - Backend: endpoints `/settings/smtp`, `/settings/smtp/test`, `/settings/llm`, `/settings/llm/reprocess-item/{item_id}` con validación de membresía por warehouse.
+  - Backend: endpoints `/settings/smtp`, `/settings/smtp/test`, `/settings/llm`, `/settings/llm/reprocess-item/{item_id}` con validación de membresía por warehouse y `model_priority` configurable para fallback Gemini en cascada.
   - Seguridad: secretos SMTP y Gemini almacenados cifrados en backend y expuestos en lectura solo como máscara (`has_*`/`*_masked`).
-  - Items: autogeneración de tags/aliases en create/update cuando LLM está habilitado con API key configurada.
-  - Frontend: Settings con secciones de Seguridad, SMTP y LLM; el reprocesado manual se acciona desde cards de Home.
-  - Migración: `20260222_0005_slice6_settings_smtp_llm`.
+  - Items: autogeneración de tags/aliases en create/update cuando LLM está habilitado con API key configurada, con fallback de modelos antes del heurístico local.
+  - Frontend: Settings con secciones de Seguridad, SMTP y LLM; incluye control de orden de prioridad de modelos Gemini, y el reprocesado manual se acciona desde cards de Home.
+  - Migración: `20260222_0005_slice6_settings_smtp_llm`, `20260305_0011_llm_model_priority`.
   - Calidad: test backend `test_slice6_settings_llm_smtp.py`.
 
 ### Slice 7 — Offline + Sync + Conflictos
@@ -1127,9 +1141,11 @@ Para considerar una slice “Done”:
 - **A-010 (2026-02-23):** En Slice 8, al importar un snapshot en un warehouse distinto, backend remapea IDs (`boxes`, `items`, `stock_movements`) y `qr_token` cuando detecta colisión global para preservar integridad sin exigir preprocesado del JSON en cliente.
 - **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
 - **A-012 (2026-03-04):** Para habilitar impresión de etiquetas sin añadir librerías QR al frontend en esta iteración, la imagen QR se renderiza con un servicio remoto (`api.qrserver.com`) usando como payload únicamente `qr_token` (no credenciales ni secretos). Si se requiere operación 100% offline/air-gapped, se migrará a generador QR local en frontend o endpoint backend dedicado.
-- **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias usa Gemini API (`gemini-2.5-flash-lite`) cuando hay API key válida; si hay error de red o respuesta inválida, backend aplica fallback heurístico local para mantener disponibilidad y evitar fallos en create/update/reprocess.
+- **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias/foto usa Gemini API con cadena configurable por `llm_settings.model_priority` (default: `gemini-3.1-flash-lite` → `gemini-3-flash` → `gemini-2.5-flash` → `gemini-2.5-flash-lite`). Si fallan todos los modelos por límites/error/formato, backend aplica fallback heurístico local para mantener disponibilidad.
 - **A-014 (2026-03-04):** En la primera versión de Slice 9, la foto para inferencia no se persistía automáticamente en `items.photo_url`; esta limitación queda superada por `A-015` al añadir subida y almacenamiento en disco con URL servible.
 - **A-015 (2026-03-04):** Para esta iteración, la persistencia de fotos usa filesystem local del backend (`media_root`) y URL pública (`/media/...`) referenciada desde `items.photo_url`, sin tabla `photos` dedicada. Si se necesita almacenamiento distribuido (S3/objeto), la migración puede conservar el contrato `photo_url`.
 - **A-015 (2026-03-04):** Para simplificar edición de credenciales LLM en Settings, `GET /settings/llm` puede devolver `api_key_value` descifrada al frontend para miembros autenticados del warehouse. La clave sigue persistida únicamente cifrada en backend y no se almacena en cliente fuera del estado temporal de formulario.
 - **A-016 (2026-03-04):** En import cross-warehouse, si el snapshot trae una caja `is_inbound=true` pero el warehouse destino ya tiene su propia caja especial activa, la caja importada se conserva como caja normal (`is_inbound=false`) para mantener un único punto de entrada visual/operativo por warehouse.
 - **A-017 (2026-03-05):** En Slice 10, el procesamiento paralelo de intake se ejecuta en backend con `ThreadPoolExecutor` y estados persistidos en DB (sin broker externo). Es una solución simple/reversible para esta fase; si se requiere resiliencia multi-worker/procesos, se migrará a cola distribuida dedicada (p. ej. Redis/Celery o equivalente) conservando el contrato REST.
+- **A-018 (2026-03-05):** Se asume correspondencia directa entre nombres comerciales pedidos y IDs de API Gemini: `Gemini 3.1 Flash Lite`→`gemini-3.1-flash-lite`, `Gemini 3 Flash`→`gemini-3-flash`, `Gemini 2.5 Flash`→`gemini-2.5-flash`, `Gemini 2.5 Flash Lite`→`gemini-2.5-flash-lite`.
+- **A-019 (2026-03-05):** Algunos modelos Gemini 3 pueden exponerse como IDs `preview/latest` y devolver `404` en el ID base. Backend aplica resolución runtime (`-preview`, `-latest`, `-preview-latest`) antes de pasar al siguiente modelo del fallback.

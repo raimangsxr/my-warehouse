@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_warehouse_membership
+from app.core.llm import normalize_model_priority
 from app.db.session import get_db
 from app.models.box import Box
 from app.models.item import Item
@@ -169,6 +170,7 @@ def _apply_llm_autogen_if_enabled(db: Session, warehouse_id: str, item: Item, *,
         item.description,
         api_key=api_key,
         output_language=llm_setting.language,
+        model_priority=normalize_model_priority(llm_setting.model_priority),
     )
     if llm_setting.auto_tags_enabled:
         item.tags = tags
@@ -318,6 +320,7 @@ def draft_item_from_photo(
             payload.image_data_url,
             api_key=api_key,
             output_language=output_language,
+            model_priority=normalize_model_priority(llm_setting.model_priority) if llm_setting else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

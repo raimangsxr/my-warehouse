@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.llm import DEFAULT_GEMINI_MODEL_PRIORITY, SUPPORTED_GEMINI_MODELS, GeminiModelId
 
 
 LLMOutputLanguage = Literal["es", "en"]
@@ -36,6 +38,7 @@ class LLMSettingsResponse(BaseModel):
     warehouse_id: str
     provider: str
     language: LLMOutputLanguage
+    model_priority: list[GeminiModelId] = Field(default_factory=lambda: list(DEFAULT_GEMINI_MODEL_PRIORITY))
     auto_tags_enabled: bool
     auto_alias_enabled: bool
     has_api_key: bool
@@ -46,8 +49,20 @@ class LLMSettingsUpdateRequest(BaseModel):
     provider: str = Field(default="gemini", max_length=32)
     language: LLMOutputLanguage = "es"
     api_key: str | None = Field(default=None, max_length=1024)
+    model_priority: list[GeminiModelId] = Field(default_factory=lambda: list(DEFAULT_GEMINI_MODEL_PRIORITY))
     auto_tags_enabled: bool = True
     auto_alias_enabled: bool = True
+
+    @field_validator("model_priority")
+    @classmethod
+    def validate_model_priority(cls, value: list[GeminiModelId]) -> list[GeminiModelId]:
+        if len(value) != len(SUPPORTED_GEMINI_MODELS):
+            raise ValueError("model_priority must include all supported Gemini models")
+        if len(set(value)) != len(SUPPORTED_GEMINI_MODELS):
+            raise ValueError("model_priority must not include duplicates")
+        if set(value) != set(SUPPORTED_GEMINI_MODELS):
+            raise ValueError("model_priority includes unsupported models")
+        return value
 
 
 class LLMReprocessRequest(BaseModel):

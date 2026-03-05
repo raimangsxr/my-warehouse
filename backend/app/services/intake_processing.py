@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.llm import normalize_model_priority
 from app.db.session import SessionLocal
 from app.models.intake_batch import IntakeBatch
 from app.models.intake_draft import IntakeDraft
@@ -117,8 +118,10 @@ def process_intake_batch(
         llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
         api_key: str | None = None
         output_language = "es"
+        model_priority: list[str] | None = None
         if llm_setting is not None:
             output_language = llm_setting.language or "es"
+            model_priority = normalize_model_priority(llm_setting.model_priority)
             if llm_setting.api_key_encrypted:
                 try:
                     api_key = decrypt_secret(llm_setting.api_key_encrypted)
@@ -155,6 +158,7 @@ def process_intake_batch(
                     photo_url=job["photo_url"],
                     api_key=api_key,
                     output_language=output_language,
+                    model_priority=model_priority,
                     context_name=context_by_draft_id.get(str(job["draft_id"]), {}).get("name_context"),
                     context_description=None,
                 ): job["draft_id"]
@@ -255,6 +259,7 @@ def _process_photo_url(
     photo_url: str,
     api_key: str | None,
     output_language: str,
+    model_priority: list[str] | None,
     context_name: str | None,
     context_description: str | None,
 ) -> dict[str, object]:
@@ -268,6 +273,7 @@ def _process_photo_url(
             image_data_url,
             api_key=api_key,
             output_language=output_language,
+            model_priority=model_priority,
             context_name=context_name,
             context_description=context_description,
         )

@@ -4,12 +4,15 @@ import re
 import unicodedata
 from base64 import b64decode
 from binascii import Error as BinasciiError
+from collections.abc import Sequence
 from urllib import error, request
+
+from app.core.llm import DEFAULT_GEMINI_MODEL_PRIORITY, SUPPORTED_GEMINI_MODELS, GeminiModelId, normalize_model_priority
 
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_GEMINI_MODEL = DEFAULT_GEMINI_MODEL_PRIORITY[0]
 GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEFAULT_OUTPUT_LANGUAGE = "es"
 
@@ -183,6 +186,60 @@ def _language_instruction(output_language: str) -> str:
     if output_language == "en":
         return "Write every generated value in English."
     return "Escribe todos los valores generados en espanol."
+
+
+def _resolve_model_priority(
+    model_priority: Sequence[str] | None,
+    preferred_model: str,
+) -> list[GeminiModelId]:
+    if model_priority:
+        return normalize_model_priority(model_priority)
+
+    preferred = str(preferred_model).strip()
+    if preferred and preferred in SUPPORTED_GEMINI_MODELS:
+        ordered = [preferred, *[model for model in DEFAULT_GEMINI_MODEL_PRIORITY if model != preferred]]
+        return normalize_model_priority(ordered)
+
+    return list(DEFAULT_GEMINI_MODEL_PRIORITY)
+
+
+_RUNTIME_MODEL_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "gemini-3.1-flash-lite": (
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-latest",
+        "gemini-3.1-flash-lite-preview-latest",
+    ),
+    "gemini-3-flash": (
+        "gemini-3-flash",
+        "gemini-3-flash-preview",
+        "gemini-3-flash-latest",
+        "gemini-3-flash-preview-latest",
+    ),
+    "gemini-2.5-flash": (
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-latest",
+        "gemini-2.5-flash-preview-latest",
+    ),
+    "gemini-2.5-flash-lite": (
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-lite-latest",
+        "gemini-2.5-flash-lite-preview-latest",
+    ),
+}
+
+
+def _runtime_model_candidates(configured_model: str) -> list[str]:
+    base = str(configured_model).strip()
+    if not base:
+        return []
+
+    candidates = list(_RUNTIME_MODEL_CANDIDATES.get(base, (base,)))
+    generic = [base, f"{base}-preview", f"{base}-latest", f"{base}-preview-latest"]
+    for candidate in generic:
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def _heuristic_photo_draft(
@@ -417,23 +474,44 @@ def generate_tags_and_aliases(
     api_key: str | None = None,
     output_language: str = DEFAULT_OUTPUT_LANGUAGE,
     model: str = DEFAULT_GEMINI_MODEL,
+    model_priority: Sequence[str] | None = None,
     timeout_seconds: float = 8.0,
 ) -> tuple[list[str], list[str]]:
     resolved_language = _resolve_output_language(output_language)
+    models_to_try = _resolve_model_priority(model_priority, model)
     if api_key:
-        try:
-            tags, aliases = _gemini_tags_and_aliases(
-                api_key=api_key,
-                model=model,
-                name=name,
-                description=description,
-                output_language=resolved_language,
-                timeout_seconds=timeout_seconds,
-            )
-            if tags:
-                return tags, aliases
-        except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("Gemini enrichment failed, using heuristic fallback: %s", exc)
+        for configured_model in models_to_try:
+            runtime_models = _runtime_model_candidates(configured_model)
+            for idx, runtime_model in enumerate(runtime_models):
+                try:
+                    tags, aliases = _gemini_tags_and_aliases(
+                        api_key=api_key,
+                        model=runtime_model,
+                        name=name,
+                        description=description,
+                        output_language=resolved_language,
+                        timeout_seconds=timeout_seconds,
+                    )
+                    if tags:
+                        return tags, aliases
+                    raise ValueError("Gemini returned empty tags")
+                except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+                    is_not_found = isinstance(exc, error.HTTPError) and exc.code == 404
+                    if is_not_found and idx < len(runtime_models) - 1:
+                        # Same logical model may be exposed as preview/latest alias.
+                        logger.info(
+                            "Gemini model %s (configured as %s) not found; trying next alias",
+                            runtime_model,
+                            configured_model,
+                        )
+                        continue
+                    logger.warning(
+                        "Gemini model %s (configured as %s) failed for tags/aliases: %s",
+                        runtime_model,
+                        configured_model,
+                        exc,
+                    )
+                    break
 
     return _heuristic_tags_and_aliases(name, description)
 
@@ -446,9 +524,11 @@ def generate_item_draft_from_photo(
     context_name: str | None = None,
     context_description: str | None = None,
     model: str = DEFAULT_GEMINI_MODEL,
+    model_priority: Sequence[str] | None = None,
     timeout_seconds: float = 10.0,
 ) -> dict[str, object]:
     resolved_language = _resolve_output_language(output_language)
+    models_to_try = _resolve_model_priority(model_priority, model)
     image_mime_type, image_b64_data = _parse_data_url(image_data_url)
     fallback = _heuristic_photo_draft(
         image_mime_type,
@@ -458,20 +538,39 @@ def generate_item_draft_from_photo(
     )
 
     if api_key:
-        try:
-            draft = _gemini_photo_draft(
-                api_key=api_key,
-                model=model,
-                image_mime_type=image_mime_type,
-                image_b64_data=image_b64_data,
-                output_language=resolved_language,
-                context_name=context_name,
-                context_description=context_description,
-                timeout_seconds=timeout_seconds,
-            )
-            if draft.get("name") and draft.get("tags"):
-                return draft
-        except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("Gemini photo draft failed, using heuristic fallback: %s", exc)
+        for configured_model in models_to_try:
+            runtime_models = _runtime_model_candidates(configured_model)
+            for idx, runtime_model in enumerate(runtime_models):
+                try:
+                    draft = _gemini_photo_draft(
+                        api_key=api_key,
+                        model=runtime_model,
+                        image_mime_type=image_mime_type,
+                        image_b64_data=image_b64_data,
+                        output_language=resolved_language,
+                        context_name=context_name,
+                        context_description=context_description,
+                        timeout_seconds=timeout_seconds,
+                    )
+                    if draft.get("name") and draft.get("tags"):
+                        return draft
+                    raise ValueError("Gemini photo draft did not include required fields")
+                except (error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+                    is_not_found = isinstance(exc, error.HTTPError) and exc.code == 404
+                    if is_not_found and idx < len(runtime_models) - 1:
+                        # Same logical model may be exposed as preview/latest alias.
+                        logger.info(
+                            "Gemini model %s (configured as %s) not found; trying next alias",
+                            runtime_model,
+                            configured_model,
+                        )
+                        continue
+                    logger.warning(
+                        "Gemini model %s (configured as %s) failed for photo draft: %s",
+                        runtime_model,
+                        configured_model,
+                        exc,
+                    )
+                    break
 
     return fallback

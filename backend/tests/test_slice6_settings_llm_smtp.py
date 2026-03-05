@@ -68,10 +68,23 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     warehouse_id = create_warehouse(client, headers)
     box_id = create_box(client, headers, warehouse_id)
 
+    custom_priority = [
+        "gemini-3-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    ]
+
     llm_get_default = client.get("/api/v1/settings/llm", params={"warehouse_id": warehouse_id}, headers=headers)
     assert llm_get_default.status_code == 200
     assert llm_get_default.json()["language"] == "es"
     assert llm_get_default.json()["api_key_value"] is None
+    assert llm_get_default.json()["model_priority"] == [
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    ]
 
     llm_put = client.put(
         "/api/v1/settings/llm",
@@ -79,6 +92,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
         json={
             "provider": "gemini",
             "language": "en",
+            "model_priority": custom_priority,
             "api_key": "gemini-secret-key",
             "auto_tags_enabled": True,
             "auto_alias_enabled": True,
@@ -88,6 +102,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     assert llm_put.status_code == 200
     assert llm_put.json()["has_api_key"] is True
     assert llm_put.json()["language"] == "en"
+    assert llm_put.json()["model_priority"] == custom_priority
     assert llm_put.json()["api_key_value"] == "gemini-secret-key"
 
     def fake_tags_aliases(
@@ -96,10 +111,12 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
         *,
         api_key: str | None = None,
         output_language: str = "es",
+        model_priority: list[str] | None = None,
         **_kwargs,
     ):
         assert api_key == "gemini-secret-key"
         assert output_language == "en"
+        assert model_priority == custom_priority
         return ["tool", "garage", "drill"], ["drill", "cordless drill"]
 
     monkeypatch.setattr(items_endpoint, "generate_tags_and_aliases", fake_tags_aliases)

@@ -4,6 +4,12 @@ import { Observable } from 'rxjs';
 
 import { environment } from '../core/environment';
 
+export type GeminiModelId =
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-3-flash'
+  | 'gemini-2.5-flash'
+  | 'gemini-2.5-flash-lite';
+
 export interface SMTPSettings {
   warehouse_id: string;
   host: string | null;
@@ -20,6 +26,7 @@ export interface LLMSettings {
   warehouse_id: string;
   provider: string;
   language: 'es' | 'en';
+  model_priority: GeminiModelId[];
   auto_tags_enabled: boolean;
   auto_alias_enabled: boolean;
   has_api_key: boolean;
@@ -78,6 +85,7 @@ export class SettingsService {
     payload: {
       provider: string;
       language: 'es' | 'en';
+      model_priority: GeminiModelId[];
       api_key?: string | null;
       auto_tags_enabled: boolean;
       auto_alias_enabled: boolean;
