@@ -9,7 +9,7 @@ permissions:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-backend
 
 jobs:
   build-and-push:
@@ -41,7 +41,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./backend/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
