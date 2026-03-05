@@ -1,55 +1,66 @@
 # my-warehouse
 
-PWA para gestión de inventario de garaje/trastero con cajas jerárquicas, QR por caja, búsqueda avanzada y soporte offline-first.
+`my-warehouse` es una aplicación web (PWA) para inventariar objetos de garaje, trastero o almacén doméstico con una premisa simple: guardar rápido y encontrar rápido.
 
-La especificación viva del producto está en `/Users/rromanit/workspace/my-warehouse/specs.md` y es la fuente de verdad.
+Combina cajas jerárquicas, búsqueda potente, QR por caja y ayuda de IA para acelerar el alta de artículos, tanto individual como masiva.
 
-## Objetivo del proyecto
+## Qué valor aporta
 
-Permitir localizar objetos rápidamente mediante:
+- Reduce el tiempo de localizar objetos guardados.
+- Evita compras duplicadas por no recordar si algo ya existe.
+- Mantiene el inventario utilizable incluso con uso móvil y conectividad irregular.
+- Permite trabajo colaborativo en el mismo almacén (multiusuario).
+- Acelera la carga de inventario con captura por foto y procesamiento asistido por IA.
 
-- Árbol de cajas (`box` dentro de `box`)
-- Artículos con stock y favoritos
-- Escaneo QR para abrir una caja
-- Búsqueda por nombre, alias, tags, ruta y ubicación física
-- Sincronización offline/online con resolución de conflictos
+## Cómo se utiliza la aplicación
 
-## Stack
+1. Crea una cuenta e inicia sesión.
+2. Crea o selecciona un almacén.
+3. Organiza el árbol de cajas (cajas dentro de cajas) según tu espacio real.
+4. Da de alta artículos de una de estas formas:
+   - Alta manual.
+   - Captura por foto (IA propone datos).
+   - Captura masiva por lote para procesar N fotos en paralelo.
+5. Revisa y corrige los borradores sugeridos por IA.
+6. Asigna los artículos a su caja y confirma.
+7. Usa búsqueda o escaneo QR para recuperar cualquier objeto en segundos.
 
-- Frontend: Angular + Angular Material (PWA)
-- Backend: FastAPI + SQLAlchemy + Alembic
-- Base de datos objetivo: PostgreSQL
-- Estado actual local (bootstrap): SQLite
+## Features principales
 
-## Estructura del repositorio
+- Inventario por almacenes compartidos (multiusuario sin roles).
+- Árbol jerárquico de cajas con navegación clara por ruta.
+- QR único por caja para acceso rápido desde móvil.
+- Artículos con foto, nombre, descripción, tags, alias, ubicación y favoritos.
+- Gestión de stock mediante movimientos (`+/-`) para trazabilidad y mejor sync.
+- Búsqueda por texto, tags, alias y ruta de caja.
+- Papelera con restauración de elementos borrados.
+- Actividad reciente del almacén.
+- Flujo de captura por foto con enriquecimiento IA.
+- Flujo de captura masiva por lote con:
+  - subida de múltiples fotos,
+  - procesamiento paralelo en backend,
+  - revisión/edición antes de confirmar,
+  - reprocesado IA contextual (foto o foto+nombre según cambios del usuario).
+- Modo offline-first con sincronización y resolución de conflictos.
+- Exportación e importación de datos del almacén.
 
-- `/Users/rromanit/workspace/my-warehouse/specs.md`: especificación funcional y técnica
-- `/Users/rromanit/workspace/my-warehouse/backend`: API, modelos, migraciones y tests
-- `/Users/rromanit/workspace/my-warehouse/frontend`: app Angular (UI + integración API)
+## Experiencia de uso
 
-## Estado actual
+- Diseño Material responsive para móvil, tablet y escritorio.
+- Operaciones rápidas desde cards/listas (favorito, stock, edición, reproceso).
+- Feedback inmediato de acciones con snackbars.
+- Flujos optimizados para inventario intensivo (alta unitaria y masiva).
 
-**Slice 1 (Fundaciones) completada**:
+## Stack técnico
 
-- Backend implementado:
-  - Auth: `signup`, `login`, `refresh`, `logout`, `me`, `forgot-password`, `reset-password`, `change-password`
-  - Warehouses: listar, crear, detalle y miembros
-  - Migraciones Alembic iniciales (`20260222_0001`, `20260222_0002`)
-  - Tests de integración de auth y warehouses
-- Frontend implementado:
-  - Pantallas `login`, `signup`, `forgot-password`, `reset-password`, `warehouses`, `shell`
-  - Interceptor JWT y guards de autenticación
-  - Creación/listado de warehouses y selección persistida
-  - Shell responsive (sidenav `over` en móvil, `side` en escritorio)
-  - Cambio de contraseña desde shell
+- Frontend: Angular + Angular Material (PWA).
+- Backend: FastAPI + SQLAlchemy + Alembic.
+- Base de datos objetivo: PostgreSQL.
+- Integración IA: Gemini (desde backend).
 
-## Requisitos
+## Ejecutar en local
 
-- Python 3.11+
-- Node.js 20+ (recomendado LTS par)
-- npm
-
-## Ejecutar backend
+### Backend
 
 ```bash
 cd /Users/rromanit/workspace/my-warehouse/backend
@@ -60,7 +71,7 @@ pytest -q
 uvicorn app.main:app --reload --port 8000
 ```
 
-## Ejecutar frontend
+### Frontend
 
 ```bash
 cd /Users/rromanit/workspace/my-warehouse/frontend
@@ -68,40 +79,9 @@ npm install
 npm start
 ```
 
-App frontend: `http://localhost:4200`  
-API backend: `http://localhost:8000`
+- Frontend: `http://localhost:4200`
+- API: `http://localhost:8000`
 
-## Build frontend
+## Documentación de producto
 
-```bash
-cd /Users/rromanit/workspace/my-warehouse/frontend
-npm run build
-```
-
-## Deploy en Kubernetes (Traefik)
-
-Se han añadido artefactos de despliegue en:
-
-- `/Users/rromanit/workspace/my-warehouse/backend/Dockerfile`
-- `/Users/rromanit/workspace/my-warehouse/frontend/Dockerfile`
-- `/Users/rromanit/workspace/my-warehouse/deploy/k8s`
-
-Guía rápida en:
-
-- `/Users/rromanit/workspace/my-warehouse/deploy/k8s/README.md`
-
-## Próximas slices (resumen)
-
-1. Slice 1: Auth + Warehouses + Shell
-2. Slice 2: Boxes + Items + Favoritos + Stock movements
-3. Slice 3: Search + filtros + nube de tags
-4. Slice 4: QR + scanner + detalle recursivo
-5. Slice 5: Multiusuario invites + papelera/restauración
-6. Slice 6: Settings SMTP + Gemini
-7. Slice 7: Offline sync + conflictos
-8. Slice 8: Export/Import
-
-## Notas
-
-- No guardar secretos en frontend (Gemini/SMTP siempre backend cifrado).
-- En cambios funcionales, actualizar siempre `specs.md` + changelog.
+La especificación viva del producto está en `/Users/rromanit/workspace/my-warehouse/specs.md` y actúa como fuente de verdad funcional y técnica.

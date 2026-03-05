@@ -54,6 +54,38 @@ def _extract_json_fragment(raw: str) -> str:
     return candidate
 
 
+def _parse_json_object(raw: str) -> dict[str, object]:
+    candidate = raw.strip()
+    if not candidate:
+        raise ValueError("Gemini response did not include JSON content")
+
+    decoder = json.JSONDecoder()
+
+    for source in (candidate, _extract_json_fragment(candidate)):
+        if not source:
+            continue
+        # Try strict parse first.
+        try:
+            parsed = json.loads(source)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: parse first valid JSON object and ignore trailing text.
+        for start in range(len(source)):
+            if source[start] != "{":
+                continue
+            try:
+                parsed, _end = decoder.raw_decode(source, start)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+    raise ValueError("Gemini response is not a valid JSON object")
+
+
 def _normalize_output_values(values: list[str], *, max_count: int, drop_value: str | None = None) -> list[str]:
     unique: list[str] = []
     for value in values:
@@ -245,9 +277,7 @@ def _gemini_tags_and_aliases(
     if not text:
         raise ValueError("Gemini response did not include text")
 
-    parsed = json.loads(_extract_json_fragment(text))
-    if not isinstance(parsed, dict):
-        raise ValueError("Gemini response is not a JSON object")
+    parsed = _parse_json_object(text)
 
     raw_tags = parsed.get("tags")
     raw_aliases = parsed.get("aliases")
@@ -337,9 +367,7 @@ def _gemini_photo_draft(
     if not text:
         raise ValueError("Gemini response did not include text")
 
-    parsed = json.loads(_extract_json_fragment(text))
-    if not isinstance(parsed, dict):
-        raise ValueError("Gemini response is not a JSON object")
+    parsed = _parse_json_object(text)
 
     default_title = "Unidentified item" if output_language == "en" else "Articulo sin identificar"
     context_name_hint = _sanitize_title(str(context_name or ""), default_title="") if context_name else ""

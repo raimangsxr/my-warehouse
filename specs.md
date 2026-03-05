@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.43
+- **Versión:** v1.47
 - **Última actualización:** 2026-03-05  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -73,6 +73,10 @@
 - **v1.41 (2026-03-05):** Ajuste de prompt en inferencia por foto (single y batch): el modelo debe clasificar **solo un objeto**, priorizando el elemento en primer plano y más enfocado, ignorando soportes/fondo/objetos secundarios (p. ej. móvil sobre alfombrilla → `móvil`).
 - **v1.42 (2026-03-05):** Regla de contexto en `Reintentar IA` para intake: si el usuario cambió el nombre propuesto por IA, el reproceso usa `foto + name`; si no lo cambió, reprocesa solo con la foto. Se añade `suggested_name` en `intake_drafts` (migración `20260305_0010_intake_suggested_name`) para detectar este caso de forma explícita.
 - **v1.43 (2026-03-05):** Refactor visual del panel de acciones en `/app/items/intake-batch` para móvil: botones de lote pasan a layout en grid (2 columnas) con ancho/alto uniforme y botón principal de commit a ancho completo, eliminando alineación irregular y tamaños dispares.
+- **v1.44 (2026-03-05):** Persistencia operativa de lotes de captura masiva en estado borrador y reanudación desde shell: se añade `GET /warehouses/{warehouse_id}/intake/batches` (filtros `include_committed`, `only_mine`, `limit`) para listar lotes abiertos, y el panel lateral incorpora sección `Lotes en borrador` con enlaces directos a `/app/items/intake-batch?batchId=...` para continuar un inventariado interrumpido sin perder progreso.
+- **v1.45 (2026-03-05):** Gestión de borrado de lotes y ajuste visual del panel lateral: se habilita eliminación explícita de lote desde `/app/items/intake-batch` y desde la sección `Lotes en borrador` del shell (con bloqueo en estado `processing`), y se refactoriza su presentación en sidenav a filas compactas con acción de abrir + eliminar para evitar desalineaciones de tamaño/alineación en móvil y escritorio.
+- **v1.46 (2026-03-05):** Storage temporal por lote en intake masivo: las fotos de borradores se guardan en carpeta temporal por lote (`/media/{warehouse_id}/intake/{batch_id}/...`) para permitir reanudación fiable; al crear artículos en commit se mueven a storage definitivo de producto (`/media/{warehouse_id}/items/...`) y se limpia la carpeta temporal del lote cuando ya no aplica (batch comprometido o eliminado).
+- **v1.47 (2026-03-05):** Robustez de parseo JSON en respuestas Gemini: el backend de enriquecimiento (foto/tags) ahora acepta JSON con texto envolvente o contenido adicional (p. ej. bloques markdown o texto tras el objeto JSON) usando extracción tolerante de la primera entidad JSON válida, evitando fallos `JSONDecodeError: Extra data` y reduciendo caídas a fallback heurístico por formato.
 
 ---
 
@@ -220,6 +224,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
   - escritorio: chip de warehouse activo + accesos directos (QR, cámara individual, captura masiva, settings, salir)
   - móvil: accesos esenciales visibles (menú lateral + QR) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal, incluyendo acceso a captura masiva
 - navegación lateral con iconografía y estado activo por sección
+- navegación lateral ampliada con sección dinámica `Lotes en borrador` (solo del usuario y no comprometidos) para reanudar capturas masivas pendientes en un click
+- cada lote del panel lateral incluye acciones explícitas de abrir y eliminar (esta última deshabilitada mientras el lote está en `processing`)
 - Responsive:
   - móvil: navegación compacta (sidenav overlay), toolbar optimizada para notch/safe-area y targets táctiles amplios
   - tablet/escritorio: sidenav persistente
@@ -790,10 +796,13 @@ Stock:
 - `POST /warehouses/{warehouse_id}/intake/batches`
   - body: `{ "target_box_id": "...", "name?": "..." }`
   - crea lote y fija caja destino.
+- `GET /warehouses/{warehouse_id}/intake/batches?include_committed=false&only_mine=true&limit=20`
+  - lista lotes para reanudación desde UI (ordenados por `updated_at` desc).
+  - por defecto devuelve solo lotes abiertos creados por el usuario actual.
 - `GET /warehouses/{warehouse_id}/intake/batches/{batch_id}`
   - devuelve `batch` + `drafts` para refresco/polling.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` (multipart `files[]`)
-  - sube N imágenes al storage backend y crea `intake_drafts` en estado `uploaded`.
+  - sube N imágenes al storage backend temporal del lote (`/media/{warehouse_id}/intake/{batch_id}`) y crea `intake_drafts` en estado `uploaded`.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/start`
   - body: `{ "retry_errors": bool }`
   - encola/procesa en paralelo borradores `uploaded`.
@@ -802,8 +811,9 @@ Stock:
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/commit`
   - body: `{ "include_review": false }`
   - crea items para drafts en `ready` (y opcionalmente `review`).
+  - mueve cada foto comprometida desde carpeta temporal del lote a storage definitivo de artículos (`/media/{warehouse_id}/items`) y actualiza `items.photo_url`.
 - `DELETE /warehouses/{warehouse_id}/intake/batches/{batch_id}`
-  - elimina lote si no está en procesamiento.
+  - elimina lote si no está en procesamiento y limpia su carpeta temporal de media.
 
 ### Photos
 - `POST /photos/upload?warehouse_id=...` (multipart) → guarda en disco backend y devuelve `{ photo_url, content_type, size_bytes }`

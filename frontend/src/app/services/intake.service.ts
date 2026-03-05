@@ -84,6 +84,19 @@ export class IntakeService {
     return this.http.post<IntakeBatchDetail>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/intake/batches`, payload);
   }
 
+  listBatches(
+    warehouseId: string,
+    params: { include_committed?: boolean; only_mine?: boolean; limit?: number } = {}
+  ): Observable<IntakeBatch[]> {
+    return this.http.get<IntakeBatch[]>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/intake/batches`, {
+      params: {
+        include_committed: params.include_committed ?? false,
+        only_mine: params.only_mine ?? true,
+        limit: params.limit ?? 20
+      }
+    });
+  }
+
   getBatch(warehouseId: string, batchId: string): Observable<IntakeBatchDetail> {
     return this.http.get<IntakeBatchDetail>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/intake/batches/${batchId}`);
   }

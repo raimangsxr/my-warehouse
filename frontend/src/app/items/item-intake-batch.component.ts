@@ -10,7 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { forkJoin, of } from 'rxjs';
+import { Subscription, forkJoin, of } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
 
 import { BoxService, BoxTreeNode } from '../services/box.service';
@@ -113,6 +113,9 @@ interface DraftEditorState {
               </button>
               <button mat-stroked-button type="button" (click)="startProcessing(true)" [disabled]="isProcessing || errorCount === 0">
                 Reintentar errores
+              </button>
+              <button mat-stroked-button color="warn" type="button" (click)="deleteBatch()" [disabled]="isProcessing || committing">
+                Eliminar lote
               </button>
               <button
                 mat-flat-button
@@ -380,6 +383,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   private readonly draftEditors = new Map<string, DraftEditorState>();
   private readonly boxPathById = new Map<string, string>();
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private routeQuerySub?: Subscription;
 
   constructor(
     private readonly warehouseService: WarehouseService,
@@ -396,24 +400,35 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const queryBoxId = this.route.snapshot.queryParamMap.get('boxId');
-    const lockBox = this.route.snapshot.queryParamMap.get('lockBox');
-    const queryBatchId = this.route.snapshot.queryParamMap.get('batchId');
-
-    if (queryBoxId) {
-      this.targetBoxId = queryBoxId;
-      this.cancelLink = ['/app/boxes', queryBoxId];
-    }
-    this.boxLocked = lockBox === '1' || lockBox === 'true';
-
     this.loadBoxes();
+    this.routeQuerySub = this.route.queryParamMap.subscribe((params) => {
+      const queryBoxId = params.get('boxId');
+      const lockBox = params.get('lockBox');
+      const queryBatchId = params.get('batchId');
 
-    if (queryBatchId) {
-      this.loadBatch(queryBatchId);
-    }
+      if (queryBoxId) {
+        this.targetBoxId = queryBoxId;
+        this.cancelLink = ['/app/boxes', queryBoxId];
+      } else if (!this.batch) {
+        this.cancelLink = ['/app/home'];
+      }
+      this.boxLocked = lockBox === '1' || lockBox === 'true';
+
+      if (queryBatchId) {
+        if (this.batch?.id !== queryBatchId) {
+          this.loadBatch(queryBatchId);
+        }
+      } else if (this.batch) {
+        this.batch = null;
+        this.drafts = [];
+        this.stopAutoRefresh();
+        this.draftEditors.clear();
+      }
+    });
   }
 
   ngOnDestroy(): void {
+    this.routeQuerySub?.unsubscribe();
     this.stopAutoRefresh();
   }
 
@@ -642,6 +657,38 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
           this.setActionError('No se pudo completar el commit del lote.');
         }
       });
+  }
+
+  deleteBatch(): void {
+    if (!this.selectedWarehouseId || !this.batch || this.isProcessing) {
+      return;
+    }
+
+    const label = this.batch.name || this.batch.id.slice(0, 8);
+    const confirmed = window.confirm(`¿Eliminar el lote "${label}"? Esta acción no se puede deshacer.`);
+    if (!confirmed) {
+      return;
+    }
+
+    this.intakeService.deleteBatch(this.selectedWarehouseId, this.batch.id).subscribe({
+      next: () => {
+        this.notificationService.success('Lote eliminado.');
+        this.batch = null;
+        this.drafts = [];
+        this.draftEditors.clear();
+        this.stopAutoRefresh();
+        this.router
+          .navigate([], {
+            relativeTo: this.route,
+            queryParams: { batchId: null },
+            queryParamsHandling: 'merge'
+          })
+          .catch(() => {});
+      },
+      error: () => {
+        this.setActionError('No se pudo eliminar el lote.');
+      }
+    });
   }
 
   statusLabel(statusValue: IntakeDraftStatus | IntakeBatchStatus): string {

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+import shutil
 import uuid
+from urllib.parse import unquote, urlsplit, urlunsplit
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -146,7 +148,24 @@ def _serialize_batch(batch: IntakeBatch, status_counts: dict[str, int]) -> Intak
     )
 
 
-def _store_photo(request: Request, *, warehouse_id: str, file: UploadFile) -> str:
+def _resolve_status_counts_for_batches(db: Session, batch_ids: list[str]) -> dict[str, dict[str, int]]:
+    if not batch_ids:
+        return {}
+
+    counts_by_batch: dict[str, dict[str, int]] = {batch_id: {} for batch_id in batch_ids}
+    rows = db.execute(
+        select(IntakeDraft.batch_id, IntakeDraft.status, func.count(IntakeDraft.id))
+        .where(IntakeDraft.batch_id.in_(batch_ids))
+        .group_by(IntakeDraft.batch_id, IntakeDraft.status)
+    ).all()
+
+    for batch_id, status_value, total in rows:
+        counts_by_batch[str(batch_id)][str(status_value)] = int(total)
+
+    return counts_by_batch
+
+
+def _store_batch_photo(request: Request, *, warehouse_id: str, batch_id: str, file: UploadFile) -> str:
     content_type = (file.content_type or "").lower()
     ext = _ALLOWED_CONTENT_TYPES.get(content_type)
     if not ext:
@@ -158,14 +177,87 @@ def _store_photo(request: Request, *, warehouse_id: str, file: UploadFile) -> st
     if len(payload) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image exceeds 10MB limit")
 
-    warehouse_dir = Path(settings.media_root) / warehouse_id
-    warehouse_dir.mkdir(parents=True, exist_ok=True)
+    batch_dir = Path(settings.media_root) / warehouse_id / "intake" / batch_id
+    batch_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid.uuid4()}.{ext}"
-    target = warehouse_dir / filename
+    target = batch_dir / filename
     target.write_bytes(payload)
 
-    relative_url = f"{settings.media_url_path.rstrip('/')}/{warehouse_id}/{filename}"
+    relative_url = f"{settings.media_url_path.rstrip('/')}/{warehouse_id}/intake/{batch_id}/{filename}"
     return f"{str(request.base_url).rstrip('/')}{relative_url}"
+
+
+def _resolve_media_file_from_url(photo_url: str, *, warehouse_id: str) -> Path:
+    parsed = urlsplit(photo_url)
+    raw_path = unquote(parsed.path or "")
+    media_url_path = settings.media_url_path.rstrip("/")
+    expected_prefix = f"{media_url_path}/{warehouse_id}/"
+    if not raw_path.startswith(expected_prefix):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft photo is outside current warehouse media")
+
+    relative_path = raw_path[len(expected_prefix) :]
+    if not relative_path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid draft photo path")
+
+    warehouse_root = (Path(settings.media_root) / warehouse_id).resolve()
+    file_path = (warehouse_root / relative_path).resolve()
+    if warehouse_root not in file_path.parents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid draft photo path")
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft photo file not found")
+    return file_path
+
+
+def _move_draft_photo_to_items_storage(*, warehouse_id: str, photo_url: str) -> str:
+    src_file = _resolve_media_file_from_url(photo_url, warehouse_id=warehouse_id)
+    items_root = Path(settings.media_root) / warehouse_id / "items"
+    items_root.mkdir(parents=True, exist_ok=True)
+
+    suffix = src_file.suffix.lower()
+    filename = f"{uuid.uuid4()}{suffix}" if suffix else str(uuid.uuid4())
+    target = items_root / filename
+    shutil.move(str(src_file), str(target))
+
+    parsed = urlsplit(photo_url)
+    new_relative = f"{settings.media_url_path.rstrip('/')}/{warehouse_id}/items/{filename}"
+    return urlunsplit((parsed.scheme, parsed.netloc, new_relative, "", ""))
+
+
+def _cleanup_batch_media_dir(*, warehouse_id: str, batch_id: str) -> None:
+    batch_dir = Path(settings.media_root) / warehouse_id / "intake" / batch_id
+    if batch_dir.exists():
+        shutil.rmtree(batch_dir, ignore_errors=True)
+
+    intake_root = Path(settings.media_root) / warehouse_id / "intake"
+    if intake_root.exists():
+        try:
+            intake_root.rmdir()
+        except OSError:
+            pass
+
+
+@router.get("/batches", response_model=list[IntakeBatchResponse])
+def list_batches(
+    warehouse_id: str,
+    include_committed: bool = Query(default=False),
+    only_mine: bool = Query(default=True),
+    limit: int = Query(default=20, ge=1, le=100),
+    _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[IntakeBatchResponse]:
+    query = select(IntakeBatch).where(IntakeBatch.warehouse_id == warehouse_id)
+
+    if only_mine:
+        query = query.where(IntakeBatch.created_by == current_user.id)
+    if not include_committed:
+        query = query.where(IntakeBatch.status != IntakeBatchStatus.committed.value)
+
+    batches = db.scalars(query.order_by(IntakeBatch.updated_at.desc()).limit(limit)).all()
+    batch_ids = [batch.id for batch in batches]
+    counts_by_batch = _resolve_status_counts_for_batches(db, batch_ids)
+
+    return [_serialize_batch(batch, counts_by_batch.get(batch.id, {})) for batch in batches]
 
 
 @router.post("/batches", response_model=IntakeBatchDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -248,7 +340,7 @@ def upload_batch_photos(
 
     created: list[IntakeDraft] = []
     for file in files:
-        photo_url = _store_photo(request, warehouse_id=warehouse_id, file=file)
+        photo_url = _store_batch_photo(request, warehouse_id=warehouse_id, batch_id=batch_id, file=file)
         draft = IntakeDraft(
             warehouse_id=warehouse_id,
             batch_id=batch_id,
@@ -402,6 +494,7 @@ def commit_batch(
 
     created = 0
     skipped = 0
+    errors = 0
 
     for draft in candidates:
         if draft.created_item_id:
@@ -410,12 +503,20 @@ def commit_batch(
             continue
 
         name = (draft.name or "").strip()[:160] or "Articulo sin identificar"
+        try:
+            item_photo_url = _move_draft_photo_to_items_storage(warehouse_id=warehouse_id, photo_url=draft.photo_url)
+        except HTTPException:
+            draft.status = IntakeDraftStatus.error.value
+            draft.error_message = "No se pudo mover la imagen temporal al storage definitivo."
+            errors += 1
+            continue
+
         item = Item(
             warehouse_id=warehouse_id,
             box_id=batch.target_box_id,
             name=name,
             description=(draft.description or None),
-            photo_url=draft.photo_url,
+            photo_url=item_photo_url,
             physical_location=None,
             tags=draft.tags or [],
             aliases=draft.aliases or [],
@@ -456,12 +557,14 @@ def commit_batch(
 
     db.commit()
     db.refresh(batch)
+    if batch.status == IntakeBatchStatus.committed.value:
+        _cleanup_batch_media_dir(warehouse_id=warehouse_id, batch_id=batch.id)
 
     return IntakeBatchCommitResponse(
         batch=_serialize_batch(batch, status_counts),
         created=created,
         skipped=skipped,
-        errors=0,
+        errors=errors,
     )
 
 
@@ -478,4 +581,5 @@ def delete_batch(
 
     db.delete(batch)
     db.commit()
+    _cleanup_batch_media_dir(warehouse_id=warehouse_id, batch_id=batch_id)
     return MessageResponse(message="Intake batch deleted")

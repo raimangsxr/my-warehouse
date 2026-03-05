@@ -286,12 +286,12 @@ def _build_data_url_from_photo_url(photo_url: str, *, warehouse_id: str) -> str:
     if not raw_path.startswith(expected_prefix):
         raise ValueError("La foto no pertenece al warehouse activo.")
 
-    filename = raw_path[len(expected_prefix) :]
-    if not filename or filename != Path(filename).name:
+    relative_path = raw_path[len(expected_prefix) :]
+    if not relative_path:
         raise ValueError("Ruta de foto invalida.")
 
     warehouse_root = (Path(settings.media_root) / warehouse_id).resolve()
-    file_path = (warehouse_root / filename).resolve()
+    file_path = (warehouse_root / relative_path).resolve()
     if warehouse_root not in file_path.parents:
         raise ValueError("Ruta de foto fuera del storage permitido.")
     if not file_path.exists() or not file_path.is_file():
