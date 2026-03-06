@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.66
+- **Versión:** v1.68
 - **Última actualización:** 2026-03-06  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -97,6 +97,7 @@
 - **v1.65 (2026-03-06):** Hardening de contenedores rootless en despliegue: `backend/Dockerfile` ejecuta FastAPI/Uvicorn con usuario no privilegiado (`uid=10001`) y permisos de escritura sobre `/app/media`; `frontend/Dockerfile` migra a `nginxinc/nginx-unprivileged` con `listen 8080` interno; y `deploy/k8s/frontend.yaml` ajusta `containerPort/targetPort` a `8080` manteniendo el servicio expuesto en `80`.
 - **v1.66 (2026-03-06):** Revisión de despliegue Kubernetes para Talos sin Kustomize: se elimina `kustomization.yaml` y el `StatefulSet` de PostgreSQL (la base de datos pasa a ser dependencia externa vía `DATABASE_URL`), se añade `deploy/k8s/media-nfs.yaml` con PV/PVC NFS RWX para montar `/app/media` del backend, y se endurecen `namespace/deployments/job` con controles `restricted` (rootless, seccomp RuntimeDefault, sin privilege escalation, drop de capabilities, root filesystem solo lectura con `emptyDir` para `/tmp`).
 - **v1.67 (2026-03-06):** Ajuste de build del contenedor frontend: `frontend/Dockerfile` compila Angular con la configuración `production` para asegurar `fileReplacements` de entorno y `apiBaseUrl=/api/v1` en imágenes desplegadas.
+- **v1.68 (2026-03-06):** PWA instalable real en frontend: se añaden `manifest.webmanifest`, iconos (`favicon`, `apple-touch-icon`, `192/512`, `maskable`) generados a partir del logo de la app, Angular Service Worker para cache de shell/assets y `media`, CTA de `Instalar app`/`Actualizar app` en shell y Settings, y hardening de Nginx para servir `manifest`/`ngsw` sin caché agresiva. Se corrige además `environment.ts` de desarrollo para volver a `http://localhost:8000/api/v1`, alineado con la spec.
 
 ---
 
@@ -244,14 +245,22 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 
 ### Shell (Material)
 - Toolbar superior con:
-  - escritorio: chip de warehouse activo + accesos directos con prioridad operativa `QR` + `Lotes` (adyacentes), seguidos de cámara individual, settings y salir
-  - móvil: accesos esenciales visibles (menú lateral + `QR` + `Lotes`) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal
+  - escritorio: chip de warehouse activo + accesos directos con prioridad operativa `QR` + `Lotes` (adyacentes), seguidos de cámara individual, instalación/actualización PWA cuando aplique, settings y salir
+  - móvil: accesos esenciales visibles (menú lateral + `QR` + `Lotes`) y resto de acciones en menú overflow (`more_vert`) para evitar saturación horizontal; desde ese menú se exponen también `Instalar app` y `Actualizar app` cuando el navegador los habilita
 - navegación lateral con iconografía y estado activo por sección
 - navegación lateral con módulo dedicado `Lotes` (enlace de primer nivel) que lleva a vista de listado y gestión de lotes
 - Responsive:
   - móvil: navegación compacta (sidenav overlay), toolbar optimizada para notch/safe-area y targets táctiles amplios
   - tablet/escritorio: sidenav persistente
   - escritorio ancho (`>=1200px`): el contenido principal de la ruta activa se expande hasta un máximo mayor para aprovechar mejor el área útil disponible junto al sidenav
+
+### PWA instalable
+- La app publica `manifest.webmanifest` con `name`, `short_name`, `theme_color`, `background_color`, `display=standalone` y accesos directos (`Inicio`, `Escanear QR`, `Lotes`).
+- Se generan y distribuyen iconos de instalación a partir del logo oficial (`favicon.ico`, `apple-touch-icon.png`, `icon-192x192`, `icon-512x512` y variantes `maskable`).
+- El frontend registra Angular Service Worker en builds `production`; el modo desarrollo mantiene el SW desactivado para evitar interferencias durante `ng serve`.
+- El shell y Settings exponen el estado de instalación/actualización de la PWA y una acción explícita para instalar o aplicar una nueva versión cuando el navegador lo permite.
+- En iOS/Safari no existe `beforeinstallprompt`; la UX muestra guía manual (`Compartir` → `Añadir a pantalla de inicio`) cuando procede.
+- La instalabilidad en producción requiere HTTPS; `localhost` sigue siendo la excepción válida para desarrollo.
 
 ### Reglas responsive transversales
 - Se evita `style` inline en vistas de producto; el layout responsive se centraliza en clases reutilizables para mantener coherencia entre pantallas.
@@ -560,7 +569,7 @@ Secciones:
 - Configuración por entorno de build con Angular CLI (`fileReplacements`): `environment.ts` (dev) y `environment.prod.ts` (prod).
 - En contenedor, el build de Angular se ejecuta explícitamente con `--configuration production`.
 - IndexedDB (recomendado: Dexie) para offline cache + cola comandos.
-- Angular Service Worker para cache de shell y assets.
+- Angular Service Worker para cache de shell/assets y grupo específico de `media`; no se cachea `/api/**` para evitar respuestas autenticadas obsoletas.
 - UI: Material Tree, CDK DragDrop, virtual scroll (CDK) en listas grandes.
 
 ### Backend
@@ -958,7 +967,8 @@ Stock:
   - cache entidades (boxes/items/tags/favs)
   - cola comandos
   - cursor `since_seq`
-- SW cache shell + assets.
+- SW cache shell + assets instalables (`manifest`, iconos, bundles) y `media`.
+- La API REST autenticada (`/api/**`) queda fuera de la caché del Service Worker; el comportamiento offline de datos sigue dependiendo de IndexedDB + cola/sync.
 
 ### Comandos idempotentes
 Cada acción offline genera un comando:
@@ -1196,6 +1206,7 @@ Para considerar una slice “Done”:
 - **A-010 (2026-02-23):** En Slice 8, al importar un snapshot en un warehouse distinto, backend remapea IDs (`boxes`, `items`, `stock_movements`) y `qr_token` cuando detecta colisión global para preservar integridad sin exigir preprocesado del JSON en cliente.
 - **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
 - **A-012 (2026-03-04):** Para habilitar impresión de etiquetas sin añadir librerías QR al frontend en esta iteración, la imagen QR se renderiza con un servicio remoto (`api.qrserver.com`) usando como payload únicamente `qr_token` (no credenciales ni secretos). Si se requiere operación 100% offline/air-gapped, se migrará a generador QR local en frontend o endpoint backend dedicado.
+- **A-013 (2026-03-06):** La instalabilidad PWA objetivo cubre navegadores con soporte estándar (`beforeinstallprompt` + Service Worker) y Safari iOS mediante “Añadir a pantalla de inicio”; la cámara/QR y la instalación en producción requieren HTTPS.
 - **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias/foto usa Gemini API con cadena configurable por `llm_settings.model_priority` (default: `gemini-3.1-flash-lite` → `gemini-3-flash` → `gemini-2.5-flash` → `gemini-2.5-flash-lite`). Si fallan todos los modelos por límites/error/formato, backend aplica fallback heurístico local para mantener disponibilidad.
 - **A-014 (2026-03-04):** En la primera versión de Slice 9, la foto para inferencia no se persistía automáticamente en `items.photo_url`; esta limitación queda superada por `A-015` al añadir subida y almacenamiento en disco con URL servible.
 - **A-015 (2026-03-04):** Para esta iteración, la persistencia de fotos usa filesystem local del backend (`media_root`) y URL pública (`/media/...`) referenciada desde `items.photo_url`, sin tabla `photos` dedicada. Si se necesita almacenamiento distribuido (S3/objeto), la migración puede conservar el contrato `photo_url`.

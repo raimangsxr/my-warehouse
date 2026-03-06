@@ -12,6 +12,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 
 import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
+import { PwaService } from '../services/pwa.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -96,6 +97,24 @@ import { WarehouseService } from '../services/warehouse.service';
             <button mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo">
               <mat-icon>photo_camera</mat-icon>
             </button>
+            <button
+              mat-icon-button
+              *ngIf="pwaService.canInstall()"
+              aria-label="Instalar aplicación"
+              type="button"
+              (click)="installApp()"
+            >
+              <mat-icon>download_for_offline</mat-icon>
+            </button>
+            <button
+              mat-icon-button
+              *ngIf="pwaService.updateAvailable()"
+              aria-label="Aplicar actualización"
+              type="button"
+              (click)="applyAppUpdate()"
+            >
+              <mat-icon>system_update_alt</mat-icon>
+            </button>
             <button mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
               <mat-icon>tune</mat-icon>
             </button>
@@ -121,6 +140,14 @@ import { WarehouseService } from '../services/warehouse.service';
           <button mat-menu-item routerLink="/app/settings">
             <mat-icon>tune</mat-icon>
             <span>Configuración</span>
+          </button>
+          <button mat-menu-item type="button" *ngIf="pwaService.canInstall()" (click)="installApp()">
+            <mat-icon>download_for_offline</mat-icon>
+            <span>Instalar app</span>
+          </button>
+          <button mat-menu-item type="button" *ngIf="pwaService.updateAvailable()" (click)="applyAppUpdate()">
+            <mat-icon>system_update_alt</mat-icon>
+            <span>Actualizar app</span>
           </button>
           <button mat-menu-item routerLink="/warehouses">
             <mat-icon>warehouse</mat-icon>
@@ -150,6 +177,7 @@ export class ShellComponent {
     private readonly authService: AuthService,
     private readonly router: Router,
     private readonly notificationService: NotificationService,
+    public readonly pwaService: PwaService,
     breakpointObserver: BreakpointObserver
   ) {
     breakpointObserver.observe('(max-width: 900px)').subscribe((res) => {
@@ -175,5 +203,29 @@ export class ShellComponent {
         this.router.navigateByUrl('/login');
       }
     });
+  }
+
+  async installApp(): Promise<void> {
+    const result = await this.pwaService.promptInstall();
+    if (result === 'accepted') {
+      this.notificationService.success('La instalación de la app se ha iniciado.');
+      return;
+    }
+    if (result === 'dismissed') {
+      this.notificationService.info('La instalación se ha pospuesto.');
+      return;
+    }
+    if (this.pwaService.showIosInstallHint()) {
+      this.notificationService.info('En Safari usa Compartir > Añadir a pantalla de inicio.');
+      return;
+    }
+    this.notificationService.info('La instalación estará disponible cuando el navegador valide la PWA en HTTPS.');
+  }
+
+  async applyAppUpdate(): Promise<void> {
+    const updated = await this.pwaService.activateUpdate();
+    if (!updated) {
+      this.notificationService.info('No hay actualizaciones pendientes para aplicar.');
+    }
   }
 }

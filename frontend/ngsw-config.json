@@ -1,0 +1,58 @@
+{
+  "$schema": "./node_modules/@angular/service-worker/config/schema.json",
+  "index": "/index.html",
+  "assetGroups": [
+    {
+      "name": "app",
+      "installMode": "prefetch",
+      "resources": {
+        "files": [
+          "/favicon.ico",
+          "/index.html",
+          "/*.css",
+          "/*.js",
+          "/manifest.webmanifest",
+          "/apple-touch-icon.png",
+          "/icons/*.png"
+        ]
+      }
+    }
+  ],
+  "dataGroups": [
+    {
+      "name": "google-fonts-stylesheets",
+      "urls": ["https://fonts.googleapis.com/**"],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 10,
+        "maxAge": "7d",
+        "timeout": "5s"
+      }
+    },
+    {
+      "name": "google-fonts-webfonts",
+      "urls": ["https://fonts.gstatic.com/**"],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 20,
+        "maxAge": "30d",
+        "timeout": "5s"
+      }
+    },
+    {
+      "name": "media",
+      "urls": ["/media/**"],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 80,
+        "maxAge": "7d",
+        "timeout": "5s"
+      }
+    }
+  ],
+  "navigationUrls": [
+    "/**",
+    "!/**/*.*",
+    "!/api/**"
+  ]
+}

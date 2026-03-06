@@ -13,11 +13,19 @@
             "browser": "src/main.ts",
             "index": "src/index.html",
             "tsConfig": "tsconfig.app.json",
-            "assets": ["src/public"],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "src/public",
+                "output": "/"
+              }
+            ],
             "styles": ["src/styles.css"]
           },
           "configurations": {
             "production": {
+              "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json",
               "fileReplacements": [
                 {
                   "replace": "src/app/core/environment.ts",
