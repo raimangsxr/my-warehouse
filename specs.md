@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.68
+- **Versión:** v1.69
 - **Última actualización:** 2026-03-06  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -98,6 +98,7 @@
 - **v1.66 (2026-03-06):** Revisión de despliegue Kubernetes para Talos sin Kustomize: se elimina `kustomization.yaml` y el `StatefulSet` de PostgreSQL (la base de datos pasa a ser dependencia externa vía `DATABASE_URL`), se añade `deploy/k8s/media-nfs.yaml` con PV/PVC NFS RWX para montar `/app/media` del backend, y se endurecen `namespace/deployments/job` con controles `restricted` (rootless, seccomp RuntimeDefault, sin privilege escalation, drop de capabilities, root filesystem solo lectura con `emptyDir` para `/tmp`).
 - **v1.67 (2026-03-06):** Ajuste de build del contenedor frontend: `frontend/Dockerfile` compila Angular con la configuración `production` para asegurar `fileReplacements` de entorno y `apiBaseUrl=/api/v1` en imágenes desplegadas.
 - **v1.68 (2026-03-06):** PWA instalable real en frontend: se añaden `manifest.webmanifest`, iconos (`favicon`, `apple-touch-icon`, `192/512`, `maskable`) generados a partir del logo de la app, Angular Service Worker para cache de shell/assets y `media`, CTA de `Instalar app`/`Actualizar app` en shell y Settings, y hardening de Nginx para servir `manifest`/`ngsw` sin caché agresiva. Se corrige además `environment.ts` de desarrollo para volver a `http://localhost:8000/api/v1`, alineado con la spec.
+- **v1.69 (2026-03-06):** Refresco colaborativo en detalle de lote: `/app/batches/:batchId` hace polling automático cada 5 segundos mientras la vista permanece abierta para reflejar fotos nuevas y correcciones hechas desde otra sesión, cancela el polling al salir/cambiar de lote y preserva campos editados localmente sin guardar para no pisarlos con respuestas remotas.
 
 ---
 
@@ -484,6 +485,8 @@ Secciones:
 - [x] `Guardar procesados` crea artículos en caja destino para drafts en estado procesado.
 - [x] La card de detalle del artículo seleccionado se puede cerrar con `X`; al pulsar una mini-card del resumen, el detalle se vuelve a abrir con el draft correspondiente.
 - [x] La card de artículo incluye acciones por draft con iconos + `tooltip`: reproceso IA por foto, reproceso IA por título (`name`) y eliminación del draft.
+- [x] En detalle de lote, la vista se refresca automáticamente cada 5 segundos mientras está abierta para soportar trabajo colaborativo entre sesiones; al abandonar la vista o cambiar de lote, el polling se cancela.
+- [x] El editor inline de detalle no sobrescribe campos que el usuario local ha modificado sin guardar; los cambios remotos sí se reflejan en campos no tocados localmente.
 
 ---
 
@@ -860,6 +863,7 @@ Stock:
   - por defecto devuelve solo lotes abiertos creados por el usuario actual; la UI de módulo puede pedir `include_committed=true` y/o `only_mine=false`.
 - `GET /warehouses/{warehouse_id}/intake/batches/{batch_id}`
   - devuelve `batch` + `drafts` para refresco/polling.
+  - frontend lo usa para polling colaborativo cada 5 segundos en `/app/batches/:batchId`; el polling se cancela al salir de la vista o cambiar de lote.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` (multipart `files[]`)
   - sube N imágenes al storage backend temporal del lote (`/media/{warehouse_id}/intake/{batch_id}`) y crea `intake_drafts` en estado `uploaded`.
   - si el lote estaba `committed`, la subida lo reabre automáticamente para continuar captura incremental (estado vuelve a flujo activo según recuento de drafts).

@@ -21,13 +21,17 @@ import { NotificationService } from '../services/notification.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 type IntakeUiStatus = 'new' | 'processed' | 'error' | 'saved';
+type DraftEditorField = 'name' | 'description' | 'tagsText' | 'aliasesText';
 
 interface DraftEditorState {
   name: string;
   description: string;
   tagsText: string;
   aliasesText: string;
+  dirtyFields: Record<DraftEditorField, boolean>;
 }
+
+const AUTO_REFRESH_INTERVAL_MS = 5000;
 
 @Component({
   selector: 'app-item-intake-batch',
@@ -211,7 +215,13 @@ interface DraftEditorState {
 
               <mat-form-field class="full-width compact-field">
                 <mat-label>Nombre</mat-label>
-                <input matInput [(ngModel)]="editorFor(draft).name" [disabled]="isDraftReadOnly(draft)" maxlength="160" />
+                <input
+                  matInput
+                  [ngModel]="editorFor(draft).name"
+                  (ngModelChange)="updateEditorField(draft.id, 'name', $event)"
+                  [disabled]="isDraftReadOnly(draft)"
+                  maxlength="160"
+                />
               </mat-form-field>
 
               <mat-form-field class="full-width compact-field">
@@ -219,7 +229,8 @@ interface DraftEditorState {
                 <textarea
                   matInput
                   rows="3"
-                  [(ngModel)]="editorFor(draft).description"
+                  [ngModel]="editorFor(draft).description"
+                  (ngModelChange)="updateEditorField(draft.id, 'description', $event)"
                   [disabled]="isDraftReadOnly(draft)"
                   maxlength="1000"
                 ></textarea>
@@ -228,12 +239,22 @@ interface DraftEditorState {
               <div class="form-row compact-row">
                 <mat-form-field class="compact-field">
                   <mat-label>Tags</mat-label>
-                  <input matInput [(ngModel)]="editorFor(draft).tagsText" [disabled]="isDraftReadOnly(draft)" />
+                  <input
+                    matInput
+                    [ngModel]="editorFor(draft).tagsText"
+                    (ngModelChange)="updateEditorField(draft.id, 'tagsText', $event)"
+                    [disabled]="isDraftReadOnly(draft)"
+                  />
                 </mat-form-field>
 
                 <mat-form-field class="compact-field">
                   <mat-label>Aliases</mat-label>
-                  <input matInput [(ngModel)]="editorFor(draft).aliasesText" [disabled]="isDraftReadOnly(draft)" />
+                  <input
+                    matInput
+                    [ngModel]="editorFor(draft).aliasesText"
+                    (ngModelChange)="updateEditorField(draft.id, 'aliasesText', $event)"
+                    [disabled]="isDraftReadOnly(draft)"
+                  />
                 </mat-form-field>
               </div>
 
@@ -487,9 +508,13 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   errorMessage = '';
 
   private readonly draftEditors = new Map<string, DraftEditorState>();
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private routeParamSub?: Subscription;
   private detailPanelClosedManually = false;
+  private activeLoadSub?: Subscription;
+  private batchLoadInFlight = false;
+  private pendingLoad: { batchId: string; silent: boolean } | null = null;
+  private autoRefreshBatchId: string | null = null;
 
   constructor(
     private readonly warehouseService: WarehouseService,
@@ -508,20 +533,28 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     this.routeParamSub = this.route.paramMap.subscribe((params) => {
       const batchId = params.get('batchId');
       if (!batchId) {
+        this.stopAutoRefresh();
+        this.cancelActiveLoad();
         this.router.navigate(['/app/batches']).catch(() => {});
         return;
       }
       if (this.batch?.id !== batchId) {
+        this.stopAutoRefresh();
+        this.cancelActiveLoad();
         this.detailPanelClosedManually = false;
         this.selectedDraftId = null;
+        this.batch = null;
+        this.drafts = [];
         this.loadBatch(batchId);
       }
+      this.startAutoRefresh(batchId);
     });
   }
 
   ngOnDestroy(): void {
     this.routeParamSub?.unsubscribe();
     this.stopAutoRefresh();
+    this.cancelActiveLoad();
   }
 
   get selectedDraft(): IntakeDraft | null {
@@ -632,14 +665,20 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       return existing;
     }
 
-    const nextState: DraftEditorState = {
-      name: draft.name || '',
-      description: draft.description || '',
-      tagsText: (draft.tags || []).join(', '),
-      aliasesText: (draft.aliases || []).join(', ')
-    };
+    const nextState = this.createEditorState(draft);
     this.draftEditors.set(draft.id, nextState);
     return nextState;
+  }
+
+  updateEditorField(draftId: string, field: DraftEditorField, value: string): void {
+    const draft = this.drafts.find((candidate) => candidate.id === draftId);
+    if (!draft) {
+      return;
+    }
+
+    const editor = this.editorFor(draft);
+    editor[field] = value;
+    editor.dirtyFields[field] = value !== this.serverValueForField(draft, field);
   }
 
   isDraftReadOnly(draft: IntakeDraft): boolean {
@@ -832,7 +871,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       next: (response) => {
         this.batch = response.batch;
         this.notificationService.info(response.message);
-        this.startAutoRefresh();
+        this.startAutoRefresh(response.batch.id);
       },
       error: () => {
         this.setActionError('No se pudo iniciar el procesamiento del lote.');
@@ -845,21 +884,28 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.intakeService.getBatch(this.selectedWarehouseId, batchId).subscribe({
-      next: (response) => {
-        this.applyBatchPayload(response.batch, response.drafts);
-        if (this.isProcessing || this.newCount > 0) {
-          this.startAutoRefresh();
-        } else {
-          this.stopAutoRefresh();
+    if (this.batchLoadInFlight) {
+      this.pendingLoad = {
+        batchId,
+        silent: this.pendingLoad ? this.pendingLoad.silent && silent : silent
+      };
+      return;
+    }
+
+    this.batchLoadInFlight = true;
+    this.activeLoadSub = this.intakeService
+      .getBatch(this.selectedWarehouseId, batchId)
+      .pipe(finalize(() => this.finishBatchLoad()))
+      .subscribe({
+        next: (response) => {
+          this.applyBatchPayload(response.batch, response.drafts);
+        },
+        error: () => {
+          if (!silent) {
+            this.setActionError('No se pudo cargar el lote.');
+          }
         }
-      },
-      error: () => {
-        if (!silent) {
-          this.setActionError('No se pudo cargar el lote.');
-        }
-      }
-    });
+      });
   }
 
   private applyBatchPayload(batch: IntakeBatch, drafts: IntakeDraft[]): void {
@@ -875,16 +921,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
 
     drafts.forEach((draft) => {
       const existing = this.draftEditors.get(draft.id);
-      const serverName = draft.name || '';
-      const serverDescription = draft.description || '';
-      const serverTagsText = (draft.tags || []).join(', ');
-      const serverAliasesText = (draft.aliases || []).join(', ');
-      this.draftEditors.set(draft.id, {
-        name: this.mergeEditorValue(existing?.name, serverName),
-        description: this.mergeEditorValue(existing?.description, serverDescription),
-        tagsText: this.mergeEditorValue(existing?.tagsText, serverTagsText),
-        aliasesText: this.mergeEditorValue(existing?.aliasesText, serverAliasesText)
-      });
+      this.draftEditors.set(draft.id, this.mergeEditorState(draft, existing));
     });
 
     this.syncSelectedDraft();
@@ -899,12 +936,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     const next = [...this.drafts];
     next[index] = updated;
     this.drafts = next;
-    this.draftEditors.set(updated.id, {
-      name: updated.name || '',
-      description: updated.description || '',
-      tagsText: (updated.tags || []).join(', '),
-      aliasesText: (updated.aliases || []).join(', ')
-    });
+    this.draftEditors.set(updated.id, this.createEditorState(updated));
     this.syncSelectedDraft();
   }
 
@@ -930,25 +962,25 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     this.selectedDraftId = null;
   }
 
-  private startAutoRefresh(): void {
-    if (this.refreshTimer || !this.batch || !this.selectedWarehouseId) {
+  private startAutoRefresh(batchId: string): void {
+    if (!this.selectedWarehouseId) {
       return;
     }
 
-    this.refreshTimer = setInterval(() => {
-      if (!this.batch || !this.selectedWarehouseId) {
-        this.stopAutoRefresh();
-        return;
-      }
-      this.loadBatch(this.batch.id, true);
-    }, 2000);
+    this.autoRefreshBatchId = batchId;
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    this.scheduleNextAutoRefresh();
   }
 
   private stopAutoRefresh(): void {
+    this.autoRefreshBatchId = null;
     if (!this.refreshTimer) {
       return;
     }
-    clearInterval(this.refreshTimer);
+    clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
   }
 
@@ -957,14 +989,96 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     this.notificationService.error(message);
   }
 
-  private mergeEditorValue(existingValue: string | undefined, serverValue: string): string {
-    if (existingValue === undefined) {
-      return serverValue;
+  private createEditorState(draft: IntakeDraft): DraftEditorState {
+    return {
+      name: draft.name || '',
+      description: draft.description || '',
+      tagsText: (draft.tags || []).join(', '),
+      aliasesText: (draft.aliases || []).join(', '),
+      dirtyFields: this.createDirtyFieldState()
+    };
+  }
+
+  private mergeEditorState(draft: IntakeDraft, existing?: DraftEditorState): DraftEditorState {
+    const serverState = this.createEditorState(draft);
+    if (!existing) {
+      return serverState;
     }
-    if (!existingValue.trim() && serverValue.trim()) {
-      return serverValue;
+
+    const dirtyFields = this.createDirtyFieldState();
+    const mergedState = {
+      ...serverState,
+      dirtyFields
+    };
+
+    (Object.keys(serverState.dirtyFields) as DraftEditorField[]).forEach((field) => {
+      const serverValue = serverState[field];
+      const currentValue = existing[field];
+      const keepLocalValue = existing.dirtyFields[field] && currentValue !== serverValue;
+
+      mergedState[field] = keepLocalValue ? currentValue : serverValue;
+      dirtyFields[field] = keepLocalValue;
+    });
+
+    return mergedState;
+  }
+
+  private createDirtyFieldState(): Record<DraftEditorField, boolean> {
+    return {
+      name: false,
+      description: false,
+      tagsText: false,
+      aliasesText: false
+    };
+  }
+
+  private serverValueForField(draft: IntakeDraft, field: DraftEditorField): string {
+    if (field === 'name') {
+      return draft.name || '';
     }
-    return existingValue;
+    if (field === 'description') {
+      return draft.description || '';
+    }
+    if (field === 'tagsText') {
+      return (draft.tags || []).join(', ');
+    }
+    return (draft.aliases || []).join(', ');
+  }
+
+  private scheduleNextAutoRefresh(): void {
+    if (!this.autoRefreshBatchId || !this.selectedWarehouseId || this.refreshTimer || this.batchLoadInFlight) {
+      return;
+    }
+
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      if (!this.autoRefreshBatchId) {
+        return;
+      }
+      this.loadBatch(this.autoRefreshBatchId, true);
+    }, AUTO_REFRESH_INTERVAL_MS);
+  }
+
+  private finishBatchLoad(): void {
+    this.batchLoadInFlight = false;
+    this.activeLoadSub = undefined;
+
+    const pendingLoad = this.pendingLoad;
+    this.pendingLoad = null;
+
+    if (pendingLoad) {
+      this.loadBatch(pendingLoad.batchId, pendingLoad.silent);
+      return;
+    }
+
+    this.scheduleNextAutoRefresh();
+  }
+
+  private cancelActiveLoad(): void {
+    this.pendingLoad = null;
+    this.batchLoadInFlight = false;
+    this.activeLoadSub?.unsubscribe();
+    this.activeLoadSub = undefined;
   }
 
   private reprocessDraft(draft: IntakeDraft, mode: 'photo' | 'name'): void {
@@ -996,7 +1110,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
           } else {
             this.batch = response.batch;
           }
-          this.startAutoRefresh();
+          this.startAutoRefresh(response.batch.id);
         },
         error: () => {
           this.setActionError('No se pudo iniciar el reprocesado del artículo.');
