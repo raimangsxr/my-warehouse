@@ -7,6 +7,10 @@ on:
       - "Frontend - Build & Push Docker image on Release"
     types: [completed]
 
+concurrency:
+  group: argocd-pr-${{ github.repository }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -86,11 +90,17 @@ jobs:
           yq --version
           gh --version
 
-      - name: Create branch
+      - name: Create or reuse branch
         working-directory: argocd-apps
         run: |
           VERSION="${{ steps.v.outputs.version }}"
-          git checkout -b "bump-my-warehouse-${VERSION}"
+          BRANCH="bump-my-warehouse-${VERSION}"
+
+          if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+            git checkout "${BRANCH}"
+          else
+            git checkout -b "${BRANCH}"
+          fi
 
       - name: Update image tags (only Deployment sections)
         working-directory: argocd-apps
@@ -127,10 +137,11 @@ jobs:
 
           git diff -- "${MANIFEST_BACKEND}" "${MANIFEST_FRONTEND}" "${MANIFEST_MIGRATE}" || true
 
-      - name: Commit & push
+      - name: Commit & Push branch (create if missing)
         working-directory: argocd-apps
         run: |
           VERSION="${{ steps.v.outputs.version }}"
+          BRANCH="bump-my-warehouse-${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -139,23 +150,30 @@ jobs:
             echo "No changes to commit (maybe already bumped)."
             exit 0
           }
-          git push --set-upstream origin "bump-my-warehouse-${VERSION}"
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            echo "Remote branch exists: ${BRANCH}. Pushing updates."
+            git push origin "${BRANCH}"
+          else
+            git push --set-upstream origin "${BRANCH}"
+          fi
 
-      - name: Create PR (or skip if exists)
+      - name: Create PR (skip if exists)
         working-directory: argocd-apps
         env:
           GH_TOKEN: ${{ secrets.ARGOCD_APPS_TOKEN }}
         run: |
           VERSION="${{ steps.v.outputs.version }}"
-          # Si ya existe, salimos sin fallo
-          if gh pr list --repo "${TARGET_REPO}" --head "bump-my-warehouse-${VERSION}" --json number --jq 'length' | grep -qv '^0$'; then
-            echo "PR already exists for bump-my-warehouse-${VERSION}"
+          BRANCH="bump-my-warehouse-${VERSION}"
+
+          # Si ya existe PR, no hacemos nada
+          if gh pr list --repo "${TARGET_REPO}" --head "${BRANCH}" --json number --jq 'length' | grep -vq '^0$'; then
+            echo "PR already exists for ${BRANCH}"
             exit 0
           fi
 
           gh pr create \
             --repo "${TARGET_REPO}" \
             --base "${TARGET_BRANCH}" \
-            --head "bump-my-warehouse-${VERSION}" \
+            --head "${BRANCH}" \
             --title "chore(my-warehouse): bump images to ${VERSION}" \
             --body "Automated update after backend+frontend images were published for ${VERSION}."
