@@ -1,0 +1,161 @@
+name: Create PR to argocd-apps when backend+frontend images are published
+
+on:
+  workflow_run:
+    workflows:
+      - "Backend - Build & Push Docker image on Release"
+      - "Frontend - Build & Push Docker image on Release"
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  create_pr:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    env:
+      TARGET_REPO: raimangsxr/argocd-apps
+      TARGET_BRANCH: main
+
+      # Rutas en argocd-apps
+      MANIFEST_BACKEND: manifests/my-warehouse/backend.yaml
+      MANIFEST_FRONTEND: manifests/my-warehouse/frontend.yaml
+      MANIFEST_MIGRATE: manifests/my-warehouse/migration-job.yaml
+
+      # Ajusta imágenes reales (DockerHub o GHCR)
+      BACKEND_IMAGE: raimangsxr/my-warehouse-backend
+      FRONTEND_IMAGE: raimangsxr/my-warehouse-frontend
+      MIGRATE_IMAGE: raimangsxr/my-warehouse-backend
+
+    steps:
+      - name: Checkout source repo (to read tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # necesitamos tags
+
+      - name: Determine release tag
+        id: v
+        run: |
+          # Para workflow_run, el tag no viene directo.
+          # Solución: el workflow_run trae la branch/tag en head_branch en algunos casos,
+          # pero lo más robusto: leemos el tag marker más reciente empujado.
+          #
+          # Como nuestros markers incluyen la versión, usamos el último marker creado
+          # por el workflow que acaba de terminar:
+          #
+          # published/backend/v1.2.3 o published/frontend/v1.2.3
+          #
+          # Extraemos la versión del nombre del tag más reciente entre ambos prefijos.
+          git fetch --tags --force
+
+          LAST=$(git tag --list "published/*/*" --sort=-creatordate | head -n 1)
+          if [ -z "$LAST" ]; then
+            echo "No marker tags found."
+            exit 1
+          fi
+
+          VERSION="${LAST##*/}"   # lo que va tras la última /
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected VERSION=$VERSION from marker $LAST"
+
+      - name: Check both images published for this version
+        run: |
+          set -e
+          VERSION="${{ steps.v.outputs.version }}"
+          git fetch --tags --force
+          git rev-parse "published/backend/${VERSION}" >/dev/null 2>&1 || { echo "Backend not published for ${VERSION}"; exit 2; }
+          git rev-parse "published/frontend/${VERSION}" >/dev/null 2>&1 || { echo "Frontend not published for ${VERSION}"; exit 3; }
+          echo "Both backend and frontend published for ${VERSION}"
+
+      - name: Checkout argocd-apps
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPO }}
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ secrets.ARGOCD_APPS_TOKEN }}
+          path: argocd-apps
+
+      - name: Install yq + gh
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update
+          sudo apt-get install -y gh
+          yq --version
+          gh --version
+
+      - name: Create branch
+        working-directory: argocd-apps
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          git checkout -b "bump-my-warehouse-${VERSION}"
+
+      - name: Update image tags (only Deployment sections)
+        working-directory: argocd-apps
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+
+          # backend.yaml: Service + Deployment => solo Deployment y contenedor name=backend
+          VERSION="$VERSION" BACKEND_IMAGE="${BACKEND_IMAGE}" yq -i '
+            (select(.kind == "Deployment")
+              | .spec.template.spec.containers[]
+              | select(.name == "backend")
+              | .image
+            ) = strenv(BACKEND_IMAGE) + ":" + strenv(VERSION)
+          ' "${MANIFEST_BACKEND}"
+
+          # frontend.yaml: Service + Deployment => solo Deployment y contenedor name=frontend
+          VERSION="$VERSION" FRONTEND_IMAGE="${FRONTEND_IMAGE}" yq -i '
+            (select(.kind == "Deployment")
+              | .spec.template.spec.containers[]
+              | select(.name == "frontend")
+              | .image
+            ) = strenv(FRONTEND_IMAGE) + ":" + strenv(VERSION)
+          ' "${MANIFEST_FRONTEND}"
+
+          # migration-job.yaml: Job => si lo quieres actualizar también (tú antes querías 3 mods)
+          VERSION="$VERSION" MIGRATE_IMAGE="${MIGRATE_IMAGE}" yq -i '
+            (select(.kind == "Job")
+              | .spec.template.spec.containers[]
+              | select(.name == "migrate")
+              | .image
+            ) = strenv(MIGRATE_IMAGE) + ":" + strenv(VERSION)
+          ' "${MANIFEST_MIGRATE}"
+
+          git diff -- "${MANIFEST_BACKEND}" "${MANIFEST_FRONTEND}" "${MANIFEST_MIGRATE}" || true
+
+      - name: Commit & push
+        working-directory: argocd-apps
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "${MANIFEST_BACKEND}" "${MANIFEST_FRONTEND}" "${MANIFEST_MIGRATE}"
+          git commit -m "chore(my-warehouse): bump images to ${VERSION}" || {
+            echo "No changes to commit (maybe already bumped)."
+            exit 0
+          }
+          git push --set-upstream origin "bump-my-warehouse-${VERSION}"
+
+      - name: Create PR (or skip if exists)
+        working-directory: argocd-apps
+        env:
+          GH_TOKEN: ${{ secrets.ARGOCD_APPS_TOKEN }}
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          # Si ya existe, salimos sin fallo
+          if gh pr list --repo "${TARGET_REPO}" --head "bump-my-warehouse-${VERSION}" --json number --jq 'length' | grep -qv '^0$'; then
+            echo "PR already exists for bump-my-warehouse-${VERSION}"
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "${TARGET_REPO}" \
+            --base "${TARGET_BRANCH}" \
+            --head "bump-my-warehouse-${VERSION}" \
+            --title "chore(my-warehouse): bump images to ${VERSION}" \
+            --body "Automated update after backend+frontend images were published for ${VERSION}."

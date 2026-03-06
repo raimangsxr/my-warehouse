@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   REGISTRY: docker.io
@@ -50,129 +50,11 @@ jobs:
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-  pr-update-argocd-apps:
-    name: Create PR in argocd-apps (bump image tags)
-    needs: build-and-push
-    runs-on: ubuntu-latest
-
-    env:
-      VERSION: ${{ github.ref_name }} # tag de la release
-      TARGET_REPO: raimangsxr/argocd-apps
-      TARGET_BRANCH: main
-
-      # Ajusta estos nombres a tus imágenes reales en DockerHub:
-      BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/my-warehouse-backend
-      FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/my-warehouse-frontend
-      MIGRATE_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/my-warehouse-backend
-
-      MANIFEST_BACKEND: manifests/my-warehouse/backend.yaml
-      MANIFEST_FRONTEND: manifests/my-warehouse/frontend.yaml
-      MANIFEST_MIGRATE: manifests/my-warehouse/migration-job.yaml
-
-    steps:
-      - name: Checkout argocd-apps
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.TARGET_REPO }}
-          ref: ${{ env.TARGET_BRANCH }}
-          token: ${{ secrets.ARGOCD_APPS_TOKEN }}
-          path: argocd-apps
-
-      - name: Install yq
+      - name: Mark backend image published
+        if: success()
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-          yq --version
-
-      - name: Install GitHub CLI (gh)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gh
-          gh --version
-
-      - name: Create branch
-        working-directory: argocd-apps
-        run: |
-          git checkout -b "bump-my-warehouse-${VERSION}"
-
-      - name: Update image tags in manifests
-        working-directory: argocd-apps
-        run: |
-          set -euo pipefail
-
-          update_deploy_image() {
-            local file="$1"
-            local cname="$2"
-            local image="$3"
-
-            # 1) Intento por nombre de contenedor (si existe .name)
-            yq -i '
-              .spec.template.spec.containers |=
-              (map(if has("name") and .name == strenv(CNAME) then .image = strenv(IMAGE) + ":" + strenv(VERSION) else . end))
-            ' "$file" 2>/dev/null || true
-
-            # 2) Fallback: si no hay names / un solo contenedor
-            yq -i '.spec.template.spec.containers[0].image = strenv(IMAGE) + ":" + strenv(VERSION)' "$file"
-          }
-
-          update_job_image() {
-            local file="$1"
-            local cname="$2"
-            local image="$3"
-
-            # Job: spec.template.spec.containers
-            yq -i '
-              .spec.template.spec.containers |=
-              (map(if has("name") and .name == strenv(CNAME) then .image = strenv(IMAGE) + ":" + strenv(VERSION) else . end))
-            ' "$file" 2>/dev/null || true
-
-            yq -i '.spec.template.spec.containers[0].image = strenv(IMAGE) + ":" + strenv(VERSION)' "$file"
-          }
-
-          export VERSION
-
-          # Backend (Deployment)
-          export CNAME="backend" IMAGE="${BACKEND_IMAGE}"
-          update_deploy_image "${MANIFEST_BACKEND}" "$CNAME" "$IMAGE"
-
-          # Frontend (Deployment)
-          export CNAME="frontend" IMAGE="${FRONTEND_IMAGE}"
-          update_deploy_image "${MANIFEST_FRONTEND}" "$CNAME" "$IMAGE"
-
-          # Migration (Job)
-          export CNAME="migrate" IMAGE="${MIGRATE_IMAGE}"
-          update_job_image "${MANIFEST_MIGRATE}" "$CNAME" "$IMAGE"
-
-          echo "Updated manifests:"
-          git diff -- "${MANIFEST_BACKEND}" "${MANIFEST_FRONTEND}" "${MANIFEST_MIGRATE}" || true
-
-      - name: Commit changes
-        working-directory: argocd-apps
-        run: |
+          TAG="${GITHUB_REF_NAME}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add "${MANIFEST_BACKEND}" "${MANIFEST_FRONTEND}" "${MANIFEST_MIGRATE}"
-          git status
-
-          git commit -m "chore(my-warehouse): bump images to ${VERSION}" || {
-            echo "No changes to commit (maybe already bumped)."
-            exit 0
-          }
-
-      - name: Push branch
-        working-directory: argocd-apps
-        run: |
-          git push --set-upstream origin "bump-my-warehouse-${VERSION}"
-
-      - name: Create Pull Request
-        working-directory: argocd-apps
-        env:
-          GH_TOKEN: ${{ secrets.ARGOCD_APPS_TOKEN }}
-        run: |
-          gh pr create \
-            --repo "${TARGET_REPO}" \
-            --base "${TARGET_BRANCH}" \
-            --head "bump-my-warehouse-${VERSION}" \
-            --title "chore(my-warehouse): bump images to ${VERSION}" \
-            --body "Automated update from my-warehouse release ${VERSION}: backend, frontend, migration-job image tags."
+          git tag -f "published/backend/${TAG}"
+          git push -f origin "published/backend/${TAG}"
