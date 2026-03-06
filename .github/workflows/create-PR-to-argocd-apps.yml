@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      TARGET_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/argocd-apps
+      TARGET_REPO: raimangsxr/argocd-apps
       TARGET_BRANCH: main
 
       # Rutas en argocd-apps
