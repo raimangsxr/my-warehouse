@@ -96,6 +96,7 @@
 - **v1.64 (2026-03-05):** Ajuste fino de alineación en chip de stock de vista `Lista`: iconos de decremento/incremento (`-/+`) centrados verticalmente respecto al valor de stock para mejorar legibilidad y precisión visual.
 - **v1.65 (2026-03-06):** Hardening de contenedores rootless en despliegue: `backend/Dockerfile` ejecuta FastAPI/Uvicorn con usuario no privilegiado (`uid=10001`) y permisos de escritura sobre `/app/media`; `frontend/Dockerfile` migra a `nginxinc/nginx-unprivileged` con `listen 8080` interno; y `deploy/k8s/frontend.yaml` ajusta `containerPort/targetPort` a `8080` manteniendo el servicio expuesto en `80`.
 - **v1.66 (2026-03-06):** Revisión de despliegue Kubernetes para Talos sin Kustomize: se elimina `kustomization.yaml` y el `StatefulSet` de PostgreSQL (la base de datos pasa a ser dependencia externa vía `DATABASE_URL`), se añade `deploy/k8s/media-nfs.yaml` con PV/PVC NFS RWX para montar `/app/media` del backend, y se endurecen `namespace/deployments/job` con controles `restricted` (rootless, seccomp RuntimeDefault, sin privilege escalation, drop de capabilities, root filesystem solo lectura con `emptyDir` para `/tmp`).
+- **v1.67 (2026-03-06):** Ajuste de build del contenedor frontend: `frontend/Dockerfile` compila Angular con la configuración `production` para asegurar `fileReplacements` de entorno y `apiBaseUrl=/api/v1` en imágenes desplegadas.
 
 ---
 
@@ -557,6 +558,7 @@ Secciones:
 ### Frontend
 - Angular (PWA) + Angular Material (Material Design).
 - Configuración por entorno de build con Angular CLI (`fileReplacements`): `environment.ts` (dev) y `environment.prod.ts` (prod).
+- En contenedor, el build de Angular se ejecuta explícitamente con `--configuration production`.
 - IndexedDB (recomendado: Dexie) para offline cache + cola comandos.
 - Angular Service Worker para cache de shell y assets.
 - UI: Material Tree, CDK DragDrop, virtual scroll (CDK) en listas grandes.
@@ -577,7 +579,7 @@ Secciones:
 ### Despliegue (contenedores + Kubernetes)
 - Imágenes Docker:
   - Backend: `backend/Dockerfile` (FastAPI + Uvicorn) ejecutado como usuario no-root dedicado (`uid=10001`) con escritura permitida en `/app/media`.
-  - Frontend: `frontend/Dockerfile` (build Angular + serving estático con `nginxinc/nginx-unprivileged`) en puerto interno `8080` para ejecución sin privilegios.
+  - Frontend: `frontend/Dockerfile` (build Angular con configuración `production` + serving estático con `nginxinc/nginx-unprivileged`) en puerto interno `8080` para ejecución sin privilegios.
 - Kubernetes (base en `deploy/k8s`):
   - PostgreSQL **externo** al cluster (inyectado por `DATABASE_URL` en `Secret`)
   - `PersistentVolume` + `PersistentVolumeClaim` NFS (RWX) para `/app/media` del backend
