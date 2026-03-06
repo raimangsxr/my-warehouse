@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.69
+- **Versión:** v1.70
 - **Última actualización:** 2026-03-06  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -99,6 +99,7 @@
 - **v1.67 (2026-03-06):** Ajuste de build del contenedor frontend: `frontend/Dockerfile` compila Angular con la configuración `production` para asegurar `fileReplacements` de entorno y `apiBaseUrl=/api/v1` en imágenes desplegadas.
 - **v1.68 (2026-03-06):** PWA instalable real en frontend: se añaden `manifest.webmanifest`, iconos (`favicon`, `apple-touch-icon`, `192/512`, `maskable`) generados a partir del logo de la app, Angular Service Worker para cache de shell/assets y `media`, CTA de `Instalar app`/`Actualizar app` en shell y Settings, y hardening de Nginx para servir `manifest`/`ngsw` sin caché agresiva. Se corrige además `environment.ts` de desarrollo para volver a `http://localhost:8000/api/v1`, alineado con la spec.
 - **v1.69 (2026-03-06):** Refresco colaborativo en detalle de lote: `/app/batches/:batchId` hace polling automático cada 5 segundos mientras la vista permanece abierta para reflejar fotos nuevas y correcciones hechas desde otra sesión, cancela el polling al salir/cambiar de lote y preserva campos editados localmente sin guardar para no pisarlos con respuestas remotas.
+- **v1.70 (2026-03-06):** Corrección de despliegue Kubernetes para media pública: `deploy/k8s/ingress.yaml` expone `/media` hacia backend además de `/api`, evitando que `photo_url` de artículos y lotes termine servido por la SPA del frontend y aparezca como imagen rota en producción.
 
 ---
 
@@ -598,7 +599,7 @@ Secciones:
   - `Job` de migraciones (`alembic upgrade head`)
   - `Deployment` + `Service` para backend y frontend
   - hardening de pods para Talos/PSS restricted (`runAsNonRoot`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `readOnlyRootFilesystem` con `emptyDir` para `/tmp`)
-  - `Ingress` con clase `traefik`, rutas `/api`→backend y `/`→frontend
+  - `Ingress` con clase `traefik`, rutas `/api` y `/media` → backend, y `/` → frontend
   - despliegue basado en manifests `kubectl apply -f` (sin `Kustomization`)
 
 ### Seguridad (principios)
@@ -890,7 +891,7 @@ Stock:
 
 ### Photos
 - `POST /photos/upload?warehouse_id=...` (multipart) → guarda en disco backend y devuelve `{ photo_url, content_type, size_bytes }`
-- `GET /media/{warehouse_id}/{filename}` → archivo estático servible para renderizar avatar/foto de item desde `items.photo_url`
+- `GET /media/{warehouse_id}/...` → archivo estático servible para renderizar avatar/foto de item y borradores de lote desde `photo_url`; en despliegue con Ingress, `/media` debe rutarse al backend
 
 ### Tags
 - `GET /warehouses/{warehouse_id}/tags`
@@ -1208,7 +1209,7 @@ Para considerar una slice “Done”:
 - **A-008 (2026-02-22):** En Slice 6, el endpoint `POST /settings/smtp/test` valida configuración y responde en modo simulado (sin envío real) para mantener bootstrap local sin dependencia de servidor SMTP externo; la verificación de entrega real se completará cuando se integre transporte SMTP productivo.
 - **A-009 (2026-02-23):** En la primera iteración de Slice 7, la cola offline del frontend cubre de forma explícita los comandos de uso rápido (`item.favorite/unfavorite` y `stock.adjust`); el resto de operaciones mantiene modo online-first y puede ampliarse por comando sin romper el contrato `/sync`.
 - **A-010 (2026-02-23):** En Slice 8, al importar un snapshot en un warehouse distinto, backend remapea IDs (`boxes`, `items`, `stock_movements`) y `qr_token` cuando detecta colisión global para preservar integridad sin exigir preprocesado del JSON en cliente.
-- **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend, `/api` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
+- **A-011 (2026-02-23):** La base de despliegue Kubernetes asume un único host público servido por Traefik con routing por path (`/` frontend; `/api` y `/media` backend). El dominio/TLS (`my-warehouse.example.com`, `my-warehouse-tls`) queda como plantilla y debe ajustarse por entorno.
 - **A-012 (2026-03-04):** Para habilitar impresión de etiquetas sin añadir librerías QR al frontend en esta iteración, la imagen QR se renderiza con un servicio remoto (`api.qrserver.com`) usando como payload únicamente `qr_token` (no credenciales ni secretos). Si se requiere operación 100% offline/air-gapped, se migrará a generador QR local en frontend o endpoint backend dedicado.
 - **A-013 (2026-03-06):** La instalabilidad PWA objetivo cubre navegadores con soporte estándar (`beforeinstallprompt` + Service Worker) y Safari iOS mediante “Añadir a pantalla de inicio”; la cámara/QR y la instalación en producción requieren HTTPS.
 - **A-013 (2026-03-04):** El enriquecimiento LLM de tags/alias/foto usa Gemini API con cadena configurable por `llm_settings.model_priority` (default: `gemini-3.1-flash-lite` → `gemini-3-flash` → `gemini-2.5-flash` → `gemini-2.5-flash-lite`). Si fallan todos los modelos por límites/error/formato, backend aplica fallback heurístico local para mantener disponibilidad.

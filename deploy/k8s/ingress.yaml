@@ -22,6 +22,13 @@ spec:
                 name: my-warehouse-backend
                 port:
                   number: 8000
+          - path: /media
+            pathType: Prefix
+            backend:
+              service:
+                name: my-warehouse-backend
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:

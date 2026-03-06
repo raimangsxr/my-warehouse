@@ -11,7 +11,7 @@ Este directorio contiene manifests para desplegar `my-warehouse` en Kubernetes c
 - `migration-job.yaml`: job de migración (`alembic upgrade head`)
 - `backend.yaml`: deployment/service FastAPI (rootless + security hardening)
 - `frontend.yaml`: deployment/service Angular+Nginx (rootless + security hardening)
-- `ingress.yaml`: ingress Traefik (`/api` y `/`)
+- `ingress.yaml`: ingress Traefik (`/api` + `/media` al backend, `/` al frontend)
 
 ## Build y push de imágenes
 
@@ -64,6 +64,7 @@ kubectl apply -f deploy/k8s/ingress.yaml
 ## Notas operativas
 
 - El frontend usa `'/api/v1'` fuera de `localhost:4200`, por lo que funciona detrás de Ingress con ruta `/api` hacia backend.
+- El storage público de fotos usa URLs `/media/...`; el Ingress debe enrutar también `/media` al backend o las imágenes acabarán resolviendo contra la SPA del frontend.
 - El backend y Alembic usan `DATABASE_URL` desde Secret (PostgreSQL externo).
 - Para NFS con `root_squash`, asegúrate de permisos de escritura para `uid/gid 10001` en el export.
 - Si usas cert-manager, actualiza `secretName` de TLS o añade anotaciones del issuer en `ingress.yaml`.
