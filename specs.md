@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.65
+- **Versión:** v1.66
 - **Última actualización:** 2026-03-06  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -95,6 +95,7 @@
 - **v1.63 (2026-03-05):** Coherencia operativa entre vistas `Cards` y `Lista`: en la tabla de inventario los controles de stock `-/+` se integran dentro del chip de stock (misma semántica que cards), y la columna `Acciones` se simplifica eliminando botones de stock duplicados.
 - **v1.64 (2026-03-05):** Ajuste fino de alineación en chip de stock de vista `Lista`: iconos de decremento/incremento (`-/+`) centrados verticalmente respecto al valor de stock para mejorar legibilidad y precisión visual.
 - **v1.65 (2026-03-06):** Hardening de contenedores rootless en despliegue: `backend/Dockerfile` ejecuta FastAPI/Uvicorn con usuario no privilegiado (`uid=10001`) y permisos de escritura sobre `/app/media`; `frontend/Dockerfile` migra a `nginxinc/nginx-unprivileged` con `listen 8080` interno; y `deploy/k8s/frontend.yaml` ajusta `containerPort/targetPort` a `8080` manteniendo el servicio expuesto en `80`.
+- **v1.66 (2026-03-06):** Revisión de despliegue Kubernetes para Talos sin Kustomize: se elimina `kustomization.yaml` y el `StatefulSet` de PostgreSQL (la base de datos pasa a ser dependencia externa vía `DATABASE_URL`), se añade `deploy/k8s/media-nfs.yaml` con PV/PVC NFS RWX para montar `/app/media` del backend, y se endurecen `namespace/deployments/job` con controles `restricted` (rootless, seccomp RuntimeDefault, sin privilege escalation, drop de capabilities, root filesystem solo lectura con `emptyDir` para `/tmp`).
 
 ---
 
@@ -578,10 +579,13 @@ Secciones:
   - Backend: `backend/Dockerfile` (FastAPI + Uvicorn) ejecutado como usuario no-root dedicado (`uid=10001`) con escritura permitida en `/app/media`.
   - Frontend: `frontend/Dockerfile` (build Angular + serving estático con `nginxinc/nginx-unprivileged`) en puerto interno `8080` para ejecución sin privilegios.
 - Kubernetes (base en `deploy/k8s`):
-  - `StatefulSet` + `Service` para PostgreSQL
+  - PostgreSQL **externo** al cluster (inyectado por `DATABASE_URL` en `Secret`)
+  - `PersistentVolume` + `PersistentVolumeClaim` NFS (RWX) para `/app/media` del backend
   - `Job` de migraciones (`alembic upgrade head`)
   - `Deployment` + `Service` para backend y frontend
+  - hardening de pods para Talos/PSS restricted (`runAsNonRoot`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `readOnlyRootFilesystem` con `emptyDir` para `/tmp`)
   - `Ingress` con clase `traefik`, rutas `/api`→backend y `/`→frontend
+  - despliegue basado en manifests `kubectl apply -f` (sin `Kustomization`)
 
 ### Seguridad (principios)
 - Nada de secretos en el navegador:
@@ -590,6 +594,7 @@ Secciones:
 - TLS obligatorio en despliegue.
 - Rate limiting en endpoints de auth/reset.
 - En contenedores de aplicación, ejecutar procesos como usuario no privilegiado (rootless) por defecto.
+- En Kubernetes para Talos, namespace etiquetado con Pod Security `restricted` y contenedores con `seccomp RuntimeDefault`, `allowPrivilegeEscalation: false` y `capabilities` mínimas (drop all salvo necesidad justificada).
 
 ---
 
@@ -1198,3 +1203,5 @@ Para considerar una slice “Done”:
 - **A-018 (2026-03-05):** Se asume correspondencia directa entre nombres comerciales pedidos y IDs de API Gemini: `Gemini 3.1 Flash Lite`→`gemini-3.1-flash-lite`, `Gemini 3 Flash`→`gemini-3-flash`, `Gemini 2.5 Flash`→`gemini-2.5-flash`, `Gemini 2.5 Flash Lite`→`gemini-2.5-flash-lite`.
 - **A-019 (2026-03-05):** Algunos modelos Gemini 3 pueden exponerse como IDs `preview/latest` y devolver `404` en el ID base. Backend aplica resolución runtime (`-preview`, `-latest`, `-preview-latest`) antes de pasar al siguiente modelo del fallback.
 - **A-020 (2026-03-05):** En el nuevo detalle por bloques (`Nuevo/Procesado/Error/Guardado`), los drafts guardados permanecen visibles en `Guardado` como trazabilidad ligera (foto+título) y dejan de ser editables; la imagen temporal se limpia al moverse al storage definitivo de items durante el guardado.
+- **A-021 (2026-03-06):** El despliegue Kubernetes objetivo asume PostgreSQL fuera del cluster y solo consume `DATABASE_URL` desde `Secret`; el repositorio no mantiene manifiestos de base de datos en-cluster para este entorno.
+- **A-022 (2026-03-06):** El almacenamiento de `media` en Kubernetes usa NFS estático (`PV/PVC` RWX) montado en `/app/media`; se asume que el export NFS concede escritura al proceso del backend (`uid/gid 10001`) o un mapeo equivalente en servidor.

@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: my-warehouse-backend
 spec:
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: my-warehouse-backend
   ports:
@@ -30,10 +31,26 @@ spec:
       labels:
         app.kubernetes.io/name: my-warehouse-backend
     spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: ghcr.io/your-org/my-warehouse-backend:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8000
@@ -82,3 +99,14 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: my-warehouse-backend-media
+        - name: tmp
+          emptyDir: {}
