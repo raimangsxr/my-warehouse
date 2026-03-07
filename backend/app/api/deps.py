@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 import logging
 
 from fastapi import Depends, HTTPException, status
@@ -13,14 +12,10 @@ from app.models.membership import Membership
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.services.security import decode_token, hash_token
+from app.utils.datetime import ensure_utc, utcnow
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_v1_prefix}/auth/login")
 logger = logging.getLogger(__name__)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     credentials_exception = HTTPException(
@@ -36,7 +31,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             raise credentials_exception
         if payload.get("remember_me"):
             stored = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_token(token)))
-            if stored is None or stored.revoked or stored.expires_at < _utcnow():
+            if stored is None or stored.revoked or ensure_utc(stored.expires_at) < utcnow():
                 logger.error("Persistent access token revoked or missing user_id=%s", user_id)
                 raise credentials_exception
         logger.debug("Access token decoded for user_id=%s", user_id)

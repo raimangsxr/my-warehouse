@@ -11,7 +11,7 @@
 
 ## Control del documento
 
-- **Versión:** v1.77
+- **Versión:** v1.78
 - **Última actualización:** 2026-03-07  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
@@ -107,6 +107,7 @@
 - **v1.75 (2026-03-07):** Ajuste fino UX en detalle de lote: el chip de stock de drafts `Procesado/Guardado` corrige la alineación vertical de los iconos `-/+` para igualar el patrón visual del inventario, y la cabecera del lote muestra junto al título el nombre de la caja destino. Backend amplía `IntakeBatchResponse` con `target_box_name` para evitar resolución adicional en cliente. Tests backend de Slice 10 y build frontend revalidados.
 - **v1.76 (2026-03-07):** Corrección del modo “mantener sesión”: cuando `remember_me=true`, el backend emite un `access_token` persistente sin claim `exp`, lo registra como revocable en servidor y `logout`/`reset-password`/`change-password` siguen pudiendo invalidarlo. El refresh persistente se mantiene como mecanismo auxiliar de recuperación.
 - **v1.77 (2026-03-07):** Corrección de captura continua en lotes: al aceptar una foto en `/app/batches/:batchId`, la previsualización ya no desmonta el `<video>` de la cámara; se muestra como overlay sobre el stream vivo para evitar que la vista previa quede en negro en la siguiente captura. Build frontend revalidado.
+- **v1.78 (2026-03-07):** Fix de sesión persistente en backend: las validaciones de expiración de tokens (`remember_me`, refresh y reset-password) normalizan `expires_at` a UTC timezone-aware antes de comparar, evitando el error `TypeError: can't compare offset-naive and offset-aware datetimes` en despliegues con PostgreSQL. Tests backend de auth ampliados con regresión explícita.
 
 ---
 
@@ -839,6 +840,7 @@ Secciones:
   - acepta `remember_me`; si es `true`, devuelve `access_token` persistente sin `exp`, registrable/revocable en backend, y además emite cookie `HttpOnly` persistente para refresh de recuperación
 - `POST /auth/refresh`
   - acepta `refresh_token` opcional en body y/o cookie persistente; rota refresh token y cookie cuando la sesión persistente está activa, e invalida el access token persistente previo si se envía en `Authorization`
+  - la validación de expiración normaliza timestamps almacenados a UTC timezone-aware para soportar SQLite local y PostgreSQL en producción sin errores de comparación
 - `POST /auth/logout`
   - revoca refresh token enviado por body y/o cookie persistente, revoca también el access token persistente recibido por `Authorization` y borra la cookie de sesión persistente
 - `POST /auth/change-password`
@@ -1122,7 +1124,7 @@ El servidor persiste `processed_commands` para no duplicar.
 - Frontend: login/signup + selección warehouse + shell responsive.
 - Estado actual (2026-02-22): **completada**.
   - Backend: `signup`, `login`, `refresh`, `logout`, `me`, `change-password`, `forgot-password`, `reset-password`; `list/create/get/members` de warehouses.
-  - Persistencia auth: refresh tokens revocados en `logout`, `reset-password` y `change-password`; login con `remember_me` opcional que activa `access_token` persistente sin `exp`, revocable por backend, junto con cookie persistente `HttpOnly` y refresh de recuperación.
+  - Persistencia auth: refresh tokens revocados en `logout`, `reset-password` y `change-password`; login con `remember_me` opcional que activa `access_token` persistente sin `exp`, revocable por backend, junto con cookie persistente `HttpOnly` y refresh de recuperación. Las comprobaciones de expiración se hacen en UTC timezone-aware para ser consistentes entre SQLite y PostgreSQL.
   - Frontend: pantallas login/signup/forgot/reset/warehouses/shell, interceptor JWT con refresh automático en sesiones persistentes, guards y selección persistida de warehouse.
   - Responsive: shell con sidenav `over` en móvil y `side` en escritorio.
 
@@ -1258,7 +1260,7 @@ Para considerar una slice “Done”:
 - **A-015 (2026-03-04):** Para esta iteración, la persistencia de fotos usa filesystem local del backend (`media_root`) y URL pública (`/media/...`) referenciada desde `items.photo_url`, sin tabla `photos` dedicada. Si se necesita almacenamiento distribuido (S3/objeto), la migración puede conservar el contrato `photo_url`.
 - **A-015 (2026-03-04):** Para simplificar edición de credenciales LLM en Settings, `GET /settings/llm` puede devolver `api_key_value` descifrada al frontend para miembros autenticados del warehouse. La clave sigue persistida únicamente cifrada en backend y no se almacena en cliente fuera del estado temporal de formulario.
 - **A-016 (2026-03-04):** En import cross-warehouse, si el snapshot trae una caja `is_inbound=true` pero el warehouse destino ya tiene su propia caja especial activa, la caja importada se conserva como caja normal (`is_inbound=false`) para mantener un único punto de entrada visual/operativo por warehouse.
-- **A-024 (2026-03-07 / act. 2026-03-07):** El requisito de “mantener el login” se implementa, cuando `remember_me=true`, con un `access_token` persistente sin claim `exp` más un registro hash revocable en backend para conservar capacidad de invalidación en `logout`, `reset-password` y `change-password`. La cookie `HttpOnly` persistente y el refresh rotatorio se mantienen como mecanismo auxiliar de recuperación de sesión entre recargas del navegador. Sin marcar el check, el login mantiene el comportamiento estándar con access token temporal.
+- **A-024 (2026-03-07 / act. 2026-03-07):** El requisito de “mantener el login” se implementa, cuando `remember_me=true`, con un `access_token` persistente sin claim `exp` más un registro hash revocable en backend para conservar capacidad de invalidación en `logout`, `reset-password` y `change-password`. La cookie `HttpOnly` persistente y el refresh rotatorio se mantienen como mecanismo auxiliar de recuperación de sesión entre recargas del navegador. Las comparaciones de expiración se normalizan siempre a UTC timezone-aware para evitar incompatibilidades entre drivers/entornos. Sin marcar el check, el login mantiene el comportamiento estándar con access token temporal.
 - **A-017 (2026-03-05 / act. 2026-03-07):** En Slice 10, el procesamiento de intake se resuelve con un worker continuo por lote residente en el proceso backend, apoyado en `ThreadPoolExecutor` para el paralelismo efectivo y usando `intake_drafts.status='uploaded'` como cola persistida en DB. Es una solución simple y reversible para esta fase (un solo proceso backend); si se requiere resiliencia multi-worker/multi-réplica, se migrará a cola distribuida dedicada (p. ej. Redis/Celery o equivalente) manteniendo el contrato REST.
 - **A-018 (2026-03-05):** Se asume correspondencia directa entre nombres comerciales pedidos y IDs de API Gemini: `Gemini 3.1 Flash Lite`→`gemini-3.1-flash-lite`, `Gemini 3 Flash`→`gemini-3-flash`, `Gemini 2.5 Flash`→`gemini-2.5-flash`, `Gemini 2.5 Flash Lite`→`gemini-2.5-flash-lite`.
 - **A-019 (2026-03-05):** Algunos modelos Gemini 3 pueden exponerse como IDs `preview/latest` y devolver `404` en el ID base. Backend aplica resolución runtime (`-preview`, `-latest`, `-preview-latest`) antes de pasar al siguiente modelo del fallback.

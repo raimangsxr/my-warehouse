@@ -32,22 +32,17 @@ from app.services.security import (
     hash_token,
     verify_password,
 )
+from app.utils.datetime import ensure_utc, utcnow
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
-
-
-def utcnow() -> datetime:
-    # SQLite retorna datetimes naive; usamos UTC naive consistente en bootstrap local.
-    return datetime.now(UTC).replace(tzinfo=None)
-
 
 def _refresh_days(remember_me: bool) -> int:
     return settings.persistent_login_days if remember_me else settings.refresh_token_days
 
 
 def _persistent_token_expires_at() -> datetime:
-    return datetime.max.replace(tzinfo=None)
+    return datetime.max.replace(tzinfo=UTC)
 
 
 def _refresh_cookie_path() -> str:
@@ -185,7 +180,7 @@ def refresh(
 
     token_hash_value = hash_token(refresh_token_value)
     stored = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash_value))
-    if stored is None or stored.revoked or stored.expires_at < utcnow():
+    if stored is None or stored.revoked or ensure_utc(stored.expires_at) < utcnow():
         logger.error("Refresh rejected: token expired/revoked")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
@@ -264,7 +259,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
         select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash_value)
     )
 
-    if reset_token is None or reset_token.used or reset_token.expires_at < utcnow():
+    if reset_token is None or reset_token.used or ensure_utc(reset_token.expires_at) < utcnow():
         logger.error("Reset-password rejected: invalid or expired token")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
 

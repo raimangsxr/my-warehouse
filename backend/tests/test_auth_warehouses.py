@@ -1,4 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.session import engine
 from app.core.config import settings
+from app.models.refresh_token import RefreshToken
 from app.services.security import decode_token
 
 
@@ -144,6 +151,39 @@ def test_remember_me_access_token_has_no_exp_and_is_revoked_on_logout(client):
 
     me_after_logout = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
     assert me_after_logout.status_code == 401
+
+
+def test_remember_me_accepts_timezone_aware_expiration_timestamps(client):
+    client.post(
+        "/api/v1/auth/signup",
+        json={"email": "aware-expiry@example.com", "password": "password123", "display_name": "Aware Expiry"},
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "aware-expiry@example.com", "password": "password123", "remember_me": True},
+    )
+    assert login_res.status_code == 200
+    access_token = login_res.json()["access_token"]
+    refresh_token = login_res.json()["refresh_token"]
+
+    with Session(bind=engine) as db:
+        refresh_tokens = db.scalars(select(RefreshToken)).all()
+        assert refresh_tokens
+        future_expiry = datetime.now(UTC) + timedelta(days=30)
+        for stored_token in refresh_tokens:
+            stored_token.expires_at = future_expiry
+        db.commit()
+
+    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me_res.status_code == 200
+
+    refresh_res = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token, "remember_me": True},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert refresh_res.status_code == 200
 
 
 def test_standard_access_token_keeps_expiration_claim(client):
