@@ -46,6 +46,10 @@ def _refresh_days(remember_me: bool) -> int:
     return settings.persistent_login_days if remember_me else settings.refresh_token_days
 
 
+def _persistent_token_expires_at() -> datetime:
+    return datetime.max.replace(tzinfo=None)
+
+
 def _refresh_cookie_path() -> str:
     return f"{settings.api_v1_prefix}/auth"
 
@@ -75,8 +79,16 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 
 def _issue_token_pair(db: Session, user_id: str, remember_me: bool) -> TokenResponse:
-    access_token = build_access_token(user_id)
+    access_token = build_access_token(user_id, remember_me=remember_me)
     refresh_token = build_refresh_token(user_id, expires_in_days=_refresh_days(remember_me))
+    if remember_me:
+        db.add(
+            RefreshToken(
+                user_id=user_id,
+                token_hash=hash_token(access_token),
+                expires_at=_persistent_token_expires_at(),
+            )
+        )
     db.add(
         RefreshToken(
             user_id=user_id,
@@ -85,6 +97,20 @@ def _issue_token_pair(db: Session, user_id: str, remember_me: bool) -> TokenResp
         )
     )
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+def _extract_bearer_token(request: Request) -> str | None:
+    authorization = request.headers.get("authorization", "").strip()
+    if not authorization.lower().startswith("bearer "):
+        return None
+    return authorization[7:].strip() or None
+
+
+def _revoke_token_values(db: Session, token_values: set[str]) -> None:
+    if not token_values:
+        return
+    token_hashes = [hash_token(token) for token in token_values]
+    db.execute(update(RefreshToken).where(RefreshToken.token_hash.in_(token_hashes)).values(revoked=True))
 
 
 def _resolve_refresh_token(request: Request, payload: RefreshRequest | None) -> tuple[str | None, bool]:
@@ -163,7 +189,13 @@ def refresh(
         logger.error("Refresh rejected: token expired/revoked")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
-    stored.revoked = True
+    _revoke_token_values(
+        db,
+        {
+            refresh_token_value,
+            *([token] if (token := _extract_bearer_token(request)) else []),
+        },
+    )
     tokens = _issue_token_pair(db, stored.user_id, remember_me)
     db.commit()
     if remember_me:
@@ -186,12 +218,11 @@ def logout(
         for token in (
             payload.refresh_token if payload else None,
             request.cookies.get(settings.auth_cookie_name),
+            _extract_bearer_token(request),
         )
         if token
     }
-    if token_values:
-        token_hashes = [hash_token(token) for token in token_values]
-        db.execute(update(RefreshToken).where(RefreshToken.token_hash.in_(token_hashes)).values(revoked=True))
+    _revoke_token_values(db, token_values)
     db.commit()
     _clear_refresh_cookie(response)
     logger.info("Logout completed: refresh token revoked")

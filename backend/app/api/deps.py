@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 import logging
 
 from fastapi import Depends, HTTPException, status
@@ -9,11 +10,16 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.membership import Membership
+from app.models.refresh_token import RefreshToken
 from app.models.user import User
-from app.services.security import decode_token
+from app.services.security import decode_token, hash_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_v1_prefix}/auth/login")
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
@@ -28,6 +34,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if not user_id or token_type != "access":
             logger.error("Invalid access token payload sub=%s type=%s", user_id, token_type)
             raise credentials_exception
+        if payload.get("remember_me"):
+            stored = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_token(token)))
+            if stored is None or stored.revoked or stored.expires_at < _utcnow():
+                logger.error("Persistent access token revoked or missing user_id=%s", user_id)
+                raise credentials_exception
         logger.debug("Access token decoded for user_id=%s", user_id)
     except JWTError as exc:
         logger.error("JWT validation failed while resolving current user")

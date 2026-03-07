@@ -1,4 +1,5 @@
 from app.core.config import settings
+from app.services.security import decode_token
 
 
 def test_signup_login_and_create_warehouse(client):
@@ -111,6 +112,55 @@ def test_remember_me_sets_cookie_and_allows_cookie_refresh(client):
     assert refreshed_tokens["access_token"]
     assert refreshed_tokens["refresh_token"] != login_tokens["refresh_token"]
     assert client.cookies.get(settings.auth_cookie_name) == refreshed_tokens["refresh_token"]
+
+
+def test_remember_me_access_token_has_no_exp_and_is_revoked_on_logout(client):
+    client.post(
+        "/api/v1/auth/signup",
+        json={"email": "persistent-access@example.com", "password": "password123", "display_name": "Persistent"},
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "persistent-access@example.com", "password": "password123", "remember_me": True},
+    )
+    assert login_res.status_code == 200
+    access_token = login_res.json()["access_token"]
+    refresh_token = login_res.json()["refresh_token"]
+    token_payload = decode_token(access_token)
+
+    assert token_payload["remember_me"] is True
+    assert "exp" not in token_payload
+
+    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me_res.status_code == 200
+
+    logout_res = client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": refresh_token},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert logout_res.status_code == 200
+
+    me_after_logout = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me_after_logout.status_code == 401
+
+
+def test_standard_access_token_keeps_expiration_claim(client):
+    client.post(
+        "/api/v1/auth/signup",
+        json={"email": "standard-access@example.com", "password": "password123", "display_name": "Standard"},
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "standard-access@example.com", "password": "password123", "remember_me": False},
+    )
+    assert login_res.status_code == 200
+    token_payload = decode_token(login_res.json()["access_token"])
+
+    assert "exp" in token_payload
+    assert token_payload.get("remember_me") is None
 
 
 def test_login_without_remember_me_clears_persistent_cookie(client):

@@ -527,17 +527,19 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
             </button>
           </div>
 
-          <div class="capture-stage" *ngIf="!capturedPreviewUrl; else capturedPreview">
-            <video #cameraVideo autoplay playsinline muted class="camera-video"></video>
-            <div class="status-line" *ngIf="cameraLoading">Abriendo cámara...</div>
-            <div class="error" *ngIf="cameraErrorMessage">{{ cameraErrorMessage }}</div>
-          </div>
-
-          <ng-template #capturedPreview>
-            <div class="capture-stage">
-              <img [src]="capturedPreviewUrl" alt="Previsualización de captura" class="camera-preview" />
+          <div class="capture-stage">
+            <div class="capture-media-frame">
+              <video #cameraVideo autoplay playsinline muted class="camera-video"></video>
+              <img
+                *ngIf="capturedPreviewUrl"
+                [src]="capturedPreviewUrl"
+                alt="Previsualización de captura"
+                class="camera-preview camera-preview-overlay"
+              />
             </div>
-          </ng-template>
+            <div class="status-line" *ngIf="cameraLoading && !capturedPreviewUrl">Abriendo cámara...</div>
+            <div class="error" *ngIf="cameraErrorMessage && !capturedPreviewUrl">{{ cameraErrorMessage }}</div>
+          </div>
 
           <div class="capture-panel-actions" *ngIf="!capturedPreviewUrl">
             <button mat-stroked-button type="button" (click)="openPicker()">Subir desde galería</button>
@@ -888,14 +890,25 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
         gap: 8px;
       }
 
+      .capture-media-frame {
+        position: relative;
+      }
+
       .camera-video,
       .camera-preview {
+        display: block;
         width: 100%;
         max-height: 62vh;
         border-radius: 16px;
         border: 1px solid var(--border-soft);
         background: #0f172a;
         object-fit: cover;
+      }
+
+      .camera-preview-overlay {
+        position: absolute;
+        inset: 0;
+        height: 100%;
       }
 
       .camera-canvas {

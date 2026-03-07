@@ -18,10 +18,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def build_access_token(user_id: str) -> str:
+def build_access_token(user_id: str, remember_me: bool = False) -> str:
     now = datetime.now(timezone.utc)
-    exp = now + timedelta(minutes=settings.access_token_minutes)
-    payload = {"sub": user_id, "type": "access", "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    payload = {"sub": user_id, "type": "access", "iat": int(now.timestamp())}
+    if remember_me:
+        payload["remember_me"] = True
+        payload["jti"] = secrets.token_urlsafe(16)
+    else:
+        exp = now + timedelta(minutes=settings.access_token_minutes)
+        payload["exp"] = int(exp.timestamp())
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
