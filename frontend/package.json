@@ -1,6 +1,6 @@
 {
   "name": "my-warehouse-frontend",
-  "version": "0.2.6",
+  "version": "0.3.2",
   "private": true,
   "scripts": {
     "start": "ng serve",
