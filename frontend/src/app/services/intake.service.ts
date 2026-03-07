@@ -19,6 +19,7 @@ export interface IntakeBatch {
   id: string;
   warehouse_id: string;
   target_box_id: string;
+  target_box_name: string | null;
   created_by: string;
   name: string | null;
   status: IntakeBatchStatus;
@@ -48,6 +49,8 @@ export interface IntakeDraft {
   llm_used: boolean;
   error_message: string | null;
   processing_attempts: number;
+  quantity: number;
+  committed_quantity: number;
   created_item_id: string | null;
   created_at: string;
   updated_at: string;
@@ -129,6 +132,7 @@ export class IntakeService {
       description?: string | null;
       tags?: string[];
       aliases?: string[];
+      quantity?: number;
       status?: IntakeDraftStatus;
     }
   ): Observable<IntakeDraft> {

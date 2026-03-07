@@ -1,3 +1,6 @@
+from app.core.config import settings
+
+
 def test_signup_login_and_create_warehouse(client):
     signup_res = client.post(
         "/api/v1/auth/signup",
@@ -80,3 +83,76 @@ def test_forgot_reset_and_change_password_flow(client):
         "/api/v1/auth/login", json={"email": "reset@example.com", "password": "finalpassword123"}
     )
     assert final_login.status_code == 200
+
+
+def test_remember_me_sets_cookie_and_allows_cookie_refresh(client):
+    client.post(
+        "/api/v1/auth/signup",
+        json={"email": "remember@example.com", "password": "password123", "display_name": "Remember User"},
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "remember@example.com", "password": "password123", "remember_me": True},
+    )
+    assert login_res.status_code == 200
+    login_tokens = login_res.json()
+    set_cookie_header = login_res.headers.get("set-cookie", "").lower()
+
+    assert login_res.cookies.get(settings.auth_cookie_name) == login_tokens["refresh_token"]
+    assert client.cookies.get(settings.auth_cookie_name) == login_tokens["refresh_token"]
+    assert "httponly" in set_cookie_header
+    assert f"{settings.auth_cookie_name}=" in set_cookie_header
+
+    refresh_res = client.post("/api/v1/auth/refresh", json={"remember_me": True})
+    assert refresh_res.status_code == 200
+    refreshed_tokens = refresh_res.json()
+
+    assert refreshed_tokens["access_token"]
+    assert refreshed_tokens["refresh_token"] != login_tokens["refresh_token"]
+    assert client.cookies.get(settings.auth_cookie_name) == refreshed_tokens["refresh_token"]
+
+
+def test_login_without_remember_me_clears_persistent_cookie(client):
+    client.post(
+        "/api/v1/auth/signup",
+        json={"email": "cookie-clear@example.com", "password": "password123", "display_name": "Cookie Clear"},
+    )
+
+    remembered = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cookie-clear@example.com", "password": "password123", "remember_me": True},
+    )
+    assert remembered.status_code == 200
+    assert client.cookies.get(settings.auth_cookie_name)
+
+    regular_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cookie-clear@example.com", "password": "password123", "remember_me": False},
+    )
+    assert regular_login.status_code == 200
+    assert client.cookies.get(settings.auth_cookie_name) is None
+    assert "max-age=0" in regular_login.headers.get("set-cookie", "").lower()
+
+
+def test_logout_revokes_refresh_token_and_clears_cookie(client):
+    client.post(
+        "/api/v1/auth/signup",
+        json={"email": "logout-remember@example.com", "password": "password123", "display_name": "Logout User"},
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "logout-remember@example.com", "password": "password123", "remember_me": True},
+    )
+    refresh_token = login_res.json()["refresh_token"]
+
+    logout_res = client.post("/api/v1/auth/logout", json={"refresh_token": refresh_token})
+    assert logout_res.status_code == 200
+    assert client.cookies.get(settings.auth_cookie_name) is None
+
+    refresh_res = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token, "remember_me": True},
+    )
+    assert refresh_res.status_code == 401

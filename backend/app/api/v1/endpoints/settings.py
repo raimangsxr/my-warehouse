@@ -146,6 +146,7 @@ def get_llm_settings(
             provider="gemini",
             language="es",
             model_priority=list(DEFAULT_GEMINI_MODEL_PRIORITY),
+            intake_parallelism=4,
             auto_tags_enabled=True,
             auto_alias_enabled=True,
             has_api_key=False,
@@ -164,6 +165,7 @@ def get_llm_settings(
         provider=setting.provider,
         language=setting.language,
         model_priority=normalize_model_priority(setting.model_priority),
+        intake_parallelism=max(1, min(int(getattr(setting, "intake_parallelism", 4) or 4), 8)),
         auto_tags_enabled=setting.auto_tags_enabled,
         auto_alias_enabled=setting.auto_alias_enabled,
         has_api_key=bool(setting.api_key_encrypted),
@@ -186,6 +188,7 @@ def update_llm_settings(
             provider=payload.provider,
             language=payload.language,
             model_priority=list(payload.model_priority),
+            intake_parallelism=payload.intake_parallelism,
             auto_tags_enabled=payload.auto_tags_enabled,
             auto_alias_enabled=payload.auto_alias_enabled,
             updated_by=current_user.id,
@@ -195,6 +198,7 @@ def update_llm_settings(
     setting.provider = payload.provider
     setting.language = payload.language
     setting.model_priority = list(payload.model_priority)
+    setting.intake_parallelism = payload.intake_parallelism
     setting.auto_tags_enabled = payload.auto_tags_enabled
     setting.auto_alias_enabled = payload.auto_alias_enabled
     setting.updated_by = current_user.id

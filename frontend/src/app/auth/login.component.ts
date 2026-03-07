@@ -4,6 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -20,6 +21,7 @@ import { AuthService } from '../services/auth.service';
     RouterLink,
     MatButtonModule,
     MatCardModule,
+    MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
     MatIconModule,
@@ -55,6 +57,10 @@ import { AuthService } from '../services/auth.service';
                 <input matInput type="password" formControlName="password" autocomplete="current-password" />
               </mat-form-field>
 
+              <mat-checkbox class="auth-checkbox" formControlName="rememberMe">
+                Mantener sesión en este dispositivo
+              </mat-checkbox>
+
               <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
 
               <button class="full-width" mat-flat-button color="primary" [disabled]="loading || form.invalid">
@@ -77,7 +83,8 @@ export class LoginComponent {
 
   readonly form = this.fb.nonNullable.group({
     email: ['', [Validators.required]],
-    password: ['', [Validators.required, Validators.minLength(8)]]
+    password: ['', [Validators.required, Validators.minLength(8)]],
+    rememberMe: false
   });
 
   constructor(

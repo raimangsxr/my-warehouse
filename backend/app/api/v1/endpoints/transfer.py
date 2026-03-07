@@ -22,6 +22,7 @@ from app.schemas.transfer import (
     WarehouseImportRequest,
     WarehouseImportResponse,
 )
+from app.services.box_codes import coerce_unique_short_code
 from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}", tags=["transfer"])
@@ -162,9 +163,11 @@ def import_warehouse(
                 qr_owner = db.scalar(select(Box.id).where(Box.qr_token == qr_token))
                 if qr_owner is not None and qr_owner != mapped_box_id:
                     qr_token = secrets.token_urlsafe(24)
-                short_code = box_payload.short_code
-                if qr_token != box_payload.qr_token:
-                    short_code = f"BX-{secrets.token_hex(3).upper()}"
+                short_code = coerce_unique_short_code(
+                    db,
+                    box_payload.short_code,
+                    exclude_box_id=mapped_box_id,
+                )
 
                 db.add(
                     Box(
@@ -181,6 +184,7 @@ def import_warehouse(
                         deleted_at=box_payload.deleted_at,
                     )
                 )
+                db.flush()
             else:
                 qr_token = box_payload.qr_token
                 qr_owner = db.scalar(
@@ -192,7 +196,11 @@ def import_warehouse(
                 existing_box.name = box_payload.name
                 existing_box.description = box_payload.description
                 existing_box.physical_location = box_payload.physical_location
-                existing_box.short_code = box_payload.short_code
+                existing_box.short_code = coerce_unique_short_code(
+                    db,
+                    box_payload.short_code,
+                    exclude_box_id=existing_box.id,
+                )
                 existing_box.qr_token = qr_token
                 existing_box.is_inbound = is_inbound
                 existing_box.version = box_payload.version

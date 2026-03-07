@@ -145,6 +145,10 @@ a:hover {
   gap: 14px;
 }
 
+.auth-checkbox {
+  color: var(--text-2);
+}
+
 .form-row {
   display: flex;
   flex-wrap: wrap;

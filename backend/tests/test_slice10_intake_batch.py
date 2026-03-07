@@ -1,5 +1,6 @@
 from base64 import b64decode
 from pathlib import Path
+import time
 
 from app.core.config import settings
 
@@ -35,6 +36,30 @@ def create_box(client, headers, warehouse_id) -> str:
     return res.json()["id"]
 
 
+def wait_for_batch_detail(
+    client,
+    warehouse_id: str,
+    batch_id: str,
+    headers: dict[str, str],
+    predicate,
+    *,
+    timeout_seconds: float = 3.0,
+):
+    deadline = time.time() + timeout_seconds
+    last_payload = None
+    while time.time() < deadline:
+        response = client.get(
+            f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        last_payload = response.json()
+        if predicate(last_payload):
+            return last_payload
+        time.sleep(0.05)
+    raise AssertionError(f"Timed out waiting for batch condition. Last payload: {last_payload}")
+
+
 def test_intake_batch_full_lifecycle(client):
     headers = signup_and_login(client, "slice10-intake@example.com")
     warehouse_id = create_warehouse(client, headers)
@@ -47,6 +72,7 @@ def test_intake_batch_full_lifecycle(client):
     )
     assert created.status_code == 201
     batch_id = created.json()["batch"]["id"]
+    assert created.json()["batch"]["target_box_name"] == "Caja destino"
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
@@ -64,21 +90,18 @@ def test_intake_batch_full_lifecycle(client):
     intake_dir = Path(settings.media_root) / warehouse_id / "intake" / batch_id
     assert intake_dir.exists() and intake_dir.is_dir()
 
-    start = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
-        json={"retry_errors": False},
-        headers=headers,
+    detail = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: len(payload["drafts"]) == 2 and payload["batch"]["status"] != "processing",
     )
-    assert start.status_code == 200
-
-    detail = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
-    )
-    assert detail.status_code == 200
-    drafts = detail.json()["drafts"]
+    assert detail["batch"]["target_box_name"] == "Caja destino"
+    drafts = detail["drafts"]
     assert len(drafts) == 2
 
+    expected_quantities = {drafts[0]["id"]: 4, drafts[1]["id"]: 2}
     for draft in drafts:
         patch = client.patch(
             f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft['id']}",
@@ -87,12 +110,14 @@ def test_intake_batch_full_lifecycle(client):
                 "description": draft.get("description") or "Descripcion",
                 "tags": draft.get("tags") or ["inventario"],
                 "aliases": draft.get("aliases") or ["articulo"],
+                "quantity": expected_quantities[draft["id"]],
                 "status": "ready",
             },
             headers=headers,
         )
         assert patch.status_code == 200
         assert patch.json()["status"] == "ready"
+        assert patch.json()["quantity"] == expected_quantities[draft["id"]]
 
     commit = client.post(
         f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
@@ -109,7 +134,7 @@ def test_intake_batch_full_lifecycle(client):
     assert items.status_code == 200
     assert len(items.json()) == 2
     assert all(item["box_id"] == box_id for item in items.json())
-    assert all(item["stock"] == 1 for item in items.json())
+    assert sorted(item["stock"] for item in items.json()) == [2, 4]
     assert all(item["photo_url"] for item in items.json())
     assert all(f"/media/{warehouse_id}/items/" in item["photo_url"] for item in items.json())
     assert not intake_dir.exists()
@@ -170,6 +195,64 @@ def test_intake_allows_uploading_new_photos_after_batch_committed(client):
     assert append_payload["drafts"][0]["status"] == "uploaded"
 
 
+def test_committed_draft_quantity_updates_item_stock(client):
+    headers = signup_and_login(client, "slice10-committed-quantity@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    box_id = create_box(client, headers, warehouse_id)
+
+    created = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        json={"target_box_id": box_id, "name": "Lote cantidad commit"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["batch"]["id"]
+
+    png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("quantity.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    draft_id = upload.json()["drafts"][0]["id"]
+
+    mark_ready = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        json={
+            "name": "Caja de tornillos",
+            "quantity": 3,
+            "status": "ready",
+        },
+        headers=headers,
+    )
+    assert mark_ready.status_code == 200
+    assert mark_ready.json()["quantity"] == 3
+
+    commit = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
+        json={"include_review": False},
+        headers=headers,
+    )
+    assert commit.status_code == 200
+    assert commit.json()["created"] == 1
+
+    committed = client.patch(
+        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        json={"quantity": 5},
+        headers=headers,
+    )
+    assert committed.status_code == 200
+    assert committed.json()["status"] == "committed"
+    assert committed.json()["quantity"] == 5
+    assert committed.json()["committed_quantity"] == 5
+
+    items = client.get(f"/api/v1/warehouses/{warehouse_id}/items", headers=headers)
+    assert items.status_code == 200
+    assert len(items.json()) == 1
+    assert items.json()[0]["stock"] == 5
+
+
 def test_intake_processing_without_llm_fallback_sets_error(client):
     headers = signup_and_login(client, "slice10-no-llm@example.com")
     warehouse_id = create_warehouse(client, headers)
@@ -198,12 +281,14 @@ def test_intake_processing_without_llm_fallback_sets_error(client):
     )
     assert start.status_code == 200
 
-    detail = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "error",
     )
-    assert detail.status_code == 200
-    drafts = detail.json()["drafts"]
+    drafts = detail["drafts"]
     assert len(drafts) == 1
     assert drafts[0]["status"] == "error"
     assert drafts[0]["llm_used"] is False
@@ -274,12 +359,14 @@ def test_retry_errors_only_processes_error_drafts(client, monkeypatch):
     assert start_retry.status_code == 200
     assert "secuencial" in start_retry.json()["message"].lower()
 
-    detail = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: any(draft["id"] == error_draft_id and draft["status"] == "ready" for draft in payload["drafts"]),
     )
-    assert detail.status_code == 200
-    detail_by_id = {draft["id"]: draft for draft in detail.json()["drafts"]}
+    detail_by_id = {draft["id"]: draft for draft in detail["drafts"]}
     assert detail_by_id[error_draft_id]["status"] == "ready"
     assert detail_by_id[untouched_draft_id]["status"] == "uploaded"
     assert processed_calls == 1
@@ -347,14 +434,6 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     batch_id = created.json()["batch"]["id"]
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
-    upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
-        files=[("files", ("retry.png", png_bytes, "image/png"))],
-        headers=headers,
-    )
-    assert upload.status_code == 201
-    draft_id = upload.json()["drafts"][0]["id"]
-
     suggested_name = "Taladro base"
     changed_name = "Taladro Bosch Professional"
     captured_calls: list[tuple[str | None, str | None]] = []
@@ -399,19 +478,22 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
 
     monkeypatch.setattr(intake_service, "generate_item_draft_from_photo", fake_generate)
 
-    start_initial = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
-        json={"retry_errors": False},
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("retry.png", png_bytes, "image/png"))],
         headers=headers,
     )
-    assert start_initial.status_code == 200
+    assert upload.status_code == 201
+    draft_id = upload.json()["drafts"][0]["id"]
 
-    detail_initial = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail_initial = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "ready",
     )
-    assert detail_initial.status_code == 200
-    assert detail_initial.json()["drafts"][0]["name"] == suggested_name
+    assert detail_initial["drafts"][0]["name"] == suggested_name
 
     requeue_changed_name = client.patch(
         f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
@@ -433,12 +515,14 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     )
     assert start_with_changed_name.status_code == 200
 
-    detail_changed_name = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail_changed_name = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "ready" and payload["drafts"][0]["name"] == changed_name,
     )
-    assert detail_changed_name.status_code == 200
-    assert detail_changed_name.json()["drafts"][0]["name"] == changed_name
+    assert detail_changed_name["drafts"][0]["name"] == changed_name
 
     requeue_unchanged_name = client.patch(
         f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
@@ -457,12 +541,14 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     )
     assert start_with_same_name.status_code == 200
 
-    detail = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "ready",
     )
-    assert detail.status_code == 200
-    assert detail.json()["drafts"][0]["status"] == "ready"
+    assert detail["drafts"][0]["status"] == "ready"
 
     assert len(captured_calls) == 3
     assert captured_calls[0] == (None, None)  # initial proposal from image only
@@ -630,14 +716,6 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     batch_id = created.json()["batch"]["id"]
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
-    upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
-        files=[("files", ("draft-reprocess.png", png_bytes, "image/png"))],
-        headers=headers,
-    )
-    assert upload.status_code == 201
-    draft_id = upload.json()["drafts"][0]["id"]
-
     captured_context_names: list[str | None] = []
 
     def fake_generate(
@@ -661,6 +739,22 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
 
     monkeypatch.setattr(intake_service, "generate_item_draft_from_photo", fake_generate)
 
+    upload = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        files=[("files", ("draft-reprocess.png", png_bytes, "image/png"))],
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    draft_id = upload.json()["drafts"][0]["id"]
+
+    wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "ready",
+    )
+
     set_base_name = client.patch(
         f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={"name": "Nombre manual base", "status": "error"},
@@ -676,14 +770,16 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     assert reprocess_photo.status_code == 200
     assert "solo foto" in reprocess_photo.json()["message"].lower()
 
-    detail_photo = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail_photo = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "ready" and payload["drafts"][0]["name"] == "Nombre IA 2",
     )
-    assert detail_photo.status_code == 200
-    draft_after_photo = detail_photo.json()["drafts"][0]
+    draft_after_photo = detail_photo["drafts"][0]
     assert draft_after_photo["status"] == "ready"
-    assert draft_after_photo["name"] == "Nombre IA 1"
+    assert draft_after_photo["name"] == "Nombre IA 2"
     assert captured_context_names[0] is None
 
     set_manual_name = client.patch(
@@ -701,16 +797,18 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     assert reprocess_name.status_code == 200
     assert "titulo" in reprocess_name.json()["message"].lower()
 
-    detail_name = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
-        headers=headers,
+    detail_name = wait_for_batch_detail(
+        client,
+        warehouse_id,
+        batch_id,
+        headers,
+        lambda payload: payload["drafts"][0]["status"] == "ready" and payload["drafts"][0]["name"] == "Taladro manual 18V",
     )
-    assert detail_name.status_code == 200
-    draft_after_name = detail_name.json()["drafts"][0]
+    draft_after_name = detail_name["drafts"][0]
     assert draft_after_name["status"] == "ready"
     assert draft_after_name["name"] == "Taladro manual 18V"
-    assert captured_context_names[1] == "Taladro manual 18V"
-    assert len(captured_context_names) == 2
+    assert captured_context_names[2] == "Taladro manual 18V"
+    assert len(captured_context_names) == 3
 
 
 def test_delete_draft_removes_temp_photo_and_draft_row(client):

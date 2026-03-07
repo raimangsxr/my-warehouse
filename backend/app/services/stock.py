@@ -12,7 +12,16 @@ def initial_stock_command_id(item_id: str) -> str:
     return f"item-create:{item_id}"
 
 
-def ensure_initial_stock_movement(db: Session, *, warehouse_id: str, item_id: str) -> tuple[str, bool]:
+def ensure_initial_stock_movement(
+    db: Session,
+    *,
+    warehouse_id: str,
+    item_id: str,
+    initial_delta: int = 1,
+) -> tuple[str, bool]:
+    if initial_delta < 1:
+        raise ValueError("initial_delta must be >= 1")
+
     command_id = initial_stock_command_id(item_id)
     existing = db.scalar(
         select(StockMovement).where(
@@ -33,15 +42,16 @@ def ensure_initial_stock_movement(db: Session, *, warehouse_id: str, item_id: st
         StockMovement(
             warehouse_id=warehouse_id,
             item_id=item_id,
-            delta=1,
+            delta=initial_delta,
             command_id=command_id,
             note="Initial stock on item creation",
         )
     )
     logger.info(
-        "Initial stock movement created warehouse_id=%s item_id=%s command_id=%s",
+        "Initial stock movement created warehouse_id=%s item_id=%s command_id=%s delta=%s",
         warehouse_id,
         item_id,
         command_id,
+        initial_delta,
     )
     return command_id, True

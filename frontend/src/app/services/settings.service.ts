@@ -27,6 +27,7 @@ export interface LLMSettings {
   provider: string;
   language: 'es' | 'en';
   model_priority: GeminiModelId[];
+  intake_parallelism: number;
   auto_tags_enabled: boolean;
   auto_alias_enabled: boolean;
   has_api_key: boolean;
@@ -86,6 +87,7 @@ export class SettingsService {
       provider: string;
       language: 'es' | 'en';
       model_priority: GeminiModelId[];
+      intake_parallelism: number;
       api_key?: string | null;
       auto_tags_enabled: boolean;
       auto_alias_enabled: boolean;

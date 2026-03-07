@@ -35,7 +35,7 @@ type BarcodeDetectorLike = {
       <header class="page-header">
         <div>
           <h1 class="page-title">Escáner QR</h1>
-          <p class="page-subtitle">Escanea con cámara o resuelve el token manualmente</p>
+          <p class="page-subtitle">Escanea con cámara o abre la caja manualmente por código</p>
         </div>
       </header>
 
@@ -43,7 +43,7 @@ type BarcodeDetectorLike = {
         <mat-progress-bar *ngIf="scanning" mode="indeterminate" />
         <mat-card-content>
           <p class="status-line">
-            Si el navegador soporta escaneo nativo, activa cámara. Si no, pega el token QR manual.
+            Si el navegador soporta escaneo nativo, activa cámara. Si no, escribe el código de la caja. El token QR también sigue funcionando.
           </p>
 
           <div class="actions-mobile-full mt-10">
@@ -63,12 +63,12 @@ type BarcodeDetectorLike = {
 
           <div class="form-row mt-14">
             <mat-form-field class="grow">
-              <mat-label>Token QR (manual)</mat-label>
+              <mat-label>Código de caja o token QR</mat-label>
               <mat-icon matPrefix>qr_code_2</mat-icon>
-              <input matInput [(ngModel)]="manualToken" />
+              <input matInput [(ngModel)]="manualIdentifier" />
             </mat-form-field>
             <div class="inline-actions">
-              <button mat-flat-button color="primary" type="button" (click)="resolveManualToken()" [disabled]="!manualToken.trim()">
+              <button mat-flat-button color="primary" type="button" (click)="resolveManualIdentifier()" [disabled]="!manualIdentifier.trim()">
                 Abrir caja
               </button>
             </div>
@@ -94,7 +94,7 @@ type BarcodeDetectorLike = {
 export class ScanComponent implements OnInit, OnDestroy {
   @ViewChild('videoEl') videoEl?: ElementRef<HTMLVideoElement>;
 
-  manualToken = '';
+  manualIdentifier = '';
   scanning = false;
   errorMessage = '';
   statusMessage = '';
@@ -111,10 +111,10 @@ export class ScanComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    const routeToken = this.route.snapshot.paramMap.get('qrToken') || this.route.snapshot.queryParamMap.get('token');
-    if (routeToken) {
-      this.manualToken = routeToken;
-      this.resolveToken(routeToken);
+    const routeIdentifier = this.route.snapshot.paramMap.get('qrToken') || this.route.snapshot.queryParamMap.get('token');
+    if (routeIdentifier) {
+      this.manualIdentifier = routeIdentifier;
+      this.resolveIdentifier(routeIdentifier);
     }
   }
 
@@ -135,7 +135,7 @@ export class ScanComponent implements OnInit, OnDestroy {
     const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (config: { formats: string[] }) => BarcodeDetectorLike })
       .BarcodeDetector;
     if (!BarcodeDetectorCtor) {
-      this.setActionError('Este navegador no soporta BarcodeDetector. Usa el token manual.');
+      this.setActionError('Este navegador no soporta BarcodeDetector. Usa el código manual.');
       return;
     }
 
@@ -156,9 +156,9 @@ export class ScanComponent implements OnInit, OnDestroy {
           const results = await detector.detect(video);
           const token = results.find((r) => !!r.rawValue)?.rawValue?.trim();
           if (token) {
-            this.manualToken = token;
+            this.manualIdentifier = token;
             this.stopCameraScan();
-            this.resolveToken(token);
+            this.resolveIdentifier(token);
           }
         } catch {
           // keep scanning silently
@@ -186,34 +186,39 @@ export class ScanComponent implements OnInit, OnDestroy {
     }
   }
 
-  resolveManualToken(): void {
-    this.resolveToken(this.manualToken.trim());
+  resolveManualIdentifier(): void {
+    this.resolveIdentifier(this.manualIdentifier.trim());
   }
 
-  private resolveToken(token: string): void {
-    if (!token) {
+  private resolveIdentifier(identifier: string): void {
+    const normalizedIdentifier = identifier.trim();
+    if (!normalizedIdentifier) {
       return;
     }
     this.errorMessage = '';
-    this.statusMessage = 'Resolviendo QR...';
-    this.boxService.resolveByQrToken(token).subscribe({
+    this.statusMessage = 'Resolviendo caja...';
+    this.boxService.resolveByIdentifier(normalizedIdentifier).subscribe({
       next: (lookup) => {
         this.warehouseService.setSelectedWarehouseId(lookup.warehouse_id);
         this.statusMessage = '';
-        this.notificationService.success('QR resuelto. Abriendo caja.');
+        this.notificationService.success(`Caja ${lookup.short_code} resuelta. Abriendo caja.`);
         this.router.navigateByUrl(`/app/boxes/${lookup.box_id}`);
       },
       error: (err) => {
         this.statusMessage = '';
         if (err?.status === 403) {
-          this.setActionError('No tienes acceso al warehouse de este QR.');
+          this.setActionError('No tienes acceso al warehouse de esta caja.');
           return;
         }
         if (err?.status === 404) {
-          this.setActionError('QR no válido o caja no encontrada.');
+          this.setActionError('Código o QR no válido, o caja no encontrada.');
           return;
         }
-        this.setActionError('No se pudo resolver el QR.');
+        if (err?.status === 409) {
+          this.setActionError('Ese código coincide con varias cajas accesibles. Usa el QR para abrir la correcta.');
+          return;
+        }
+        this.setActionError('No se pudo resolver la caja.');
       }
     });
   }

@@ -100,4 +100,8 @@ export class BoxService {
   resolveByQrToken(qrToken: string): Observable<BoxByQrLookup> {
     return this.http.get<BoxByQrLookup>(`${environment.apiBaseUrl}/boxes/by-qr/${encodeURIComponent(qrToken)}`);
   }
+
+  resolveByIdentifier(identifier: string): Observable<BoxByQrLookup> {
+    return this.http.get<BoxByQrLookup>(`${environment.apiBaseUrl}/boxes/resolve/${encodeURIComponent(identifier)}`);
+  }
 }

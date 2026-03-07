@@ -256,6 +256,16 @@ import { PwaService } from '../services/pwa.service';
               <mat-checkbox formControlName="autoAliasEnabled">Auto-alias</mat-checkbox>
             </div>
 
+            <div class="form-row">
+              <mat-form-field>
+                <mat-label>Workers intake por lote</mat-label>
+                <input matInput type="number" min="1" max="8" formControlName="intakeParallelism" />
+              </mat-form-field>
+              <p class="status-line">
+                Paralelismo del procesamiento IA de fotos en captura por lote. Rango 1-8.
+              </p>
+            </div>
+
             <div class="model-priority-section">
               <div class="model-priority-header">
                 <strong>Orden de fallback de modelos</strong>
@@ -503,6 +513,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     provider: ['gemini', [Validators.required]],
     language: ['es' as 'es' | 'en', [Validators.required]],
     apiKey: [''],
+    intakeParallelism: [4, [Validators.required, Validators.min(1), Validators.max(8)]],
     autoTagsEnabled: true,
     autoAliasEnabled: true
   });
@@ -607,7 +618,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   saveLlm(): void {
-    if (!this.selectedWarehouseId || this.llmLoading) {
+    if (!this.selectedWarehouseId || this.llmLoading || this.llmForm.invalid) {
       return;
     }
     this.llmLoading = true;
@@ -619,6 +630,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         provider: raw.provider.trim(),
         language: raw.language,
         model_priority: [...this.llmModelPriority],
+        intake_parallelism: Number(raw.intakeParallelism),
         api_key: raw.apiKey || null,
         auto_tags_enabled: raw.autoTagsEnabled,
         auto_alias_enabled: raw.autoAliasEnabled
@@ -826,6 +838,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
           provider: llm.provider,
           language: llm.language,
           apiKey: llm.api_key_value || '',
+          intakeParallelism: llm.intake_parallelism,
           autoTagsEnabled: llm.auto_tags_enabled,
           autoAliasEnabled: llm.auto_alias_enabled
         });

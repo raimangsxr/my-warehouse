@@ -23,6 +23,7 @@ from app.services.secret_store import decrypt_secret
 logger = logging.getLogger(__name__)
 
 DEFAULT_PARALLEL_WORKERS = 4
+MAX_PARALLEL_WORKERS = 8
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 _ALLOWED_SUFFIX_MIME = {
     ".jpg": "image/jpeg",
@@ -75,6 +76,19 @@ def refresh_batch_rollup(db: Session, batch: IntakeBatch) -> dict[str, int]:
     return counts
 
 
+def resolve_parallel_worker_count(requested_workers: int | None) -> int:
+    if requested_workers is None:
+        requested_workers = DEFAULT_PARALLEL_WORKERS
+    return max(1, min(int(requested_workers), MAX_PARALLEL_WORKERS))
+
+
+def resolve_intake_parallelism_for_warehouse(db: Session, warehouse_id: str) -> int:
+    setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
+    if setting is None:
+        return DEFAULT_PARALLEL_WORKERS
+    return resolve_parallel_worker_count(getattr(setting, "intake_parallelism", DEFAULT_PARALLEL_WORKERS))
+
+
 def process_intake_batch(
     warehouse_id: str,
     batch_id: str,
@@ -82,12 +96,13 @@ def process_intake_batch(
     max_parallel_workers: int = DEFAULT_PARALLEL_WORKERS,
     draft_ids: list[str] | None = None,
     context_name_overrides: dict[str, str | None] | None = None,
-) -> None:
+) -> int:
+    workers_limit = resolve_parallel_worker_count(max_parallel_workers)
     logger.info(
         "Intake worker started warehouse_id=%s batch_id=%s max_parallel_workers=%s draft_filter=%s",
         warehouse_id,
         batch_id,
-        max_parallel_workers,
+        workers_limit,
         len(draft_ids) if draft_ids else 0,
     )
     db = SessionLocal()
@@ -97,7 +112,7 @@ def process_intake_batch(
         )
         if batch is None:
             logger.error("Intake worker aborted: batch not found warehouse_id=%s batch_id=%s", warehouse_id, batch_id)
-            return
+            return 0
 
         query = (
             select(IntakeDraft)
@@ -120,7 +135,7 @@ def process_intake_batch(
                 warehouse_id,
                 batch_id,
             )
-            return
+            return 0
 
         for draft in pending:
             draft.status = IntakeDraftStatus.processing.value
@@ -149,7 +164,7 @@ def process_intake_batch(
             warehouse_id,
             batch_id,
             len(pending),
-            max(1, min(max_parallel_workers, len(pending), 8)),
+            max(1, min(workers_limit, len(pending), MAX_PARALLEL_WORKERS)),
             output_language,
         )
 
@@ -174,7 +189,7 @@ def process_intake_batch(
                 )
             context_by_draft_id[draft_id] = {"name_context": name_context}
 
-        workers = max(1, min(max_parallel_workers, len(jobs), 8))
+        workers = max(1, min(workers_limit, len(jobs), MAX_PARALLEL_WORKERS))
         results: dict[str, dict[str, object]] = {}
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -256,6 +271,7 @@ def process_intake_batch(
             error_count,
             len(processed_drafts),
         )
+        return len(processed_drafts)
     finally:
         db.close()
 

@@ -25,9 +25,9 @@ def build_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def build_refresh_token(user_id: str) -> str:
+def build_refresh_token(user_id: str, expires_in_days: int | None = None) -> str:
     now = datetime.now(timezone.utc)
-    exp = now + timedelta(days=settings.refresh_token_days)
+    exp = now + timedelta(days=expires_in_days or settings.refresh_token_days)
     # Include jti to avoid collisions when issuing multiple tokens in the same second.
     payload = {
         "sub": user_id,

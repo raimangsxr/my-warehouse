@@ -79,6 +79,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     assert llm_get_default.status_code == 200
     assert llm_get_default.json()["language"] == "es"
     assert llm_get_default.json()["api_key_value"] is None
+    assert llm_get_default.json()["intake_parallelism"] == 4
     assert llm_get_default.json()["model_priority"] == [
         "gemini-3.1-flash-lite",
         "gemini-3-flash",
@@ -93,6 +94,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
             "provider": "gemini",
             "language": "en",
             "model_priority": custom_priority,
+            "intake_parallelism": 6,
             "api_key": "gemini-secret-key",
             "auto_tags_enabled": True,
             "auto_alias_enabled": True,
@@ -103,6 +105,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     assert llm_put.json()["has_api_key"] is True
     assert llm_put.json()["language"] == "en"
     assert llm_put.json()["model_priority"] == custom_priority
+    assert llm_put.json()["intake_parallelism"] == 6
     assert llm_put.json()["api_key_value"] == "gemini-secret-key"
 
     def fake_tags_aliases(

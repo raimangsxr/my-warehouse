@@ -44,6 +44,7 @@ class IntakeDraftUpdateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     tags: list[str] | None = None
     aliases: list[str] | None = None
+    quantity: int | None = Field(default=None, ge=1, le=9999)
     status: IntakeDraftStatus | None = None
 
 
@@ -69,6 +70,8 @@ class IntakeDraftResponse(BaseModel):
     llm_used: bool
     error_message: str | None
     processing_attempts: int
+    quantity: int = Field(ge=1, le=9999)
+    committed_quantity: int = Field(ge=0, le=9999)
     created_item_id: str | None
     created_at: datetime
     updated_at: datetime
@@ -80,6 +83,7 @@ class IntakeBatchResponse(BaseModel):
     id: str
     warehouse_id: str
     target_box_id: str
+    target_box_name: str | None = None
     created_by: str
     name: str | None
     status: IntakeBatchStatus

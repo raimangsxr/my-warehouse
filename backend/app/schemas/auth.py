@@ -10,6 +10,7 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=128)
+    remember_me: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -19,7 +20,8 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = Field(default=None, min_length=10)
+    remember_me: bool = False
 
 
 class ForgotPasswordRequest(BaseModel):

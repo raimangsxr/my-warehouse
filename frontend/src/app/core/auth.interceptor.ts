@@ -1,7 +1,7 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, throwError } from 'rxjs';
+import { catchError, switchMap, throwError } from 'rxjs';
 
 import { AuthService } from '../services/auth.service';
 
@@ -9,8 +9,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
   const router = inject(Router);
   const token = authService.getAccessToken();
+  const isRefreshEndpoint = req.url.includes('/auth/refresh');
 
-  const requestToSend = token
+  const requestToSend = token && !isRefreshEndpoint
     ? req.clone({
         setHeaders: {
           Authorization: `Bearer ${token}`
@@ -24,8 +25,43 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       const isPublicAuthEndpoint =
         req.url.includes('/auth/login') ||
         req.url.includes('/auth/signup') ||
+        req.url.includes('/auth/refresh') ||
+        req.url.includes('/auth/logout') ||
         req.url.includes('/auth/forgot-password') ||
         req.url.includes('/auth/reset-password');
+
+      if (isUnauthorized && !isPublicAuthEndpoint && authService.hasPersistentSession()) {
+        return authService.refreshSession().pipe(
+          switchMap((tokens) =>
+            next(
+              req.clone({
+                setHeaders: {
+                  Authorization: `Bearer ${tokens.access_token}`
+                }
+              })
+            )
+          ),
+          catchError((refreshError: unknown) => {
+            const shouldClearSession =
+              !(refreshError instanceof HttpErrorResponse) || refreshError.status === 401;
+
+            if (!shouldClearSession) {
+              return throwError(() => refreshError);
+            }
+
+            authService.clearTokens();
+
+            if (!router.url.startsWith('/login')) {
+              const redirect = router.url || '/warehouses';
+              void router.navigate(['/login'], {
+                queryParams: { redirect }
+              });
+            }
+
+            return throwError(() => refreshError);
+          })
+        );
+      }
 
       if (token && isUnauthorized && !isPublicAuthEndpoint) {
         authService.clearTokens();

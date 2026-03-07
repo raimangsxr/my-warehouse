@@ -7,6 +7,10 @@ type PrintableBox = Pick<Box, 'name' | 'short_code' | 'qr_token'>;
 @Injectable({ providedIn: 'root' })
 export class BoxLabelPrintService {
   private readonly qrServiceUrl = 'https://api.qrserver.com/v1/create-qr-code/';
+  private readonly alignedContentWidthPx = 260;
+  private readonly baseNameFontSizePx = 22;
+  private readonly minNameFontSizePx = 18;
+  private readonly maxNameFontSizePx = 96;
 
   printLabel(box: PrintableBox): void {
     const printWindow = window.open('', '_blank', 'width=420,height=640');
@@ -18,6 +22,7 @@ export class BoxLabelPrintService {
     const shortCode = this.escapeHtml(box.short_code);
     const qrToken = this.escapeHtml(box.qr_token);
     const qrImageUrl = this.escapeHtml(this.buildQrImageUrl(box.qr_token));
+    const alignedContentWidth = `${this.alignedContentWidthPx}px`;
 
     printWindow.document.open();
     printWindow.document.write(`
@@ -46,27 +51,39 @@ export class BoxLabelPrintService {
               box-sizing: border-box;
               text-align: center;
             }
+            .label-main {
+              width: min(100%, ${alignedContentWidth});
+              margin: 0 auto;
+            }
             .name {
               margin: 0 0 6px 0;
-              font-size: 22px;
-              line-height: 1.2;
+              width: 100%;
+              font-size: ${this.baseNameFontSizePx}px;
+              line-height: 1.05;
               color: #192338;
+              white-space: nowrap;
+            }
+            .name-text {
+              display: inline-block;
             }
             .code {
               margin: 0 0 14px 0;
+              width: 100%;
               font-size: 15px;
               letter-spacing: 0.8px;
               color: #42536e;
             }
             .qr {
-              width: 260px;
-              height: 260px;
+              width: 100%;
+              aspect-ratio: 1;
+              height: auto;
               object-fit: contain;
-              margin: 0 auto;
+              margin: 0;
               display: block;
             }
             .token {
-              margin: 12px 0 0 0;
+              width: min(100%, ${alignedContentWidth});
+              margin: 12px auto 0;
               color: #5a6b86;
               font-size: 12px;
               word-break: break-all;
@@ -88,17 +105,22 @@ export class BoxLabelPrintService {
         </head>
         <body>
           <article class="label">
-            <h1 class="name">${title}</h1>
-            <p class="code">Código: ${shortCode}</p>
-            <img class="qr" src="${qrImageUrl}" alt="QR caja ${title}" referrerpolicy="no-referrer" />
+            <div class="label-main">
+              <h1 class="name"><span class="name-text">${title}</span></h1>
+              <p class="code">Código: ${shortCode}</p>
+              <img class="qr" src="${qrImageUrl}" alt="QR caja ${title}" referrerpolicy="no-referrer" />
+            </div>
             <p class="token">Token QR: ${qrToken}</p>
           </article>
         </body>
       </html>
     `);
     printWindow.document.close();
+    const fitName = () => this.fitNameToQrWidth(printWindow.document);
+    printWindow.requestAnimationFrame(fitName);
 
     const triggerPrint = () => {
+      fitName();
       printWindow.focus();
       printWindow.print();
       printWindow.onafterprint = () => {
@@ -132,6 +154,49 @@ export class BoxLabelPrintService {
       data: token
     });
     return `${this.qrServiceUrl}?${params.toString()}`;
+  }
+
+  private fitNameToQrWidth(doc: Document): void {
+    const nameElement = doc.querySelector<HTMLElement>('.name');
+    const textElement = doc.querySelector<HTMLElement>('.name-text');
+    const contentElement = doc.querySelector<HTMLElement>('.label-main');
+    if (!nameElement || !textElement || !contentElement) {
+      return;
+    }
+
+    const availableWidth = contentElement.clientWidth;
+    if (!availableWidth) {
+      return;
+    }
+
+    nameElement.style.whiteSpace = 'nowrap';
+    nameElement.style.overflowWrap = 'normal';
+    nameElement.style.fontSize = `${this.baseNameFontSizePx}px`;
+    textElement.style.display = 'inline-block';
+
+    const measuredWidth = textElement.getBoundingClientRect().width;
+    if (!measuredWidth) {
+      return;
+    }
+
+    let fittedFontSize = (this.baseNameFontSizePx * availableWidth) / measuredWidth;
+    fittedFontSize = Math.max(this.minNameFontSizePx, Math.min(this.maxNameFontSizePx, fittedFontSize));
+    nameElement.style.fontSize = `${fittedFontSize}px`;
+
+    let iterations = 0;
+    while (textElement.getBoundingClientRect().width > availableWidth && fittedFontSize > this.minNameFontSizePx && iterations < 40) {
+      fittedFontSize -= 0.5;
+      nameElement.style.fontSize = `${fittedFontSize}px`;
+      iterations += 1;
+    }
+
+    if (textElement.getBoundingClientRect().width > availableWidth) {
+      nameElement.style.whiteSpace = 'normal';
+      nameElement.style.overflowWrap = 'anywhere';
+      nameElement.style.fontSize = `${this.minNameFontSizePx}px`;
+      nameElement.style.lineHeight = '1.1';
+      textElement.style.display = 'inline';
+    }
   }
 
   private escapeHtml(value: string): string {

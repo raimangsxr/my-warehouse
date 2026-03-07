@@ -7,7 +7,7 @@ import shutil
 import uuid
 from urllib.parse import unquote, urlsplit, urlunsplit
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,8 @@ from app.models.box import Box
 from app.models.intake_batch import IntakeBatch
 from app.models.intake_draft import IntakeDraft
 from app.models.item import Item
+from app.models.llm_setting import LLMSetting
+from app.models.stock_movement import StockMovement
 from app.models.user import User
 from app.schemas.common import MessageResponse
 from app.schemas.intake import (
@@ -38,11 +40,11 @@ from app.schemas.intake import (
 )
 from app.services.activity import record_activity
 from app.services.intake_processing import (
-    DEFAULT_PARALLEL_WORKERS,
-    process_intake_batch,
     refresh_batch_rollup,
+    resolve_intake_parallelism_for_warehouse,
     resolve_batch_status_counts,
 )
+from app.services.intake_workers import ensure_batch_worker
 from app.services.stock import ensure_initial_stock_movement
 from app.services.sync_log import append_change_log
 
@@ -116,7 +118,19 @@ def _sanitize_list(values: list[str] | None, *, max_count: int) -> list[str]:
     return cleaned
 
 
-def _serialize_draft(draft: IntakeDraft) -> IntakeDraftResponse:
+def _stock_map(db: Session, item_ids: list[str]) -> dict[str, int]:
+    if not item_ids:
+        return {}
+    rows = db.execute(
+        select(StockMovement.item_id, func.coalesce(func.sum(StockMovement.delta), 0))
+        .where(StockMovement.item_id.in_(item_ids))
+        .group_by(StockMovement.item_id)
+    ).all()
+    return {str(item_id): int(stock) for item_id, stock in rows}
+
+
+def _serialize_draft(draft: IntakeDraft, *, resolved_quantity: int | None = None) -> IntakeDraftResponse:
+    quantity = resolved_quantity if resolved_quantity is not None else int(draft.quantity or 1)
     return IntakeDraftResponse(
         id=draft.id,
         warehouse_id=draft.warehouse_id,
@@ -133,6 +147,8 @@ def _serialize_draft(draft: IntakeDraft) -> IntakeDraftResponse:
         llm_used=bool(draft.llm_used),
         error_message=draft.error_message,
         processing_attempts=draft.processing_attempts,
+        quantity=max(1, quantity),
+        committed_quantity=max(0, int(draft.committed_quantity or 0)),
         created_item_id=draft.created_item_id,
         created_at=draft.created_at,
         updated_at=draft.updated_at,
@@ -144,6 +160,7 @@ def _serialize_batch(batch: IntakeBatch, status_counts: dict[str, int]) -> Intak
         id=batch.id,
         warehouse_id=batch.warehouse_id,
         target_box_id=batch.target_box_id,
+        target_box_name=batch.target_box.name if batch.target_box is not None else None,
         created_by=batch.created_by,
         name=batch.name,
         status=IntakeBatchStatus(batch.status),
@@ -398,6 +415,10 @@ def get_batch(
         .where(IntakeDraft.batch_id == batch_id, IntakeDraft.warehouse_id == warehouse_id)
         .order_by(IntakeDraft.position.asc(), IntakeDraft.created_at.asc())
     ).all()
+    stock_by_item = _stock_map(
+        db,
+        [draft.created_item_id for draft in drafts if draft.status == IntakeDraftStatus.committed.value and draft.created_item_id],
+    )
     status_counts = resolve_batch_status_counts(db, batch.id)
     logger.debug(
         "Get intake batch requested warehouse_id=%s batch_id=%s drafts=%s",
@@ -407,7 +428,17 @@ def get_batch(
     )
     return IntakeBatchDetailResponse(
         batch=_serialize_batch(batch, status_counts),
-        drafts=[_serialize_draft(draft) for draft in drafts],
+        drafts=[
+            _serialize_draft(
+                draft,
+                resolved_quantity=(
+                    stock_by_item.get(draft.created_item_id, int(draft.quantity or 1))
+                    if draft.status == IntakeDraftStatus.committed.value and draft.created_item_id
+                    else int(draft.quantity or 1)
+                ),
+            )
+            for draft in drafts
+        ],
     )
 
 
@@ -463,6 +494,11 @@ def upload_batch_photos(
     status_counts = refresh_batch_rollup(db, batch)
     db.commit()
 
+    llm_setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
+    if llm_setting is not None and llm_setting.api_key_encrypted:
+        workers = resolve_intake_parallelism_for_warehouse(db, warehouse_id)
+        ensure_batch_worker(warehouse_id, batch_id, max_parallel_workers=workers)
+
     refreshed = db.scalars(
         select(IntakeDraft)
         .where(IntakeDraft.id.in_([draft.id for draft in created]))
@@ -488,7 +524,6 @@ def start_batch_processing(
     warehouse_id: str,
     batch_id: str,
     payload: IntakeBatchStartRequest,
-    background_tasks: BackgroundTasks,
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> IntakeBatchStartResponse:
@@ -503,7 +538,7 @@ def start_batch_processing(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch already committed")
 
     draft_ids_to_process: list[str] | None = None
-    max_parallel_workers = DEFAULT_PARALLEL_WORKERS
+    max_parallel_workers = resolve_intake_parallelism_for_warehouse(db, warehouse_id)
 
     if payload.retry_errors:
         error_drafts = db.scalars(
@@ -563,8 +598,7 @@ def start_batch_processing(
     batch.finished_at = None
     db.commit()
 
-    background_tasks.add_task(
-        process_intake_batch,
+    started = ensure_batch_worker(
         warehouse_id=warehouse_id,
         batch_id=batch_id,
         max_parallel_workers=max_parallel_workers,
@@ -572,7 +606,14 @@ def start_batch_processing(
     )
 
     status_counts = resolve_batch_status_counts(db, batch.id)
-    success_message = "Reprocesado secuencial de errores iniciado." if payload.retry_errors else "Procesamiento iniciado."
+    if payload.retry_errors:
+        success_message = (
+            "Reprocesado secuencial de errores iniciado."
+            if started
+            else "Reprocesado secuencial de errores ya activo."
+        )
+    else:
+        success_message = "Procesamiento iniciado." if started else "Procesamiento ya activo."
     logger.info(
         "Intake processing started warehouse_id=%s batch_id=%s pending=%s workers=%s retry_errors=%s",
         warehouse_id,
@@ -593,6 +634,7 @@ def update_draft(
     draft_id: str,
     payload: IntakeDraftUpdateRequest,
     _membership=Depends(require_warehouse_membership),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> IntakeDraftResponse:
     logger.debug(
@@ -602,11 +644,15 @@ def update_draft(
         sorted(payload.model_fields_set),
     )
     draft = _get_draft(db, warehouse_id, draft_id)
-
-    if draft.status == IntakeDraftStatus.committed.value:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft already committed")
-
     changed_fields = payload.model_fields_set
+    if draft.status == IntakeDraftStatus.committed.value:
+        if not changed_fields:
+            return _serialize_draft(draft, resolved_quantity=int(draft.quantity or 1))
+        if changed_fields - {"quantity"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Committed draft only supports quantity updates",
+            )
 
     if "name" in changed_fields:
         draft.name = payload.name.strip()[:160] if payload.name else None
@@ -616,6 +662,46 @@ def update_draft(
         draft.tags = _sanitize_list(payload.tags, max_count=10)
     if "aliases" in changed_fields:
         draft.aliases = _sanitize_list(payload.aliases, max_count=5)
+    if "quantity" in changed_fields and payload.quantity is not None:
+        normalized_quantity = max(1, int(payload.quantity))
+        if draft.status == IntakeDraftStatus.committed.value:
+            if not draft.created_item_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Committed draft is missing created item reference",
+                )
+            current_stock = _stock_map(db, [draft.created_item_id]).get(draft.created_item_id, int(draft.quantity or 1))
+            delta = normalized_quantity - current_stock
+            if delta != 0:
+                command_id = uuid.uuid4().hex
+                db.add(
+                    StockMovement(
+                        warehouse_id=warehouse_id,
+                        item_id=draft.created_item_id,
+                        delta=delta,
+                        command_id=command_id,
+                        note="Adjusted from intake batch draft quantity",
+                    )
+                )
+                append_change_log(
+                    db,
+                    warehouse_id=warehouse_id,
+                    entity_type="stock",
+                    entity_id=draft.created_item_id,
+                    action="adjust",
+                    payload={"delta": delta, "command_id": command_id},
+                )
+                record_activity(
+                    db,
+                    warehouse_id=warehouse_id,
+                    actor_user_id=current_user.id,
+                    event_type="stock.adjusted",
+                    entity_type="item",
+                    entity_id=draft.created_item_id,
+                    metadata={"delta": delta, "source": "intake_draft"},
+                )
+            draft.committed_quantity = normalized_quantity
+        draft.quantity = normalized_quantity
 
     if payload.status is not None:
         if payload.status in {IntakeDraftStatus.processing, IntakeDraftStatus.committed}:
@@ -629,13 +715,16 @@ def update_draft(
 
     db.commit()
     db.refresh(draft)
+    resolved_quantity = int(draft.quantity or 1)
+    if draft.status == IntakeDraftStatus.committed.value and draft.created_item_id:
+        resolved_quantity = _stock_map(db, [draft.created_item_id]).get(draft.created_item_id, resolved_quantity)
     logger.info(
         "Intake draft updated warehouse_id=%s draft_id=%s status=%s",
         warehouse_id,
         draft.id,
         draft.status,
     )
-    return _serialize_draft(draft)
+    return _serialize_draft(draft, resolved_quantity=resolved_quantity)
 
 
 @router.post("/drafts/{draft_id}/reprocess", response_model=IntakeBatchStartResponse)
@@ -643,7 +732,6 @@ def reprocess_draft(
     warehouse_id: str,
     draft_id: str,
     payload: IntakeDraftReprocessRequest,
-    background_tasks: BackgroundTasks,
     _membership=Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> IntakeBatchStartResponse:
@@ -693,8 +781,7 @@ def reprocess_draft(
     batch.finished_at = None
     db.commit()
 
-    background_tasks.add_task(
-        process_intake_batch,
+    ensure_batch_worker(
         warehouse_id=warehouse_id,
         batch_id=batch.id,
         max_parallel_workers=1,
@@ -791,10 +878,12 @@ def commit_batch(
     for draft in candidates:
         if draft.created_item_id:
             skipped += 1
+            draft.committed_quantity = max(1, int(draft.quantity or 1))
             draft.status = IntakeDraftStatus.committed.value
             continue
 
         name = (draft.name or "").strip()[:160] or "Articulo sin identificar"
+        initial_quantity = max(1, int(draft.quantity or 1))
         try:
             item_photo_url = _move_draft_photo_to_items_storage(warehouse_id=warehouse_id, photo_url=draft.photo_url)
         except HTTPException:
@@ -829,6 +918,7 @@ def commit_batch(
             db,
             warehouse_id=warehouse_id,
             item_id=item.id,
+            initial_delta=initial_quantity,
         )
         if created_initial_stock:
             append_change_log(
@@ -837,11 +927,13 @@ def commit_batch(
                 entity_type="stock",
                 entity_id=item.id,
                 action="adjust",
-                payload={"delta": 1, "command_id": initial_stock_command_id},
+                payload={"delta": initial_quantity, "command_id": initial_stock_command_id},
             )
 
         draft.created_item_id = item.id
         draft.photo_url = item_photo_url
+        draft.quantity = initial_quantity
+        draft.committed_quantity = initial_quantity
         draft.status = IntakeDraftStatus.committed.value
         draft.error_message = None
         created += 1

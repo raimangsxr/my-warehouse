@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v1.70
-- **Última actualización:** 2026-03-06  
+- **Versión:** v1.75
+- **Última actualización:** 2026-03-07  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -100,6 +100,11 @@
 - **v1.68 (2026-03-06):** PWA instalable real en frontend: se añaden `manifest.webmanifest`, iconos (`favicon`, `apple-touch-icon`, `192/512`, `maskable`) generados a partir del logo de la app, Angular Service Worker para cache de shell/assets y `media`, CTA de `Instalar app`/`Actualizar app` en shell y Settings, y hardening de Nginx para servir `manifest`/`ngsw` sin caché agresiva. Se corrige además `environment.ts` de desarrollo para volver a `http://localhost:8000/api/v1`, alineado con la spec.
 - **v1.69 (2026-03-06):** Refresco colaborativo en detalle de lote: `/app/batches/:batchId` hace polling automático cada 5 segundos mientras la vista permanece abierta para reflejar fotos nuevas y correcciones hechas desde otra sesión, cancela el polling al salir/cambiar de lote y preserva campos editados localmente sin guardar para no pisarlos con respuestas remotas.
 - **v1.70 (2026-03-06):** Corrección de despliegue Kubernetes para media pública: `deploy/k8s/ingress.yaml` expone `/media` hacia backend además de `/api`, evitando que `photo_url` de artículos y lotes termine servido por la SPA del frontend y aparezca como imagen rota en producción.
+- **v1.71 (2026-03-07):** Ajuste tipográfico en la etiqueta imprimible de caja: el nombre de la caja se autoescala para ocupar el ancho útil del QR en su propia fila, tomando como referencia los mismos límites laterales del código.
+- **v1.72 (2026-03-07):** Fallback manual de apertura de cajas ampliado: `/app/scan` acepta `short_code` o `qr_token`, backend añade `GET /boxes/resolve/{identifier}` con validación de acceso por membresía y devuelve `409` si un mismo usuario tiene varias cajas accesibles con el mismo código corto.
+- **v1.73 (2026-03-07):** Evolución operativa de Slice 10: `intake_drafts` añade `quantity` + `committed_quantity` para fijar cantidad antes de guardar y seguir ajustando stock desde el propio lote una vez en `Guardado`; commit de lote crea el `stock_movement` inicial con la cantidad indicada en vez de forzar `+1`; `llm_settings` añade `intake_parallelism` configurable en Settings; backend introduce worker continuo por lote en proceso (`uploaded` como cola persistida en DB, con señalización para fotos nuevas sin duplicar workers) y autoarranque tras subida cuando el warehouse tiene LLM configurado; frontend `/app/batches/:batchId` incorpora captura continua con cámara integrada (`Aceptar y siguiente`), cola local de subidas y visualización/control de stock para artículos `Procesado` y `Guardado` con el mismo patrón del inventario. Migración `20260307_0012_intake_quantity_parallelism`, tests backend ampliados y build frontend OK.
+- **v1.74 (2026-03-07):** Auth con “mantener sesión” opcional: `POST /auth/login` acepta `remember_me`, backend emite cookie persistente `HttpOnly` para refresh rotatorio cuando el usuario marca el check, `POST /auth/refresh` y `POST /auth/logout` aceptan refresh token por body y/o cookie, y el frontend refresca sesión automáticamente ante `401` solo cuando la sesión persistente está activada.
+- **v1.75 (2026-03-07):** Ajuste fino UX en detalle de lote: el chip de stock de drafts `Procesado/Guardado` corrige la alineación vertical de los iconos `-/+` para igualar el patrón visual del inventario, y la cabecera del lote muestra junto al título el nombre de la caja destino. Backend amplía `IntakeBatchResponse` con `target_box_name` para evitar resolución adicional en cliente. Tests backend de Slice 10 y build frontend revalidados.
 
 ---
 
@@ -213,7 +218,8 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 ### Stock como eventos (movimientos)
 - El stock **no** se edita como un número “mutable” sin historial.
 - Se calcula como la suma de movimientos:
-  - `+1` inicial automático al crear un artículo (alta estándar, intake commit y alta por sync)
+  - `+1` inicial automático al crear un artículo en alta estándar y `item.create` vía sync
+  - `+draft.quantity` inicial al guardar un draft procesado desde intake batch
   - `+1` / `-1` (rápido)
   - (opcional futuro) ajuste “set to N”
 - Ventaja: mergeable en sync, reduce conflictos y da auditoría.
@@ -328,10 +334,15 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - La ruta es navegable por tramo en detalle de caja (navega a la caja correspondiente).
 - En alta por foto iniciada desde detalle, tras la inferencia IA la caja destino queda fijada a la caja actual (`lockBox`) en `/app/items/new`.
 - En captura masiva iniciada desde detalle, la caja destino del lote queda fijada por contexto (`boxId` + `lockBox`) en el módulo `/app/batches` para evitar reasignaciones accidentales.
+- En detalle de lote (`/app/batches/:batchId`), la cabecera muestra el nombre del lote y, a su lado, la caja destino para reducir ambigüedad cuando hay varios lotes abiertos.
 
 ### Scanner QR
 - Icono en header → vista escáner.
 - Escaneo → navega a detalle de caja.
+- Apertura manual:
+  - acepta `short_code` como opción principal
+  - mantiene compatibilidad con `qr_token`
+  - si el código corto coincide con varias cajas accesibles, muestra error y pide usar el QR
 - Deep link:
   - si no login: login y redirección a caja
   - si login sin pertenencia: error “sin acceso”
@@ -366,6 +377,7 @@ Secciones:
 - [x] Login devuelve access token + refresh token.
 - [x] Logout invalida refresh token.
 - [x] Sesión persistente (PWA).
+- [x] Opción “Mantener sesión” en login con cookie persistente segura en este dispositivo.
 
 **US-A3: Cambio de contraseña**
 - [x] Usuario autenticado puede cambiar contraseña (requiere password actual).
@@ -476,16 +488,22 @@ Secciones:
 **US-D9: Captura masiva por caja + revisión operativa**
 - [x] Existe módulo dedicado `Lotes` con vista de listado (`/app/batches`) y detalle (`/app/batches/:batchId`), accesible desde sidenav, toolbar y detalle de caja.
 - [x] El usuario puede crear lote por caja destino y abrirlo para gestión operativa temporal.
+- [x] La cabecera del detalle de lote muestra el nombre del lote y la caja destino asociada.
 - [x] El usuario puede subir `N` fotos en lote (multipart) sin pasar por formulario item por item.
 - [x] Estados operativos de UX por artículo en lote: `Nuevo`, `Procesado`, `Error`, `Guardado`.
 - [x] En detalle de lote se muestra tablero resumen en 4 bloques (`Nuevo/Procesado/Error/Guardado`) con mini-cards (solo foto + título).
 - [x] Acciones del lote en iconos con `tooltip`: `Añadir artículo`, `Guardar procesados`, `Reprocesar errores`, `Eliminar lote`.
+- [x] En `Procesado` y `Guardado`, cada draft muestra el mismo chip de stock usado en inventario, con controles `-/+` y valor centrado para mantener la misma semántica visual y operativa.
+- [x] Antes de guardar, el usuario puede fijar `quantity` por draft para indicar cuántas unidades reales va a meter en la caja; al guardar, el stock inicial del item se crea con esa cantidad.
+- [x] Tras guardar, el draft sigue visible en `Guardado` y permite seguir ajustando solo la cantidad/stock del item creado sin salir del lote.
 - [x] Si el procesamiento IA falla en un artículo (incluyendo falta de API key o fallo de todos los modelos), el draft queda en `Error` sin fallback local no-IA.
 - [x] Desde `Error`, el usuario puede editar manualmente `name`, `description`, `tags`, `aliases` y marcar el draft como `Procesado`.
 - [x] `Reprocesar errores` actúa solo sobre drafts en `Error` y se ejecuta secuencialmente (1 a 1).
 - [x] `Guardar procesados` crea artículos en caja destino para drafts en estado procesado.
 - [x] La card de detalle del artículo seleccionado se puede cerrar con `X`; al pulsar una mini-card del resumen, el detalle se vuelve a abrir con el draft correspondiente.
 - [x] La card de artículo incluye acciones por draft con iconos + `tooltip`: reproceso IA por foto, reproceso IA por título (`name`) y eliminación del draft.
+- [x] La captura desde cámara en `/app/batches/:batchId` usa una cámara integrada con flujo `capturar -> aceptar y siguiente`, de modo que el usuario puede encadenar muchas fotos seguidas sin esperar a que termine la IA.
+- [x] La UI mantiene una cola local de subidas (`queued/uploading/error`) y, si el warehouse tiene LLM configurado, cada subida señaliza automáticamente el worker backend del lote para procesar en paralelo sin bloqueo del botón de cámara.
 - [x] En detalle de lote, la vista se refresca automáticamente cada 5 segundos mientras está abierta para soportar trabajo colaborativo entre sesiones; al abandonar la vista o cambiar de lote, el polling se cancela.
 - [x] El editor inline de detalle no sobrescribe campos que el usuario local ha modificado sin guardar; los cambios remotos sí se reflejan en campos no tocados localmente.
 
@@ -515,11 +533,13 @@ Secciones:
 - [x] QR token no adivinable.
 - [x] Login redirect.
 - [x] Control acceso por warehouse.
+- [x] Resolución manual por `short_code` o `qr_token`, con conflicto explícito si el código corto no identifica una única caja accesible.
 
 **US-F3: Etiqueta imprimible de caja**
 - [x] Desde árbol de cajas y detalle de caja se puede lanzar impresión.
 - [x] La etiqueta imprime nombre de caja + `short_code` + QR escaneable.
 - [x] El QR codifica `qr_token` (compatible con scanner interno) y se muestra token en texto como respaldo.
+- [x] El nombre de la caja se autoajusta para ocupar el ancho útil del QR en su propia fila.
 
 ---
 
@@ -745,6 +765,8 @@ Secciones:
 - llm_used (bool)
 - error_message (nullable)
 - processing_attempts
+- quantity (int, default 1): cantidad objetivo antes de guardar; en `committed` refleja el stock editable desde el lote
+- committed_quantity (int, default 0): última cantidad comprometida/aplicada al item creado desde este draft
 - created_item_id (FK items.id, nullable)
 - created_at, updated_at
 
@@ -776,6 +798,7 @@ Secciones:
 - provider = "gemini"
 - language = "es" | "en" (default "es")
 - model_priority (json array ordenado, obligatorio): `["gemini-3.1-flash-lite","gemini-3-flash","gemini-2.5-flash","gemini-2.5-flash-lite"]`
+- intake_parallelism (int, 1..8, default 4): paralelismo de procesamiento IA por lote
 - api_key_encrypted
 - auto_tags_enabled (bool)
 - auto_alias_enabled (bool)
@@ -811,8 +834,11 @@ Secciones:
 ### Auth
 - `POST /auth/signup`
 - `POST /auth/login`
+  - acepta `remember_me`; si es `true`, además de devolver tokens emite cookie `HttpOnly` persistente para refresh
 - `POST /auth/refresh`
+  - acepta `refresh_token` opcional en body y/o cookie persistente; rota refresh token y cookie cuando la sesión persistente está activa
 - `POST /auth/logout`
+  - revoca refresh token enviado por body y/o cookie persistente, y borra la cookie de sesión persistente
 - `POST /auth/change-password`
 - `POST /auth/forgot-password`
 - `POST /auth/reset-password`
@@ -835,6 +861,7 @@ Secciones:
 - `DELETE /warehouses/{warehouse_id}/boxes/{box_id}` (soft, body `{force}`)
 - `POST /warehouses/{warehouse_id}/boxes/{box_id}/restore`
 - `GET /boxes/by-qr/{qr_token}` → devuelve box_id + warehouse_id
+- `GET /boxes/resolve/{identifier}` → resuelve caja por `qr_token` o `short_code`; devuelve box_id + warehouse_id y responde `409` si el código corto coincide con varias cajas accesibles
 - `GET /warehouses/{warehouse_id}/boxes/{box_id}/items?q=...` → lista plana recursiva con payload compatible con cards/lista de Home (`photo_url`, `tags`, `aliases`, `is_favorite`, `stock`, `box_is_inbound`, etc.) y `box_path_ids` para breadcrumb navegable
 
 ### Items
@@ -862,19 +889,23 @@ Stock:
 - `GET /warehouses/{warehouse_id}/intake/batches?include_committed=false&only_mine=true&limit=20`
   - lista lotes para módulo de gestión (ordenados por `updated_at` desc).
   - por defecto devuelve solo lotes abiertos creados por el usuario actual; la UI de módulo puede pedir `include_committed=true` y/o `only_mine=false`.
+  - cada lote incluye `target_box_name` además de `target_box_id` para que el frontend pueda mostrar la caja destino sin consultas extra.
 - `GET /warehouses/{warehouse_id}/intake/batches/{batch_id}`
   - devuelve `batch` + `drafts` para refresco/polling.
+  - `batch` incluye `target_box_name` para renderizar la caja destino en la cabecera del detalle.
   - frontend lo usa para polling colaborativo cada 5 segundos en `/app/batches/:batchId`; el polling se cancela al salir de la vista o cambiar de lote.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/photos` (multipart `files[]`)
   - sube N imágenes al storage backend temporal del lote (`/media/{warehouse_id}/intake/{batch_id}`) y crea `intake_drafts` en estado `uploaded`.
   - si el lote estaba `committed`, la subida lo reabre automáticamente para continuar captura incremental (estado vuelve a flujo activo según recuento de drafts).
+  - si el warehouse tiene LLM configurado, la subida señaliza/arranca automáticamente el worker continuo del lote para procesar la cola sin obligar a pulsar `start` tras cada foto.
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/start`
   - body: `{ "retry_errors": bool }`
-  - `retry_errors=false`: procesa borradores `uploaded` (flujo normal de nuevos).
+  - `retry_errors=false`: procesa borradores `uploaded` (flujo normal de nuevos). La operación es idempotente y, si ya hay worker activo para ese lote, solo lo señaliza para recoger trabajo nuevo.
   - `retry_errors=true`: reprocesa **solo** borradores `error` de forma secuencial (1 a 1).
   - en procesamiento de intake, si IA no devuelve resultado válido, el draft queda en `error` (sin fallback local no-IA).
 - `PATCH /warehouses/{warehouse_id}/intake/drafts/{draft_id}`
-  - edición manual de metadatos + cambio de estado permitido (`ready|review|rejected|uploaded|error`), bloqueando transiciones manuales a `processing|committed`.
+  - edición manual de metadatos + `quantity` + cambio de estado permitido (`ready|review|rejected|uploaded|error`), bloqueando transiciones manuales a `processing|committed`.
+  - en drafts `committed`, solo se permite editar `quantity`; el backend calcula el delta respecto al stock actual del item y registra `stock_movement` adicional para que el usuario no tenga que buscar el artículo fuera del lote.
 - `POST /warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess`
   - body: `{ "mode": "photo" | "name" }` (`photo` por defecto).
   - `mode=photo`: reproceso de un único draft usando solo la imagen.
@@ -884,7 +915,7 @@ Stock:
 - `POST /warehouses/{warehouse_id}/intake/batches/{batch_id}/commit`
   - body: `{ "include_review": false }` (campo legacy, no requerido para flujo actual).
   - crea items para drafts en `ready` (estado UX `Procesado`).
-  - cada item creado registra stock inicial `+1` vía `stock_movements`.
+  - cada item creado registra stock inicial `+draft.quantity` vía `stock_movements`.
   - mueve cada foto guardada desde carpeta temporal del lote a storage definitivo de artículos (`/media/{warehouse_id}/items`) y actualiza `items.photo_url`.
 - `DELETE /warehouses/{warehouse_id}/intake/batches/{batch_id}`
   - elimina lote si no está en procesamiento y limpia su carpeta temporal de media.
@@ -903,9 +934,9 @@ Stock:
 - `POST /settings/smtp/test?warehouse_id=...`
 
 - `GET /settings/llm?warehouse_id=...`
-  - respuesta incluye: `{ warehouse_id, provider, language, model_priority, auto_tags_enabled, auto_alias_enabled, has_api_key, api_key_value }`
+  - respuesta incluye: `{ warehouse_id, provider, language, model_priority, intake_parallelism, auto_tags_enabled, auto_alias_enabled, has_api_key, api_key_value }`
 - `PUT /settings/llm?warehouse_id=...`
-  - body incluye: `{ provider, language, model_priority, api_key?, auto_tags_enabled, auto_alias_enabled }`
+  - body incluye: `{ provider, language, model_priority, intake_parallelism, api_key?, auto_tags_enabled, auto_alias_enabled }`
 - `POST /settings/llm/reprocess-item/{item_id}?warehouse_id=...`
   - body: `{ "fields": ["tags" | "aliases", ...] }` (opcional, por defecto `["tags","aliases"]`)
   - respuesta: `{ message, item_id, processed_fields, tags, aliases }`
@@ -959,9 +990,14 @@ Stock:
   - abre la caja por token
   - si no autenticado → login + redirect
   - si sin acceso → error
+- Apertura manual desde `/app/scan`:
+  - acepta `short_code` como fallback principal cuando no se puede leer el QR
+  - mantiene compatibilidad con `qr_token`
+  - si un mismo usuario puede ver más de una caja con el mismo `short_code`, backend responde `409` y la UI exige usar el QR
 - Impresión de etiqueta:
   - disponible en listado de cajas y detalle de caja
-  - composición mínima: nombre caja, `short_code`, QR (`qr_token`) y token visible como fallback manual
+  - composición mínima: nombre caja, `short_code`, QR (`qr_token`) y token visible como compatibilidad/manual técnico
+  - el nombre de la caja usa una fila propia y se autoescala tomando como límites laterales el ancho útil del QR
 
 ---
 
@@ -1014,6 +1050,7 @@ El servidor persiste `processed_commands` para no duplicar.
   - `gemini-2.5-flash` (Gemini 2.5 Flash)
   - `gemini-2.5-flash-lite` (Gemini 2.5 Flash Lite)
 - El orden se configura por warehouse en `llm_settings.model_priority` desde Settings (UI con reordenación).
+- El paralelismo de procesamiento IA por lote se configura por warehouse en `llm_settings.intake_parallelism` (rango 1..8, default 4).
 - Si un ID exacto devuelve `404` por nomenclatura/versionado del proveedor, backend intenta alias runtime del mismo modelo (`-preview`, `-latest`, `-preview-latest`) antes de saltar al siguiente de la prioridad.
 - Endpoint REST Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`.
 - La generación de tags/alias se hace a partir de `item.name` + `item.description`.
@@ -1083,8 +1120,8 @@ El servidor persiste `processed_commands` para no duplicar.
 - Frontend: login/signup + selección warehouse + shell responsive.
 - Estado actual (2026-02-22): **completada**.
   - Backend: `signup`, `login`, `refresh`, `logout`, `me`, `change-password`, `forgot-password`, `reset-password`; `list/create/get/members` de warehouses.
-  - Persistencia auth: refresh tokens revocados en `logout`, `reset-password` y `change-password`.
-  - Frontend: pantallas login/signup/forgot/reset/warehouses/shell, interceptor JWT, guards, selección persistida de warehouse.
+  - Persistencia auth: refresh tokens revocados en `logout`, `reset-password` y `change-password`; login con `remember_me` opcional que activa cookie persistente `HttpOnly` y refresh rotatorio.
+  - Frontend: pantallas login/signup/forgot/reset/warehouses/shell, interceptor JWT con refresh automático en sesiones persistentes, guards y selección persistida de warehouse.
   - Responsive: shell con sidenav `over` en móvil y `side` en escritorio.
 
 ### Slice 2 — Core: Boxes + Items + Favoritos + Stock Movements
@@ -1112,8 +1149,8 @@ El servidor persiste `processed_commands` para no duplicar.
 - scanner.
 - detalle caja con lista plana recursiva + breadcrumbs.
 - Estado actual (2026-02-22): **completada**.
-  - Backend: `GET /boxes/by-qr/{qr_token}` con validación de acceso por membresía y respuesta `{box_id, warehouse_id}` para navegación segura.
-  - Frontend: ruta `/app/scan` (y `/app/scan/:qrToken`) desde el header; escaneo por cámara con `BarcodeDetector` cuando está disponible y fallback manual por token.
+  - Backend: `GET /boxes/by-qr/{qr_token}` con validación de acceso por membresía y respuesta `{box_id, warehouse_id}` para navegación segura; ampliado con `GET /boxes/resolve/{identifier}` para resolver manualmente por `short_code` o `qr_token`.
+  - Frontend: ruta `/app/scan` (y `/app/scan/:qrToken`) desde el header; escaneo por cámara con `BarcodeDetector` cuando está disponible y fallback manual por código corto (y token como compatibilidad).
   - UX/Seguridad: redirect a login preservando URL objetivo y retorno al deep link tras autenticación; selección automática de `warehouse_id` al resolver QR.
   - Detalle de caja: breadcrumbs navegables por tramo en resultados recursivos.
   - Calidad: test backend `test_slice4_qr_scan.py`.
@@ -1175,11 +1212,13 @@ El servidor persiste `processed_commands` para no duplicar.
 - Procesamiento IA de borradores con salida operativa por estados de UX (`Nuevo|Procesado|Error|Guardado`).
 - Revisión operativa en frontend con tablero por estados, edición inline y acciones de lote iconográficas.
 - Guardado masivo para crear items en la caja destino a partir de `Procesado`.
-- Estado actual (2026-03-05): **completada**.
-  - Backend: modelos `intake_batches`, `intake_drafts`; endpoints `/warehouses/{warehouse_id}/intake/...`; reproceso secuencial de errores y sin fallback local cuando falla IA en intake; commit de procesados con creación de `items` y `change_log`.
-  - Frontend: módulo `/app/batches` + detalle `/app/batches/:batchId`; creación/listado de lotes, subida múltiple, procesamiento, edición manual en error, guardado de procesados y accesos en shell y detalle de caja (`collections`).
-  - Migración: `20260305_0009_intake_batches`.
-  - Calidad: test backend `test_slice10_intake_batch.py` y build frontend OK.
+- Estado actual (2026-03-07): **completada y refinada operativamente**.
+  - Backend: modelos `intake_batches`, `intake_drafts`; endpoints `/warehouses/{warehouse_id}/intake/...`; `intake_drafts` añade `quantity` y `committed_quantity`; commit de procesados crea `items` y `change_log` con stock inicial `+draft.quantity`; drafts ya guardados permiten ajuste posterior de stock desde el propio lote con `stock_movements` diferenciales.
+  - Backend: procesamiento IA resuelto con worker continuo por lote en proceso, usando la base de datos como cola persistida (`uploaded`) y recogiendo fotos nuevas sin reinicio manual; `retry_errors=true` mantiene reproceso secuencial (1 a 1) de errores.
+  - Backend/Settings: `llm_settings.intake_parallelism` configurable por warehouse (1..8, default 4) para limitar el paralelismo del worker de lote.
+  - Frontend: módulo `/app/batches` + detalle `/app/batches/:batchId`; creación/listado de lotes, captura continua por cámara integrada con `Aceptar y siguiente`, cola local de subidas, procesamiento automático tras subida cuando hay LLM configurado, edición manual en error, guardado de procesados y control de stock visualmente consistente con Home/Detalle de caja en `Procesado` y `Guardado`.
+  - Migraciones: `20260305_0009_intake_batches`, `20260307_0012_intake_quantity_parallelism`.
+  - Calidad: tests backend `test_slice10_intake_batch.py`, `test_slice6_settings_llm_smtp.py` y build frontend OK.
 
 ---
 
@@ -1204,7 +1243,7 @@ Para considerar una slice “Done”:
 - **A-003 (2026-02-22):** En entorno de desarrollo, `POST /auth/forgot-password` devuelve `reset_token` en la respuesta para poder probar el flujo sin SMTP. En producción debe enviarse por email y no exponerse en API.
 - **A-004 (2026-02-22):** En Slice 2 el endpoint de stock rápido se expone como `POST /warehouses/{warehouse_id}/items/{item_id}/stock/adjust` (en lugar de `/stock`) para dejar explícito el comando idempotente con `command_id`; se puede simplificar en Slice 7 si se estandariza capa de sync.
 - **A-005 (2026-02-22):** En Slice 3 la relevancia de búsqueda usa un ranking heurístico en backend (exacto nombre > prefijo/contains nombre > alias > tag > descripción/ruta/ubicación) compatible con SQLite bootstrap; al migrar a PostgreSQL se podrá reemplazar por full-text/trigram conservando la misma semántica de orden.
-- **A-006 (2026-02-22):** En Slice 4 el escaneo QR en web usa `BarcodeDetector` nativo cuando existe soporte del navegador; si no está disponible o no hay permisos de cámara, la UI habilita fallback por token manual para mantener el flujo funcional sin dependencias nuevas.
+- **A-006 (2026-02-22 / act. 2026-03-07):** En Slice 4 el escaneo QR en web usa `BarcodeDetector` nativo cuando existe soporte del navegador; si no está disponible o no hay permisos de cámara, la UI habilita fallback manual por `short_code` como opción principal y mantiene compatibilidad con `qr_token`. Si un código corto resulta ambiguo entre varias cajas accesibles para el mismo usuario, se exige usar el QR.
 - **A-007 (2026-02-22):** En Slice 5, `POST /warehouses/{warehouse_id}/invites` devuelve `invite_url` calculada con `frontend_url` del backend y expone `invite_token` en respuesta para uso manual/QA; cuando SMTP esté activo (Slice 6), la entrega por email podrá hacerse sin cambiar el contrato base de aceptación.
 - **A-008 (2026-02-22):** En Slice 6, el endpoint `POST /settings/smtp/test` valida configuración y responde en modo simulado (sin envío real) para mantener bootstrap local sin dependencia de servidor SMTP externo; la verificación de entrega real se completará cuando se integre transporte SMTP productivo.
 - **A-009 (2026-02-23):** En la primera iteración de Slice 7, la cola offline del frontend cubre de forma explícita los comandos de uso rápido (`item.favorite/unfavorite` y `stock.adjust`); el resto de operaciones mantiene modo online-first y puede ampliarse por comando sin romper el contrato `/sync`.
@@ -1217,9 +1256,11 @@ Para considerar una slice “Done”:
 - **A-015 (2026-03-04):** Para esta iteración, la persistencia de fotos usa filesystem local del backend (`media_root`) y URL pública (`/media/...`) referenciada desde `items.photo_url`, sin tabla `photos` dedicada. Si se necesita almacenamiento distribuido (S3/objeto), la migración puede conservar el contrato `photo_url`.
 - **A-015 (2026-03-04):** Para simplificar edición de credenciales LLM en Settings, `GET /settings/llm` puede devolver `api_key_value` descifrada al frontend para miembros autenticados del warehouse. La clave sigue persistida únicamente cifrada en backend y no se almacena en cliente fuera del estado temporal de formulario.
 - **A-016 (2026-03-04):** En import cross-warehouse, si el snapshot trae una caja `is_inbound=true` pero el warehouse destino ya tiene su propia caja especial activa, la caja importada se conserva como caja normal (`is_inbound=false`) para mantener un único punto de entrada visual/operativo por warehouse.
-- **A-017 (2026-03-05):** En Slice 10, el procesamiento paralelo de intake se ejecuta en backend con `ThreadPoolExecutor` y estados persistidos en DB (sin broker externo). Es una solución simple/reversible para esta fase; si se requiere resiliencia multi-worker/procesos, se migrará a cola distribuida dedicada (p. ej. Redis/Celery o equivalente) conservando el contrato REST.
+- **A-024 (2026-03-07):** El requisito de “mantener el login” se implementa como cookie persistente `HttpOnly` con refresh token rotatorio de larga duración (365 días por defecto, renovable al refrescar), en lugar de una cookie literalmente infinita, para conservar capacidad de revocación y reducir riesgo operativo. Sin marcar el check, el login mantiene el comportamiento estándar sin refresh automático persistente.
+- **A-017 (2026-03-05 / act. 2026-03-07):** En Slice 10, el procesamiento de intake se resuelve con un worker continuo por lote residente en el proceso backend, apoyado en `ThreadPoolExecutor` para el paralelismo efectivo y usando `intake_drafts.status='uploaded'` como cola persistida en DB. Es una solución simple y reversible para esta fase (un solo proceso backend); si se requiere resiliencia multi-worker/multi-réplica, se migrará a cola distribuida dedicada (p. ej. Redis/Celery o equivalente) manteniendo el contrato REST.
 - **A-018 (2026-03-05):** Se asume correspondencia directa entre nombres comerciales pedidos y IDs de API Gemini: `Gemini 3.1 Flash Lite`→`gemini-3.1-flash-lite`, `Gemini 3 Flash`→`gemini-3-flash`, `Gemini 2.5 Flash`→`gemini-2.5-flash`, `Gemini 2.5 Flash Lite`→`gemini-2.5-flash-lite`.
 - **A-019 (2026-03-05):** Algunos modelos Gemini 3 pueden exponerse como IDs `preview/latest` y devolver `404` en el ID base. Backend aplica resolución runtime (`-preview`, `-latest`, `-preview-latest`) antes de pasar al siguiente modelo del fallback.
-- **A-020 (2026-03-05):** En el nuevo detalle por bloques (`Nuevo/Procesado/Error/Guardado`), los drafts guardados permanecen visibles en `Guardado` como trazabilidad ligera (foto+título) y dejan de ser editables; la imagen temporal se limpia al moverse al storage definitivo de items durante el guardado.
+- **A-020 (2026-03-05 / act. 2026-03-07):** En el detalle por bloques (`Nuevo/Procesado/Error/Guardado`), los drafts guardados permanecen visibles en `Guardado` como trazabilidad operativa (foto+título+stock) y solo permiten editar la cantidad. Ese ajuste genera `stock_movements` diferenciales sobre el item ya creado; el resto de metadatos queda bloqueado. La imagen temporal se limpia al moverse al storage definitivo de items durante el guardado.
 - **A-021 (2026-03-06):** El despliegue Kubernetes objetivo asume PostgreSQL fuera del cluster y solo consume `DATABASE_URL` desde `Secret`; el repositorio no mantiene manifiestos de base de datos en-cluster para este entorno.
 - **A-022 (2026-03-06):** El almacenamiento de `media` en Kubernetes usa NFS estático (`PV/PVC` RWX) montado en `/app/media`; se asume que el export NFS concede escritura al proceso del backend (`uid/gid 10001`) o un mapeo equivalente en servidor.
+- **A-023 (2026-03-07):** En web/PWA no se fuerza la reapertura de la cámara nativa del navegador tras aceptar cada foto porque ese comportamiento no es fiable entre navegadores/dispositivos. La captura continua del lote se implementa con cámara integrada (`getUserMedia`) dentro de la propia vista y mantiene fallback a selector de archivos cuando no hay soporte o permisos.

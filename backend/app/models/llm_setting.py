@@ -19,6 +19,7 @@ class LLMSetting(TimestampMixin, Base):
         default=lambda: list(DEFAULT_GEMINI_MODEL_PRIORITY),
         nullable=False,
     )
+    intake_parallelism: Mapped[int] = mapped_column(default=4, nullable=False)
     auto_tags_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     auto_alias_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)

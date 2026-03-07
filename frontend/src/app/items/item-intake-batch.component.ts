@@ -12,6 +12,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subscription } from 'rxjs';
 import { finalize, switchMap } from 'rxjs/operators';
 
+import { generateUuid } from '../core/uuid';
 import {
   IntakeBatch,
   IntakeDraft,
@@ -29,6 +30,16 @@ interface DraftEditorState {
   tagsText: string;
   aliasesText: string;
   dirtyFields: Record<DraftEditorField, boolean>;
+}
+
+type CaptureUploadStatus = 'queued' | 'uploading' | 'error';
+
+interface CaptureUploadEntry {
+  id: string;
+  file: File;
+  label: string;
+  status: CaptureUploadStatus;
+  errorMessage: string;
 }
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
@@ -51,13 +62,26 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
     <div class="app-page" *ngIf="batch">
       <header class="page-header intake-header">
         <div>
-          <h1 class="page-title">{{ batchTitle() }}</h1>
+          <div class="batch-title-row">
+            <h1 class="page-title">{{ batchTitle() }}</h1>
+            <span class="batch-target-chip" *ngIf="batch.target_box_name" matTooltip="Caja destino del lote">
+              <mat-icon>inventory_2</mat-icon>
+              <span>{{ batch.target_box_name }}</span>
+            </span>
+          </div>
           <p class="page-subtitle">
             Creado hace {{ daysSinceCreated(batch.created_at) }} día(s) · {{ drafts.length }} artículo(s) en gestión temporal.
           </p>
         </div>
         <div class="batch-actions" role="group" aria-label="Acciones del lote">
-          <button mat-icon-button type="button" matTooltip="Añadir artículo (foto)" aria-label="Añadir artículo" (click)="openPicker()" [disabled]="uploading || isProcessing">
+          <button
+            mat-icon-button
+            type="button"
+            matTooltip="Añadir artículo (foto)"
+            aria-label="Añadir artículo"
+            (click)="openCaptureEntry()"
+            [disabled]="committing"
+          >
             <mat-icon>add_a_photo</mat-icon>
           </button>
           <button
@@ -94,8 +118,50 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
         </div>
       </header>
 
-      <mat-card class="surface-card" *ngIf="isProcessing">
+      <mat-card class="surface-card" *ngIf="isProcessing || hasUploadingQueue">
         <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+      </mat-card>
+
+      <mat-card class="surface-card compact-card" *ngIf="captureQueue.length > 0">
+        <mat-card-content>
+          <div class="capture-queue-header">
+            <div>
+              <p class="editor-title">Cola local de capturas</p>
+              <p class="status-line">
+                En cola {{ queuedUploadCount }} · Subiendo {{ uploadingQueueCount }} · Error {{ failedUploadCount }}
+              </p>
+            </div>
+            <div class="inline-actions">
+              <button
+                mat-stroked-button
+                type="button"
+                (click)="retryFailedUploads()"
+                [disabled]="failedUploadCount === 0 || !batch"
+              >
+                Reintentar fallos
+              </button>
+            </div>
+          </div>
+          <div class="capture-queue-list">
+            <article class="capture-queue-item" *ngFor="let entry of captureQueue; trackBy: trackByCaptureUploadId">
+              <div>
+                <p class="capture-queue-title">{{ entry.label }}</p>
+                <p class="capture-queue-meta">{{ captureUploadStatusLabel(entry.status) }}</p>
+                <p class="error" *ngIf="entry.errorMessage">{{ entry.errorMessage }}</p>
+              </div>
+              <button
+                mat-icon-button
+                type="button"
+                matTooltip="Eliminar de la cola"
+                aria-label="Eliminar de la cola"
+                (click)="removeCaptureUpload(entry.id)"
+                [disabled]="entry.status === 'uploading'"
+              >
+                <mat-icon>close</mat-icon>
+              </button>
+            </article>
+          </div>
+        </mat-card-content>
       </mat-card>
 
       <mat-card class="surface-card compact-card">
@@ -108,16 +174,22 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
                 <span class="inline-chip">{{ newCount }}</span>
               </header>
               <div class="status-items">
-                <button
-                  type="button"
+                <article
                   class="status-item"
                   *ngFor="let draft of draftsByUiStatus('new'); trackBy: trackByDraftId"
                   [class.status-item-active]="draft.id === selectedDraftId"
                   (click)="selectDraft(draft.id)"
+                  (keydown.enter)="selectDraftFromKeyboard($event, draft.id)"
+                  (keydown.space)="selectDraftFromKeyboard($event, draft.id)"
+                  tabindex="0"
+                  role="button"
                 >
                   <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
-                  <span>{{ draftTitle(draft) }}</span>
-                </button>
+                  <div class="status-item-copy">
+                    <span class="status-item-title">{{ draftTitle(draft) }}</span>
+                    <span class="status-item-meta">{{ draft.description || 'Pendiente de análisis' }}</span>
+                  </div>
+                </article>
                 <p class="status-empty" *ngIf="draftsByUiStatus('new').length === 0">Sin artículos</p>
               </div>
             </section>
@@ -128,16 +200,51 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
                 <span class="inline-chip">{{ processedCount }}</span>
               </header>
               <div class="status-items">
-                <button
-                  type="button"
-                  class="status-item"
+                <article
+                  class="status-item status-item-stocked"
                   *ngFor="let draft of draftsByUiStatus('processed'); trackBy: trackByDraftId"
                   [class.status-item-active]="draft.id === selectedDraftId"
                   (click)="selectDraft(draft.id)"
+                  (keydown.enter)="selectDraftFromKeyboard($event, draft.id)"
+                  (keydown.space)="selectDraftFromKeyboard($event, draft.id)"
+                  tabindex="0"
+                  role="button"
                 >
                   <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
-                  <span>{{ draftTitle(draft) }}</span>
-                </button>
+                  <div class="status-item-copy">
+                    <span class="status-item-title">{{ draftTitle(draft) }}</span>
+                    <span class="status-item-meta">{{ draft.description || 'Listo para guardar' }}</span>
+                  </div>
+                  <div class="product-stock-inline status-stock-inline" (click)="$event.stopPropagation()">
+                    <button
+                      mat-icon-button
+                      type="button"
+                      class="stock-step-btn stock-step-dec"
+                      (click)="adjustDraftQuantity(draft, -1)"
+                      [disabled]="!canDecreaseDraftQuantity(draft)"
+                      [attr.aria-label]="'Reducir cantidad de ' + draftTitle(draft)"
+                      matTooltip="Reducir cantidad"
+                    >
+                      <mat-icon>remove</mat-icon>
+                    </button>
+                    <span class="stock-display" matTooltip="Cantidad a guardar">
+                      <mat-icon>inventory_2</mat-icon>
+                      <span>{{ draft.quantity }}</span>
+                    </span>
+                    <button
+                      mat-icon-button
+                      color="primary"
+                      type="button"
+                      class="stock-step-btn stock-step-inc"
+                      (click)="adjustDraftQuantity(draft, 1)"
+                      [disabled]="!canIncreaseDraftQuantity(draft)"
+                      [attr.aria-label]="'Incrementar cantidad de ' + draftTitle(draft)"
+                      matTooltip="Incrementar cantidad"
+                    >
+                      <mat-icon>add</mat-icon>
+                    </button>
+                  </div>
+                </article>
                 <p class="status-empty" *ngIf="draftsByUiStatus('processed').length === 0">Sin artículos</p>
               </div>
             </section>
@@ -148,16 +255,22 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
                 <span class="inline-chip">{{ errorCount }}</span>
               </header>
               <div class="status-items">
-                <button
-                  type="button"
+                <article
                   class="status-item"
                   *ngFor="let draft of draftsByUiStatus('error'); trackBy: trackByDraftId"
                   [class.status-item-active]="draft.id === selectedDraftId"
                   (click)="selectDraft(draft.id)"
+                  (keydown.enter)="selectDraftFromKeyboard($event, draft.id)"
+                  (keydown.space)="selectDraftFromKeyboard($event, draft.id)"
+                  tabindex="0"
+                  role="button"
                 >
                   <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
-                  <span>{{ draftTitle(draft) }}</span>
-                </button>
+                  <div class="status-item-copy">
+                    <span class="status-item-title">{{ draftTitle(draft) }}</span>
+                    <span class="status-item-meta">{{ draft.error_message || 'Revisión requerida' }}</span>
+                  </div>
+                </article>
                 <p class="status-empty" *ngIf="draftsByUiStatus('error').length === 0">Sin artículos</p>
               </div>
             </section>
@@ -168,16 +281,51 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
                 <span class="inline-chip">{{ savedCount }}</span>
               </header>
               <div class="status-items">
-                <button
-                  type="button"
-                  class="status-item"
+                <article
+                  class="status-item status-item-stocked"
                   *ngFor="let draft of draftsByUiStatus('saved'); trackBy: trackByDraftId"
                   [class.status-item-active]="draft.id === selectedDraftId"
                   (click)="selectDraft(draft.id)"
+                  (keydown.enter)="selectDraftFromKeyboard($event, draft.id)"
+                  (keydown.space)="selectDraftFromKeyboard($event, draft.id)"
+                  tabindex="0"
+                  role="button"
                 >
                   <img [src]="draft.photo_url" [alt]="draftTitle(draft)" />
-                  <span>{{ draftTitle(draft) }}</span>
-                </button>
+                  <div class="status-item-copy">
+                    <span class="status-item-title">{{ draftTitle(draft) }}</span>
+                    <span class="status-item-meta">{{ draft.description || 'Artículo guardado en inventario' }}</span>
+                  </div>
+                  <div class="product-stock-inline status-stock-inline" (click)="$event.stopPropagation()">
+                    <button
+                      mat-icon-button
+                      type="button"
+                      class="stock-step-btn stock-step-dec"
+                      (click)="adjustDraftQuantity(draft, -1)"
+                      [disabled]="!canDecreaseDraftQuantity(draft)"
+                      [attr.aria-label]="'Reducir stock de ' + draftTitle(draft)"
+                      matTooltip="Reducir stock"
+                    >
+                      <mat-icon>remove</mat-icon>
+                    </button>
+                    <span class="stock-display" matTooltip="Stock actual desde el lote">
+                      <mat-icon>inventory_2</mat-icon>
+                      <span>{{ draft.quantity }}</span>
+                    </span>
+                    <button
+                      mat-icon-button
+                      color="primary"
+                      type="button"
+                      class="stock-step-btn stock-step-inc"
+                      (click)="adjustDraftQuantity(draft, 1)"
+                      [disabled]="!canIncreaseDraftQuantity(draft)"
+                      [attr.aria-label]="'Incrementar stock de ' + draftTitle(draft)"
+                      matTooltip="Incrementar stock"
+                    >
+                      <mat-icon>add</mat-icon>
+                    </button>
+                  </div>
+                </article>
                 <p class="status-empty" *ngIf="draftsByUiStatus('saved').length === 0">Sin artículos</p>
               </div>
             </section>
@@ -211,6 +359,41 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
               <div class="inline-actions chips-row">
                 <span class="inline-chip">Estado: {{ uiStatusLabel(uiStatusOf(draft)) }}</span>
                 <span class="inline-chip" *ngIf="draft.confidence > 0">Confianza: {{ confidencePercent(draft.confidence) }}%</span>
+              </div>
+
+              <div class="editor-stock-row">
+                <div class="product-stock-inline editor-stock-inline">
+                  <button
+                    mat-icon-button
+                    type="button"
+                    class="stock-step-btn stock-step-dec"
+                    (click)="adjustDraftQuantity(draft, -1)"
+                    [disabled]="!canDecreaseDraftQuantity(draft)"
+                    [attr.aria-label]="'Reducir cantidad de ' + draftTitle(draft)"
+                    matTooltip="Reducir cantidad"
+                  >
+                    <mat-icon>remove</mat-icon>
+                  </button>
+                  <span class="stock-display" [matTooltip]="draft.status === 'committed' ? 'Stock actual desde el lote' : 'Cantidad a guardar'">
+                    <mat-icon>inventory_2</mat-icon>
+                    <span>{{ draft.quantity }}</span>
+                  </span>
+                  <button
+                    mat-icon-button
+                    color="primary"
+                    type="button"
+                    class="stock-step-btn stock-step-inc"
+                    (click)="adjustDraftQuantity(draft, 1)"
+                    [disabled]="!canIncreaseDraftQuantity(draft)"
+                    [attr.aria-label]="'Incrementar cantidad de ' + draftTitle(draft)"
+                    matTooltip="Incrementar cantidad"
+                  >
+                    <mat-icon>add</mat-icon>
+                  </button>
+                </div>
+                <p class="status-line">
+                  {{ draft.status === 'committed' ? 'Stock editable desde el propio lote.' : 'Cantidad objetivo antes de guardar.' }}
+                </p>
               </div>
 
               <mat-form-field class="full-width compact-field">
@@ -330,6 +513,47 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
         (change)="onFilesSelected($event)"
         class="sr-only-input"
       />
+
+      <div class="capture-overlay" *ngIf="cameraOverlayOpen">
+        <div class="capture-backdrop" (click)="closeCameraOverlay()"></div>
+        <div class="capture-panel" role="dialog" aria-modal="true" aria-label="Captura continua de artículos">
+          <div class="capture-panel-header">
+            <div>
+              <p class="editor-title">Captura continua</p>
+              <p class="status-line">Acepta una foto y la cámara queda lista para la siguiente.</p>
+            </div>
+            <button mat-icon-button type="button" aria-label="Cerrar cámara" (click)="closeCameraOverlay()">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+
+          <div class="capture-stage" *ngIf="!capturedPreviewUrl; else capturedPreview">
+            <video #cameraVideo autoplay playsinline muted class="camera-video"></video>
+            <div class="status-line" *ngIf="cameraLoading">Abriendo cámara...</div>
+            <div class="error" *ngIf="cameraErrorMessage">{{ cameraErrorMessage }}</div>
+          </div>
+
+          <ng-template #capturedPreview>
+            <div class="capture-stage">
+              <img [src]="capturedPreviewUrl" alt="Previsualización de captura" class="camera-preview" />
+            </div>
+          </ng-template>
+
+          <div class="capture-panel-actions" *ngIf="!capturedPreviewUrl">
+            <button mat-stroked-button type="button" (click)="openPicker()">Subir desde galería</button>
+            <button mat-flat-button color="primary" type="button" (click)="capturePhoto()" [disabled]="cameraLoading || !cameraStreamActive">
+              Capturar
+            </button>
+          </div>
+
+          <div class="capture-panel-actions" *ngIf="capturedPreviewUrl">
+            <button mat-stroked-button type="button" (click)="discardCapturedPreview()">Repetir</button>
+            <button mat-flat-button color="primary" type="button" (click)="acceptCapturedPhoto()">Aceptar y siguiente</button>
+          </div>
+
+          <canvas #cameraCanvas class="camera-canvas"></canvas>
+        </div>
+      </div>
     </div>
   `,
   styles: [
@@ -340,6 +564,33 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
 
       .intake-header {
         align-items: flex-start;
+      }
+
+      .batch-title-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .batch-target-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(191, 216, 255, 0.8);
+        background: #edf4ff;
+        color: #234e9c;
+        font-size: 0.8rem;
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      .batch-target-chip .mat-icon {
+        width: 15px;
+        height: 15px;
+        font-size: 15px;
       }
 
       .batch-actions {
@@ -384,17 +635,20 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
       }
 
       .status-item {
-        width: 100%;
         border: 1px solid var(--border-soft);
         border-radius: 10px;
         background: #f8fbff;
         padding: 6px;
-        text-align: left;
         cursor: pointer;
         display: grid;
         grid-template-columns: 44px minmax(0, 1fr);
         gap: 6px;
         align-items: center;
+      }
+
+      .status-item-stocked {
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 8px;
       }
 
       .status-item img {
@@ -406,13 +660,32 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
         background: #eef3fb;
       }
 
-      .status-item span {
+      .status-item-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .status-item-title,
+      .status-item-meta {
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .status-item-title {
         white-space: nowrap;
         font-size: 0.8rem;
         color: var(--text-1);
+        font-weight: 600;
+      }
+
+      .status-item-meta {
+        font-size: 0.73rem;
+        color: var(--text-2);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
       }
 
       .status-item-active {
@@ -424,6 +697,73 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
         margin: 0;
         font-size: 0.78rem;
         color: var(--text-3);
+      }
+
+      .product-stock-inline {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr) 32px;
+        align-items: center;
+        gap: 3px;
+        width: 100%;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(191, 216, 255, 0.8);
+        background: #edf4ff;
+        color: #234e9c;
+        min-height: 38px;
+      }
+
+      .status-stock-inline {
+        grid-column: 1 / -1;
+      }
+
+      .stock-display {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        min-width: 0;
+        line-height: 1;
+      }
+
+      .stock-display .mat-icon {
+        width: 16px;
+        height: 16px;
+        font-size: 16px;
+      }
+
+      .stock-step-btn {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 30px !important;
+        min-width: 30px !important;
+        height: 30px !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+        color: inherit;
+      }
+
+      .stock-step-btn .mat-icon {
+        display: block;
+        width: 18px;
+        height: 18px;
+        font-size: 18px;
+        line-height: 18px;
+        margin: 0;
+        vertical-align: middle;
+      }
+
+      .editor-stock-row {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+
+      .editor-stock-inline {
+        max-width: 220px;
       }
 
       .editor-grid {
@@ -472,6 +812,103 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
         gap: 4px;
       }
 
+      .capture-queue-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .capture-queue-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .capture-queue-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        background: #f8fbff;
+      }
+
+      .capture-queue-title {
+        margin: 0;
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--text-1);
+      }
+
+      .capture-queue-meta {
+        margin: 2px 0 0;
+        font-size: 0.76rem;
+        color: var(--text-2);
+      }
+
+      .capture-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+      }
+
+      .capture-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.56);
+      }
+
+      .capture-panel {
+        position: relative;
+        width: min(100%, 720px);
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border-radius: 18px;
+        background: #ffffff;
+        border: 1px solid rgba(203, 213, 225, 0.9);
+        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
+      }
+
+      .capture-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .capture-stage {
+        display: grid;
+        gap: 8px;
+      }
+
+      .camera-video,
+      .camera-preview {
+        width: 100%;
+        max-height: 62vh;
+        border-radius: 16px;
+        border: 1px solid var(--border-soft);
+        background: #0f172a;
+        object-fit: cover;
+      }
+
+      .camera-canvas {
+        display: none;
+      }
+
+      .capture-panel-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
       @media (max-width: 1200px) {
         .status-board {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -481,6 +918,23 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
       @media (max-width: 760px) {
         .status-board {
           grid-template-columns: 1fr;
+        }
+
+        .capture-queue-header {
+          flex-direction: column;
+        }
+
+        .capture-panel {
+          width: 100%;
+          padding: 12px;
+        }
+
+        .capture-panel-actions {
+          justify-content: stretch;
+        }
+
+        .capture-panel-actions button {
+          flex: 1 1 180px;
         }
 
         .editor-grid {
@@ -496,6 +950,8 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
 })
 export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   @ViewChild('photoInput') photoInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('cameraVideo') cameraVideo?: ElementRef<HTMLVideoElement>;
+  @ViewChild('cameraCanvas') cameraCanvas?: ElementRef<HTMLCanvasElement>;
 
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
 
@@ -503,9 +959,14 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   drafts: IntakeDraft[] = [];
   selectedDraftId: string | null = null;
 
-  uploading = false;
   committing = false;
   errorMessage = '';
+  captureQueue: CaptureUploadEntry[] = [];
+  cameraOverlayOpen = false;
+  cameraLoading = false;
+  cameraErrorMessage = '';
+  capturedPreviewUrl: string | null = null;
+  cameraStreamActive = false;
 
   private readonly draftEditors = new Map<string, DraftEditorState>();
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -515,6 +976,9 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   private batchLoadInFlight = false;
   private pendingLoad: { batchId: string; silent: boolean } | null = null;
   private autoRefreshBatchId: string | null = null;
+  private pendingCapturedFile: File | null = null;
+  private cameraStream: MediaStream | null = null;
+  private uploadQueueBusy = false;
 
   constructor(
     private readonly warehouseService: WarehouseService,
@@ -545,6 +1009,8 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
         this.selectedDraftId = null;
         this.batch = null;
         this.drafts = [];
+        this.captureQueue = [];
+        this.closeCameraOverlay().catch(() => {});
         this.loadBatch(batchId);
       }
       this.startAutoRefresh(batchId);
@@ -555,6 +1021,8 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     this.routeParamSub?.unsubscribe();
     this.stopAutoRefresh();
     this.cancelActiveLoad();
+    this.stopCameraStream();
+    this.clearCapturedPreview();
   }
 
   get selectedDraft(): IntakeDraft | null {
@@ -584,8 +1052,28 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     return this.batch?.status === 'processing' || this.drafts.some((draft) => draft.status === 'processing');
   }
 
+  get hasUploadingQueue(): boolean {
+    return this.captureQueue.some((entry) => entry.status === 'queued' || entry.status === 'uploading');
+  }
+
+  get queuedUploadCount(): number {
+    return this.captureQueue.filter((entry) => entry.status === 'queued').length;
+  }
+
+  get uploadingQueueCount(): number {
+    return this.captureQueue.filter((entry) => entry.status === 'uploading').length;
+  }
+
+  get failedUploadCount(): number {
+    return this.captureQueue.filter((entry) => entry.status === 'error').length;
+  }
+
   trackByDraftId(_index: number, draft: IntakeDraft): string {
     return draft.id;
+  }
+
+  trackByCaptureUploadId(_index: number, entry: CaptureUploadEntry): string {
+    return entry.id;
   }
 
   batchTitle(): string {
@@ -631,9 +1119,23 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     return this.drafts.filter((draft) => this.uiStatusOf(draft) === status);
   }
 
+  captureUploadStatusLabel(status: CaptureUploadStatus): string {
+    const labels: Record<CaptureUploadStatus, string> = {
+      queued: 'Pendiente de subida',
+      uploading: 'Subiendo al backend',
+      error: 'Error de subida'
+    };
+    return labels[status];
+  }
+
   selectDraft(draftId: string): void {
     this.detailPanelClosedManually = false;
     this.selectedDraftId = draftId;
+  }
+
+  selectDraftFromKeyboard(event: KeyboardEvent, draftId: string): void {
+    event.preventDefault();
+    this.selectDraft(draftId);
   }
 
   closeSelectedDraft(): void {
@@ -657,6 +1159,19 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
 
   confidencePercent(value: number): number {
     return Math.round(value * 100);
+  }
+
+  canAdjustDraftQuantity(draft: IntakeDraft): boolean {
+    const status = this.uiStatusOf(draft);
+    return !this.committing && (status === 'processed' || status === 'saved');
+  }
+
+  canDecreaseDraftQuantity(draft: IntakeDraft): boolean {
+    return this.canAdjustDraftQuantity(draft) && draft.quantity > 1;
+  }
+
+  canIncreaseDraftQuantity(draft: IntakeDraft): boolean {
+    return this.canAdjustDraftQuantity(draft) && draft.quantity < 9999;
   }
 
   editorFor(draft: IntakeDraft): DraftEditorState {
@@ -685,8 +1200,19 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     return this.committing || draft.status === 'processing' || draft.status === 'committed';
   }
 
+  openCaptureEntry(): void {
+    if (!this.batch || this.committing) {
+      return;
+    }
+    if (!this.isCameraSupported()) {
+      this.openPicker();
+      return;
+    }
+    this.openCameraOverlay();
+  }
+
   openPicker(): void {
-    if (!this.batch || this.isProcessing) {
+    if (!this.batch || this.committing) {
       return;
     }
     const input = this.photoInput?.nativeElement;
@@ -698,7 +1224,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
   }
 
   onFilesSelected(event: Event): void {
-    if (!this.selectedWarehouseId || !this.batch || this.uploading) {
+    if (!this.selectedWarehouseId || !this.batch) {
       return;
     }
 
@@ -708,22 +1234,101 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.uploading = true;
     this.errorMessage = '';
+    this.enqueueFiles(files);
+    input.value = '';
+  }
+
+  adjustDraftQuantity(draft: IntakeDraft, delta: 1 | -1): void {
+    if (!this.selectedWarehouseId) {
+      return;
+    }
+    const nextQuantity = draft.quantity + delta;
+    if (nextQuantity < 1 || nextQuantity > 9999 || !this.canAdjustDraftQuantity(draft)) {
+      return;
+    }
+
     this.intakeService
-      .uploadPhotos(this.selectedWarehouseId, this.batch.id, files)
-      .pipe(finalize(() => (this.uploading = false)))
+      .updateDraft(this.selectedWarehouseId, draft.id, { quantity: nextQuantity })
       .subscribe({
-        next: (response) => {
-          this.batch = response.batch;
-          this.notificationService.success(`${response.uploaded_count} foto(s) añadidas al lote.`);
-          this.loadBatch(this.batch.id, true);
-          this.startProcessing(false);
+        next: (updated) => {
+          this.replaceDraft(updated);
         },
         error: () => {
-          this.setActionError('No se pudieron subir las fotos seleccionadas.');
+          const label = this.uiStatusOf(draft) === 'saved' ? 'stock' : 'cantidad';
+          this.setActionError(`No se pudo actualizar el ${label} del artículo.`);
         }
       });
+  }
+
+  retryFailedUploads(): void {
+    const hasChanges = this.captureQueue.some((entry) => entry.status === 'error');
+    if (!hasChanges) {
+      return;
+    }
+    this.captureQueue = this.captureQueue.map((entry) =>
+      entry.status === 'error' ? { ...entry, status: 'queued', errorMessage: '' } : entry
+    );
+    this.flushCaptureQueue();
+  }
+
+  removeCaptureUpload(entryId: string): void {
+    this.captureQueue = this.captureQueue.filter((entry) => entry.id !== entryId);
+  }
+
+  async capturePhoto(): Promise<void> {
+    const video = this.cameraVideo?.nativeElement;
+    const canvas = this.cameraCanvas?.nativeElement;
+    if (!video || !canvas || !this.cameraStreamActive) {
+      return;
+    }
+
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      this.setActionError('No se pudo preparar la captura de la cámara.');
+      return;
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    if (!blob) {
+      this.setActionError('No se pudo generar la foto capturada.');
+      return;
+    }
+
+    const file = new File([blob], `captura-${Date.now()}.jpg`, {
+      type: blob.type || 'image/jpeg',
+      lastModified: Date.now()
+    });
+    this.pendingCapturedFile = file;
+    this.clearCapturedPreview();
+    this.capturedPreviewUrl = URL.createObjectURL(blob);
+  }
+
+  acceptCapturedPhoto(): void {
+    if (!this.pendingCapturedFile) {
+      return;
+    }
+    this.enqueueFiles([this.pendingCapturedFile]);
+    this.pendingCapturedFile = null;
+    this.clearCapturedPreview();
+  }
+
+  discardCapturedPreview(): void {
+    this.pendingCapturedFile = null;
+    this.clearCapturedPreview();
+  }
+
+  async closeCameraOverlay(): Promise<void> {
+    this.cameraOverlayOpen = false;
+    this.cameraLoading = false;
+    this.pendingCapturedFile = null;
+    this.clearCapturedPreview();
+    this.stopCameraStream();
   }
 
   saveDraft(draft: IntakeDraft): void {
@@ -936,7 +1541,7 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     const next = [...this.drafts];
     next[index] = updated;
     this.drafts = next;
-    this.draftEditors.set(updated.id, this.createEditorState(updated));
+    this.draftEditors.set(updated.id, this.mergeEditorState(updated, this.draftEditors.get(updated.id)));
     this.syncSelectedDraft();
   }
 
@@ -1079,6 +1684,142 @@ export class ItemIntakeBatchComponent implements OnInit, OnDestroy {
     this.batchLoadInFlight = false;
     this.activeLoadSub?.unsubscribe();
     this.activeLoadSub = undefined;
+  }
+
+  private isCameraSupported(): boolean {
+    return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+  }
+
+  private async openCameraOverlay(): Promise<void> {
+    this.cameraOverlayOpen = true;
+    this.cameraErrorMessage = '';
+    this.cameraLoading = true;
+
+    try {
+      if (!this.cameraStream) {
+        this.cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' }
+          },
+          audio: false
+        });
+      }
+      setTimeout(() => this.attachCameraStream(), 0);
+    } catch {
+      this.cameraOverlayOpen = false;
+      this.cameraLoading = false;
+      this.cameraErrorMessage = 'No se pudo abrir la cámara del dispositivo. Se abrirá el selector de archivos.';
+      this.notificationService.info(this.cameraErrorMessage);
+      this.openPicker();
+    }
+  }
+
+  private attachCameraStream(): void {
+    const video = this.cameraVideo?.nativeElement;
+    if (!video || !this.cameraStream) {
+      this.cameraLoading = false;
+      return;
+    }
+    video.srcObject = this.cameraStream;
+    video
+      .play()
+      .then(() => {
+        this.cameraStreamActive = true;
+        this.cameraLoading = false;
+      })
+      .catch(() => {
+        this.cameraLoading = false;
+        this.cameraStreamActive = false;
+        this.cameraErrorMessage = 'La cámara se abrió, pero no se pudo iniciar la vista previa.';
+      });
+  }
+
+  private stopCameraStream(): void {
+    if (!this.cameraStream) {
+      this.cameraStreamActive = false;
+      return;
+    }
+    for (const track of this.cameraStream.getTracks()) {
+      track.stop();
+    }
+    this.cameraStream = null;
+    this.cameraStreamActive = false;
+    const video = this.cameraVideo?.nativeElement;
+    if (video) {
+      video.srcObject = null;
+    }
+  }
+
+  private clearCapturedPreview(): void {
+    if (this.capturedPreviewUrl) {
+      URL.revokeObjectURL(this.capturedPreviewUrl);
+    }
+    this.capturedPreviewUrl = null;
+  }
+
+  private enqueueFiles(files: File[]): void {
+    if (!files.length) {
+      return;
+    }
+    const entries = files.map((file, index) => ({
+      id: generateUuid(),
+      file,
+      label: file.name || `captura-${Date.now()}-${index + 1}`,
+      status: 'queued' as const,
+      errorMessage: ''
+    }));
+    this.captureQueue = [...this.captureQueue, ...entries];
+    this.flushCaptureQueue();
+  }
+
+  private flushCaptureQueue(): void {
+    if (this.uploadQueueBusy || !this.selectedWarehouseId || !this.batch) {
+      return;
+    }
+
+    const nextEntry = this.captureQueue.find((entry) => entry.status === 'queued');
+    if (!nextEntry) {
+      return;
+    }
+
+    this.uploadQueueBusy = true;
+    this.captureQueue = this.captureQueue.map((entry) =>
+      entry.id === nextEntry.id ? { ...entry, status: 'uploading', errorMessage: '' } : entry
+    );
+
+    this.intakeService
+      .uploadPhotos(this.selectedWarehouseId, this.batch.id, [nextEntry.file])
+      .pipe(finalize(() => (this.uploadQueueBusy = false)))
+      .subscribe({
+        next: (response) => {
+          this.captureQueue = this.captureQueue.filter((entry) => entry.id !== nextEntry.id);
+          this.applyUploadResponse(response);
+          this.flushCaptureQueue();
+        },
+        error: () => {
+          this.captureQueue = this.captureQueue.map((entry) =>
+            entry.id === nextEntry.id
+              ? {
+                  ...entry,
+                  status: 'error',
+                  errorMessage: 'Fallo al subir la captura. Puedes reintentarlo.'
+                }
+              : entry
+          );
+          this.notificationService.error('No se pudo subir una captura al lote.');
+        }
+      });
+  }
+
+  private applyUploadResponse(response: { batch: IntakeBatch; drafts: IntakeDraft[]; uploaded_count: number }): void {
+    this.batch = response.batch;
+    const draftById = new Map(this.drafts.map((draft) => [draft.id, draft] as const));
+    for (const draft of response.drafts) {
+      draftById.set(draft.id, draft);
+    }
+    const nextDrafts = Array.from(draftById.values()).sort((a, b) => a.position - b.position);
+    this.applyBatchPayload(response.batch, nextDrafts);
+    this.startAutoRefresh(response.batch.id);
   }
 
   private reprocessDraft(draft: IntakeDraft, mode: 'photo' | 'name'): void {

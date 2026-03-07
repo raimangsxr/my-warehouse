@@ -27,6 +27,7 @@ from app.schemas.sync import (
     SyncResolveRequest,
     SyncResolveResponse,
 )
+from app.services.box_codes import coerce_unique_short_code
 from app.services.stock import ensure_initial_stock_movement
 from app.services.sync_log import append_change_log
 
@@ -196,7 +197,7 @@ def _apply_sync_command(
                 description=payload.get("description"),
                 physical_location=payload.get("physical_location"),
                 qr_token=payload.get("qr_token") or secrets.token_urlsafe(24),
-                short_code=payload.get("short_code") or f"BX-{secrets.token_hex(3).upper()}",
+                short_code=coerce_unique_short_code(db, payload.get("short_code"), exclude_box_id=box_id),
                 is_inbound=is_inbound,
                 version=1,
             )

@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 30
     refresh_token_days: int = 30
+    persistent_login_days: int = 365
+    auth_cookie_name: str = "mw_refresh_token"
+    auth_cookie_secure: bool = False
+    auth_cookie_samesite: str = "lax"
     frontend_url: str = "http://localhost:4200"
     cors_origins: str = "http://localhost:4200"
     secret_encryption_key: str = "change-me-secret-key"

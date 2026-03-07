@@ -22,6 +22,8 @@ class IntakeDraft(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     llm_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     processing_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    committed_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_item_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("items.id"), nullable=True, index=True)
 
     batch = relationship("IntakeBatch", back_populates="drafts")

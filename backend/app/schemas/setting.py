@@ -39,6 +39,7 @@ class LLMSettingsResponse(BaseModel):
     provider: str
     language: LLMOutputLanguage
     model_priority: list[GeminiModelId] = Field(default_factory=lambda: list(DEFAULT_GEMINI_MODEL_PRIORITY))
+    intake_parallelism: int = Field(default=4, ge=1, le=8)
     auto_tags_enabled: bool
     auto_alias_enabled: bool
     has_api_key: bool
@@ -50,6 +51,7 @@ class LLMSettingsUpdateRequest(BaseModel):
     language: LLMOutputLanguage = "es"
     api_key: str | None = Field(default=None, max_length=1024)
     model_priority: list[GeminiModelId] = Field(default_factory=lambda: list(DEFAULT_GEMINI_MODEL_PRIORITY))
+    intake_parallelism: int = Field(default=4, ge=1, le=8)
     auto_tags_enabled: bool = True
     auto_alias_enabled: bool = True
 

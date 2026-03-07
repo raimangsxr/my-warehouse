@@ -26,6 +26,7 @@ from app.schemas.box import (
 )
 from app.schemas.common import MessageResponse
 from app.services.activity import record_activity
+from app.services.box_codes import generate_unique_short_code, normalize_short_code
 from app.services.sync_log import append_change_log
 
 router = APIRouter(prefix="/warehouses/{warehouse_id}/boxes", tags=["boxes"])
@@ -77,12 +78,91 @@ def _next_default_name(db: Session, warehouse_id: str) -> str:
     return f"Caja {next_idx}"
 
 
-def _new_short_code() -> str:
-    return f"BX-{secrets.token_hex(3).upper()}"
-
-
 def _new_qr_token() -> str:
     return secrets.token_urlsafe(24)
+
+
+def _build_box_lookup_response(box: Box) -> BoxByQrResponse:
+    return BoxByQrResponse(
+        box_id=box.id,
+        warehouse_id=box.warehouse_id,
+        short_code=box.short_code,
+        name=box.name,
+    )
+
+
+def _resolve_box_by_qr_token(db: Session, current_user: User, qr_token: str) -> Box:
+    normalized_token = qr_token.strip()
+    logger.debug("QR lookup requested qr_token_length=%s user_id=%s", len(normalized_token), current_user.id)
+    box = db.scalar(select(Box).where(Box.qr_token == normalized_token, Box.deleted_at.is_(None)))
+    if box is None:
+        logger.error("QR lookup failed: token not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QR not found")
+
+    membership = db.scalar(
+        select(Membership.user_id).where(
+            Membership.user_id == current_user.id,
+            Membership.warehouse_id == box.warehouse_id,
+        )
+    )
+    if membership is None:
+        logger.error(
+            "QR lookup denied warehouse_id=%s user_id=%s",
+            box.warehouse_id,
+            current_user.id,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to warehouse")
+
+    logger.info(
+        "QR lookup resolved warehouse_id=%s box_id=%s user_id=%s",
+        box.warehouse_id,
+        box.id,
+        current_user.id,
+    )
+    return box
+
+
+def _resolve_box_by_short_code(db: Session, current_user: User, short_code: str) -> Box:
+    normalized_code = normalize_short_code(short_code)
+    logger.debug("Short code lookup requested short_code=%s user_id=%s", normalized_code, current_user.id)
+    matching_boxes = db.scalars(
+        select(Box)
+        .where(func.upper(Box.short_code) == normalized_code, Box.deleted_at.is_(None))
+        .order_by(Box.created_at.asc())
+    ).all()
+    if not matching_boxes:
+        logger.error("Short code lookup failed: code not found short_code=%s", normalized_code)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short code not found")
+
+    accessible_warehouse_ids = set(
+        db.scalars(select(Membership.warehouse_id).where(Membership.user_id == current_user.id)).all()
+    )
+    accessible_boxes = [box for box in matching_boxes if box.warehouse_id in accessible_warehouse_ids]
+    if len(accessible_boxes) == 1:
+        box = accessible_boxes[0]
+        logger.info(
+            "Short code lookup resolved warehouse_id=%s box_id=%s user_id=%s short_code=%s",
+            box.warehouse_id,
+            box.id,
+            current_user.id,
+            normalized_code,
+        )
+        return box
+
+    if len(accessible_boxes) > 1:
+        logger.error(
+            "Short code lookup ambiguous short_code=%s user_id=%s matches=%s",
+            normalized_code,
+            current_user.id,
+            len(accessible_boxes),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Short code matches multiple accessible boxes",
+        )
+
+    logger.error("Short code lookup denied short_code=%s user_id=%s", normalized_code, current_user.id)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to warehouse")
 
 
 def _compute_recursive_counts(
@@ -234,7 +314,7 @@ def create_box(
         description=payload.description,
         physical_location=payload.physical_location,
         qr_token=_new_qr_token(),
-        short_code=_new_short_code(),
+        short_code=generate_unique_short_code(db),
     )
     db.add(box)
     db.flush()
@@ -578,35 +658,21 @@ def get_box_by_qr(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BoxByQrResponse:
-    logger.debug("QR lookup requested qr_token_length=%s user_id=%s", len(qr_token), current_user.id)
-    box = db.scalar(select(Box).where(Box.qr_token == qr_token, Box.deleted_at.is_(None)))
-    if box is None:
-        logger.error("QR lookup failed: token not found")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QR not found")
+    box = _resolve_box_by_qr_token(db, current_user, qr_token)
+    return _build_box_lookup_response(box)
 
-    membership = db.scalar(
-        select(Membership).where(
-            Membership.user_id == current_user.id,
-            Membership.warehouse_id == box.warehouse_id,
-        )
-    )
-    if membership is None:
-        logger.error(
-            "QR lookup denied warehouse_id=%s user_id=%s",
-            box.warehouse_id,
-            current_user.id,
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to warehouse")
 
-    logger.info(
-        "QR lookup resolved warehouse_id=%s box_id=%s user_id=%s",
-        box.warehouse_id,
-        box.id,
-        current_user.id,
-    )
-    return BoxByQrResponse(
-        box_id=box.id,
-        warehouse_id=box.warehouse_id,
-        short_code=box.short_code,
-        name=box.name,
-    )
+@qr_router.get("/resolve/{identifier}", response_model=BoxByQrResponse)
+def resolve_box_identifier(
+    identifier: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BoxByQrResponse:
+    normalized_identifier = identifier.strip()
+    qr_match = db.scalar(select(Box.id).where(Box.qr_token == normalized_identifier, Box.deleted_at.is_(None)))
+    if qr_match is not None:
+        box = _resolve_box_by_qr_token(db, current_user, normalized_identifier)
+        return _build_box_lookup_response(box)
+
+    box = _resolve_box_by_short_code(db, current_user, normalized_identifier)
+    return _build_box_lookup_response(box)

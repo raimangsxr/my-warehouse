@@ -25,6 +25,7 @@ from app.schemas.warehouse import (
     WarehouseResponse,
 )
 from app.services.activity import record_activity
+from app.services.box_codes import generate_unique_short_code
 from app.services.security import hash_token
 from app.services.sync_log import append_change_log
 
@@ -36,10 +37,6 @@ logger = logging.getLogger(__name__)
 
 def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _new_short_code() -> str:
-    return f"BX-{secrets.token_hex(3).upper()}"
 
 
 def _new_qr_token() -> str:
@@ -81,7 +78,7 @@ def create_warehouse(
         description="Caja de entrada para mercancias pendientes de ubicar",
         physical_location=None,
         qr_token=_new_qr_token(),
-        short_code=_new_short_code(),
+        short_code=generate_unique_short_code(db),
         is_inbound=True,
     )
     db.add(inbound_box)

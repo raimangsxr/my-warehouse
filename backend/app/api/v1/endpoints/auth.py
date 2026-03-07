@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,58 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def _refresh_days(remember_me: bool) -> int:
+    return settings.persistent_login_days if remember_me else settings.refresh_token_days
+
+
+def _refresh_cookie_path() -> str:
+    return f"{settings.api_v1_prefix}/auth"
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str, remember_me: bool) -> None:
+    max_age = _refresh_days(remember_me) * 24 * 60 * 60
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=refresh_token,
+        max_age=max_age,
+        expires=max_age,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+        path=_refresh_cookie_path(),
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.auth_cookie_name,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+        path=_refresh_cookie_path(),
+    )
+
+
+def _issue_token_pair(db: Session, user_id: str, remember_me: bool) -> TokenResponse:
+    access_token = build_access_token(user_id)
+    refresh_token = build_refresh_token(user_id, expires_in_days=_refresh_days(remember_me))
+    db.add(
+        RefreshToken(
+            user_id=user_id,
+            token_hash=hash_token(refresh_token),
+            expires_at=utcnow() + timedelta(days=_refresh_days(remember_me)),
+        )
+    )
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+def _resolve_refresh_token(request: Request, payload: RefreshRequest | None) -> tuple[str | None, bool]:
+    cookie_token = request.cookies.get(settings.auth_cookie_name)
+    body_token = payload.refresh_token if payload else None
+    remember_me = bool(cookie_token or (payload and payload.remember_me))
+    return cookie_token or body_token, remember_me
+
+
 @router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> UserResponse:
     normalized_email = payload.email.lower()
@@ -64,7 +116,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> UserRespons
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> TokenResponse:
     normalized_email = payload.email.lower()
     logger.debug("Login requested email=%s", normalized_email)
     user = db.scalar(select(User).where(User.email == normalized_email))
@@ -72,24 +124,31 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         logger.error("Login rejected for email=%s", normalized_email)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    access_token = build_access_token(user.id)
-    refresh_token = build_refresh_token(user.id)
-    token_row = RefreshToken(
-        user_id=user.id,
-        token_hash=hash_token(refresh_token),
-        expires_at=utcnow() + timedelta(days=settings.refresh_token_days),
-    )
-    db.add(token_row)
+    tokens = _issue_token_pair(db, user.id, payload.remember_me)
     db.commit()
+    if payload.remember_me:
+        _set_refresh_cookie(response, tokens.refresh_token, remember_me=True)
+    else:
+        _clear_refresh_cookie(response)
     logger.info("Login successful user_id=%s", user.id)
-    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def refresh(
+    request: Request,
+    response: Response,
+    payload: RefreshRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+) -> TokenResponse:
     logger.debug("Refresh token requested")
+    refresh_token_value, remember_me = _resolve_refresh_token(request, payload)
+    if not refresh_token_value:
+        logger.error("Refresh rejected: no refresh token provided")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token required")
+
     try:
-        token_payload = decode_token(payload.refresh_token)
+        token_payload = decode_token(refresh_token_value)
     except Exception as exc:  # noqa: BLE001
         logger.error("Refresh rejected: token decode failed")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
@@ -98,32 +157,43 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
         logger.error("Refresh rejected: invalid token type type=%s", token_payload.get("type"))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token type")
 
-    token_hash_value = hash_token(payload.refresh_token)
+    token_hash_value = hash_token(refresh_token_value)
     stored = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash_value))
     if stored is None or stored.revoked or stored.expires_at < utcnow():
         logger.error("Refresh rejected: token expired/revoked")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
     stored.revoked = True
-    access_token = build_access_token(stored.user_id)
-    new_refresh = build_refresh_token(stored.user_id)
-    db.add(
-        RefreshToken(
-            user_id=stored.user_id,
-            token_hash=hash_token(new_refresh),
-            expires_at=utcnow() + timedelta(days=settings.refresh_token_days),
-        )
-    )
+    tokens = _issue_token_pair(db, stored.user_id, remember_me)
     db.commit()
+    if remember_me:
+        _set_refresh_cookie(response, tokens.refresh_token, remember_me=True)
+    else:
+        _clear_refresh_cookie(response)
     logger.info("Refresh successful user_id=%s", stored.user_id)
-    return TokenResponse(access_token=access_token, refresh_token=new_refresh)
+    return tokens
 
 
 @router.post("/logout", response_model=MessageResponse)
-def logout(payload: RefreshRequest, db: Session = Depends(get_db)) -> MessageResponse:
-    token_hash_value = hash_token(payload.refresh_token)
-    db.execute(update(RefreshToken).where(RefreshToken.token_hash == token_hash_value).values(revoked=True))
+def logout(
+    request: Request,
+    response: Response,
+    payload: RefreshRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    token_values = {
+        token
+        for token in (
+            payload.refresh_token if payload else None,
+            request.cookies.get(settings.auth_cookie_name),
+        )
+        if token
+    }
+    if token_values:
+        token_hashes = [hash_token(token) for token in token_values]
+        db.execute(update(RefreshToken).where(RefreshToken.token_hash.in_(token_hashes)).values(revoked=True))
     db.commit()
+    _clear_refresh_cookie(response)
     logger.info("Logout completed: refresh token revoked")
     return MessageResponse(message="Logged out")
 
