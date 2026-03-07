@@ -1,6 +1,6 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
-import { Component, ViewChild } from '@angular/core';
+import { Component, effect, ViewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
@@ -171,6 +171,7 @@ export class ShellComponent {
 
   isMobile = false;
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
+  private announcedUpdateVersion: string | null = null;
 
   constructor(
     private readonly warehouseService: WarehouseService,
@@ -180,8 +181,32 @@ export class ShellComponent {
     public readonly pwaService: PwaService,
     breakpointObserver: BreakpointObserver
   ) {
+    const updatedVersion = this.pwaService.consumePendingReloadSuccess();
+    if (updatedVersion) {
+      this.notificationService.success(`App actualizada correctamente a la versión ${updatedVersion}.`);
+    }
+
     breakpointObserver.observe('(max-width: 900px)').subscribe((res) => {
       this.isMobile = res.matches;
+    });
+
+    effect(() => {
+      const updateAvailable = this.pwaService.updateAvailable();
+      const latestVersion = this.pwaService.latestVersionLabel();
+      if (!updateAvailable || !latestVersion || this.announcedUpdateVersion === latestVersion) {
+        return;
+      }
+      this.announcedUpdateVersion = latestVersion;
+      const currentVersion = this.pwaService.currentVersionLabel();
+      const ref = this.notificationService.action(
+        `Ha salido la versión ${latestVersion} de la app. Tienes ${currentVersion}.`,
+        'Actualizar',
+        'info',
+        10000
+      );
+      ref.onAction().subscribe(() => {
+        void this.applyAppUpdate();
+      });
     });
   }
 
@@ -223,9 +248,13 @@ export class ShellComponent {
   }
 
   async applyAppUpdate(): Promise<void> {
-    const updated = await this.pwaService.activateUpdate();
-    if (!updated) {
+    const result = await this.pwaService.activateUpdate();
+    if (result.status === 'none') {
       this.notificationService.info('No hay actualizaciones pendientes para aplicar.');
+      return;
+    }
+    if (result.status === 'error') {
+      this.notificationService.error(result.message);
     }
   }
 }

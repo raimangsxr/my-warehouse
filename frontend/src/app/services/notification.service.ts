@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { MatSnackBar, MatSnackBarConfig } from '@angular/material/snack-bar';
+import { MatSnackBar, MatSnackBarConfig, MatSnackBarRef, TextOnlySnackBar } from '@angular/material/snack-bar';
 
 type NotificationTone = 'success' | 'error' | 'info';
 
@@ -19,14 +19,22 @@ export class NotificationService {
     this.open(message, 'info', 3800);
   }
 
+  action(message: string, actionLabel: string, tone: NotificationTone = 'info', duration = 9000): MatSnackBarRef<TextOnlySnackBar> {
+    const config = this.buildConfig(tone, duration);
+    return this.snackBar.open(message, actionLabel, config);
+  }
+
   private open(message: string, tone: NotificationTone, duration: number): void {
-    const config: MatSnackBarConfig = {
+    const config = this.buildConfig(tone, duration);
+    this.snackBar.open(message, 'Cerrar', config);
+  }
+
+  private buildConfig(tone: NotificationTone, duration: number): MatSnackBarConfig {
+    return {
       duration,
       horizontalPosition: 'end',
       verticalPosition: 'bottom',
       panelClass: ['app-snackbar', `app-snackbar-${tone}`]
     };
-
-    this.snackBar.open(message, 'Cerrar', config);
   }
 }

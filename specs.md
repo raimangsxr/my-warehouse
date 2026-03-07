@@ -11,8 +11,8 @@
 
 ## Control del documento
 
-- **Versión:** v1.78
-- **Última actualización:** 2026-03-07  
+- **Versión:** v1.79
+- **Última actualización:** 2026-03-08  
 - **Owner:** (mantener por el equipo)  
 - **Estado:** Activo (este fichero es la especificación viva del producto)
 
@@ -108,6 +108,7 @@
 - **v1.76 (2026-03-07):** Corrección del modo “mantener sesión”: cuando `remember_me=true`, el backend emite un `access_token` persistente sin claim `exp`, lo registra como revocable en servidor y `logout`/`reset-password`/`change-password` siguen pudiendo invalidarlo. El refresh persistente se mantiene como mecanismo auxiliar de recuperación.
 - **v1.77 (2026-03-07):** Corrección de captura continua en lotes: al aceptar una foto en `/app/batches/:batchId`, la previsualización ya no desmonta el `<video>` de la cámara; se muestra como overlay sobre el stream vivo para evitar que la vista previa quede en negro en la siguiente captura. Build frontend revalidado.
 - **v1.78 (2026-03-07):** Fix de sesión persistente en backend: las validaciones de expiración de tokens (`remember_me`, refresh y reset-password) normalizan `expires_at` a UTC timezone-aware antes de comparar, evitando el error `TypeError: can't compare offset-naive and offset-aware datetimes` en despliegues con PostgreSQL. Tests backend de auth ampliados con regresión explícita.
+- **v1.79 (2026-03-08):** UX de actualización PWA versionada: el frontend publica metadata de versión legible en Angular Service Worker (`appData.version`) y expone `versión actual` + `nueva versión` en Settings; cuando el SW detecta una release nueva, el shell muestra snackbar contextual anunciando “ha salido la versión X” con acción `Actualizar`; al aplicar la actualización se emite feedback contextual con snackbar de éxito tras recarga y snackbar de error si la activación falla.
 
 ---
 
@@ -270,6 +271,9 @@ UI basada en **Material Design**, responsive para **móvil, tablet y escritorio*
 - Se generan y distribuyen iconos de instalación a partir del logo oficial (`favicon.ico`, `apple-touch-icon.png`, `icon-192x192`, `icon-512x512` y variantes `maskable`).
 - El frontend registra Angular Service Worker en builds `production`; el modo desarrollo mantiene el SW desactivado para evitar interferencias durante `ng serve`.
 - El shell y Settings exponen el estado de instalación/actualización de la PWA y una acción explícita para instalar o aplicar una nueva versión cuando el navegador lo permite.
+- La versión publicada de la PWA se identifica con una etiqueta legible (`appData.version`) propagada por Angular Service Worker; el cliente muestra siempre su `versión actual` y, si existe, la `nueva versión` detectada.
+- Cuando se detecta una nueva versión, el shell lanza un snackbar contextual anunciando la release disponible y preguntando implícitamente si el usuario quiere actualizar mediante acción directa `Actualizar`.
+- Al aplicar una actualización PWA, el usuario recibe snackbar contextual de éxito tras la recarga; si la activación falla o no puede descargarse, recibe snackbar contextual de error con la versión afectada cuando esté disponible.
 - En iOS/Safari no existe `beforeinstallprompt`; la UX muestra guía manual (`Compartir` → `Añadir a pantalla de inicio`) cuando procede.
 - La instalabilidad en producción requiere HTTPS; `localhost` sigue siendo la excepción válida para desarrollo.
 

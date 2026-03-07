@@ -58,6 +58,11 @@ import { PwaService } from '../services/pwa.service';
           <div class="pwa-status-grid">
             <div class="item-card">
               <div class="status-line"><strong>Instalada:</strong> {{ pwaService.isInstalled() ? 'Sí' : 'No' }}</div>
+              <div class="status-line"><strong>Versión actual:</strong> {{ pwaService.currentVersionLabel() }}</div>
+              <div class="status-line">
+                <strong>Nueva versión:</strong>
+                {{ pwaService.latestVersionLabel() || 'No detectada' }}
+              </div>
               <div class="status-line">
                 <strong>Service Worker:</strong>
                 {{ pwaService.serviceWorkerEnabled() ? 'Activo' : 'Desactivado en modo desarrollo' }}
@@ -69,11 +74,17 @@ import { PwaService } from '../services/pwa.service';
               <div class="status-line" *ngIf="pwaService.lastUpdateCheck()">
                 <strong>Última comprobación:</strong> {{ pwaService.lastUpdateCheck() | date: 'short' }}
               </div>
+              <div class="status-line" *ngIf="pwaService.updateAvailable() && pwaService.latestVersionLabel()">
+                Hay una actualización pendiente: {{ pwaService.currentVersionLabel() }} → {{ pwaService.latestVersionLabel() }}
+              </div>
             </div>
             <div class="pwa-hint-card">
               <p class="status-line">
                 Instalar la app exige build de producción servida por HTTPS. El shell y los assets quedan cacheados por
                 Angular Service Worker; la API autenticada no se cachea.
+              </p>
+              <p class="status-line" *ngIf="pwaService.lastUpdateError()">
+                {{ pwaService.lastUpdateError() }}
               </p>
               <p class="status-line" *ngIf="pwaService.showIosInstallHint()">
                 En iPhone/iPad usa Safari y toca <strong>Compartir</strong> → <strong>Añadir a pantalla de inicio</strong>.
@@ -734,16 +745,30 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async checkForAppUpdate(): Promise<void> {
     const available = await this.pwaService.checkForUpdate();
     if (available || this.pwaService.updateAvailable()) {
-      this.notificationService.info('Hay una actualización lista para aplicar.');
+      const latestVersion = this.pwaService.latestVersionLabel();
+      const currentVersion = this.pwaService.currentVersionLabel();
+      this.notificationService.info(
+        latestVersion
+          ? `Hay una actualización lista para aplicar: ${currentVersion} → ${latestVersion}.`
+          : 'Hay una actualización lista para aplicar.'
+      );
       return;
     }
-    this.notificationService.info('La app ya está actualizada.');
+    if (this.pwaService.lastUpdateError()) {
+      this.notificationService.error(this.pwaService.lastUpdateError() || 'No se pudo comprobar la actualización.');
+      return;
+    }
+    this.notificationService.info(`La app ya está actualizada en la versión ${this.pwaService.currentVersionLabel()}.`);
   }
 
   async applyAppUpdate(): Promise<void> {
-    const updated = await this.pwaService.activateUpdate();
-    if (!updated) {
+    const result = await this.pwaService.activateUpdate();
+    if (result.status === 'none') {
       this.notificationService.info('No hay actualizaciones pendientes para aplicar.');
+      return;
+    }
+    if (result.status === 'error') {
+      this.notificationService.error(result.message);
     }
   }
 
