@@ -364,12 +364,24 @@ import { PwaService } from '../services/pwa.service';
           <div class="card-header-row">
             <div>
               <h2 class="card-title">Export / Import</h2>
-              <p class="card-subtitle">Backup JSON e importación validada del warehouse actual</p>
+              <p class="card-subtitle">Backup e importación validada del warehouse actual</p>
             </div>
           </div>
 
+          <div class="export-format-row">
+            <mat-form-field>
+              <mat-label>Formato de exportación</mat-label>
+              <mat-select [(ngModel)]="exportFormat" [ngModelOptions]="{ standalone: true }">
+                <mat-option value="json">JSON</mat-option>
+                <mat-option value="csv">CSV (ZIP)</mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+
           <div class="actions-mobile-full">
-            <button mat-flat-button color="primary" type="button" (click)="exportWarehouse()">Exportar JSON</button>
+            <button mat-flat-button color="primary" type="button" (click)="exportWarehouse()">
+              Exportar {{ exportFormat === 'csv' ? 'CSV' : 'JSON' }}
+            </button>
             <input #importInput class="import-input" type="file" accept="application/json" (change)="importWarehouse($event)" />
           </div>
 
@@ -383,6 +395,14 @@ import { PwaService } from '../services/pwa.service';
     `
       .import-input {
         max-width: 100%;
+      }
+
+      .export-format-row {
+        margin-bottom: 8px;
+      }
+
+      .export-format-row mat-form-field {
+        max-width: 220px;
       }
 
       .model-priority-section {
@@ -502,6 +522,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   transferMessage = '';
   transferError = '';
+  exportFormat: 'json' | 'csv' = 'json';
 
   private onlineSub?: Subscription;
 
@@ -779,10 +800,34 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
     this.transferError = '';
     this.transferMessage = '';
+
+    if (this.exportFormat === 'csv') {
+      this.transferService.exportWarehouseCsv(this.selectedWarehouseId).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          a.download = `warehouse-export-${stamp}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          this.transferMessage = 'Export CSV generado correctamente.';
+          this.notificationService.success(this.transferMessage);
+        },
+        error: () => {
+          this.transferError = 'No se pudo exportar el warehouse en CSV.';
+          this.notificationService.error(this.transferError);
+        }
+      });
+      return;
+    }
+
     this.transferService.exportWarehouse(this.selectedWarehouseId).subscribe({
       next: (snapshot) => {
         this.downloadSnapshot(snapshot);
-        this.transferMessage = 'Export generado correctamente.';
+        this.transferMessage = 'Export JSON generado correctamente.';
         this.notificationService.success(this.transferMessage);
       },
       error: () => {

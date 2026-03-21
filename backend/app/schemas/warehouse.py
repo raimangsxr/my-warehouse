@@ -32,6 +32,7 @@ class WarehouseInviteResponse(BaseModel):
     invite_token: str
     invite_url: str
     expires_at: datetime
+    email_sent: bool = False
 
 
 class InviteAcceptResponse(BaseModel):

@@ -1,8 +1,12 @@
 from datetime import UTC, datetime
+import csv
+import io
 import secrets
 import uuid
+import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,22 +43,95 @@ def _get_warehouse(db: Session, warehouse_id: str) -> Warehouse:
     return warehouse
 
 
-@router.get("/export", response_model=WarehouseExportResponse)
-def export_warehouse(
+def _build_export_data(
+    db: Session,
     warehouse_id: str,
-    _membership=Depends(require_warehouse_membership),
-    _current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> WarehouseExportResponse:
+) -> tuple[Warehouse, list, list, list]:
     warehouse = _get_warehouse(db, warehouse_id)
-
     boxes = db.scalars(select(Box).where(Box.warehouse_id == warehouse_id).order_by(Box.created_at.asc())).all()
     items = db.scalars(select(Item).where(Item.warehouse_id == warehouse_id).order_by(Item.created_at.asc())).all()
     stock_movements = db.scalars(
         select(StockMovement).where(StockMovement.warehouse_id == warehouse_id).order_by(StockMovement.created_at.asc())
     ).all()
+    return warehouse, list(boxes), list(items), list(stock_movements)
 
-    return WarehouseExportResponse(
+
+def _build_csv_zip(warehouse: Warehouse, boxes: list, items: list, stock_movements: list) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # boxes.csv
+        boxes_buf = io.StringIO()
+        writer = csv.writer(boxes_buf)
+        writer.writerow(["id", "name", "description", "physical_location", "short_code", "qr_token", "parent_box_id", "is_inbound", "created_at"])
+        for box in boxes:
+            writer.writerow([
+                box.id,
+                box.name,
+                box.description or "",
+                box.physical_location or "",
+                box.short_code,
+                box.qr_token,
+                box.parent_box_id or "",
+                box.is_inbound,
+                box.created_at.isoformat() if box.created_at else "",
+            ])
+        zf.writestr("boxes.csv", boxes_buf.getvalue())
+
+        # items.csv
+        items_buf = io.StringIO()
+        writer = csv.writer(items_buf)
+        writer.writerow(["id", "name", "description", "physical_location", "photo_url", "box_id", "tags", "aliases", "created_at"])
+        for item in items:
+            writer.writerow([
+                item.id,
+                item.name,
+                item.description or "",
+                item.physical_location or "",
+                item.photo_url or "",
+                item.box_id,
+                ";".join(item.tags or []),
+                ";".join(item.aliases or []),
+                item.created_at.isoformat() if item.created_at else "",
+            ])
+        zf.writestr("items.csv", items_buf.getvalue())
+
+        # stock_movements.csv
+        sm_buf = io.StringIO()
+        writer = csv.writer(sm_buf)
+        writer.writerow(["id", "item_id", "delta", "occurred_at", "command_id"])
+        for movement in stock_movements:
+            writer.writerow([
+                movement.id,
+                movement.item_id,
+                movement.delta,
+                movement.created_at.isoformat() if movement.created_at else "",
+                movement.command_id or "",
+            ])
+        zf.writestr("stock_movements.csv", sm_buf.getvalue())
+
+    return buf.getvalue()
+
+
+@router.get("/export")
+def export_warehouse(
+    warehouse_id: str,
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    _membership=Depends(require_warehouse_membership),
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    warehouse, boxes, items, stock_movements = _build_export_data(db, warehouse_id)
+
+    if format == "csv":
+        zip_bytes = _build_csv_zip(warehouse, boxes, items, stock_movements)
+        return StreamingResponse(
+            io.BytesIO(zip_bytes),
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=warehouse-export.zip"},
+        )
+
+    # Default: JSON
+    response = WarehouseExportResponse(
         exported_at=utcnow(),
         warehouse=ExportWarehouse(id=warehouse.id, name=warehouse.name),
         boxes=[
@@ -98,6 +175,12 @@ def export_warehouse(
             )
             for movement in stock_movements
         ],
+    )
+    from fastapi.responses import JSONResponse
+    import json
+    return JSONResponse(
+        content=json.loads(response.model_dump_json()),
+        headers={"Content-Disposition": "attachment; filename=warehouse-export.json"},
     )
 
 

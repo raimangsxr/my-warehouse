@@ -1,6 +1,6 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
-import { Component, effect, ViewChild } from '@angular/core';
+import { Component, effect, inject, ViewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
@@ -9,10 +9,12 @@ import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSidenav, MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
 import { PwaService } from '../services/pwa.service';
+import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
 
 @Component({
@@ -29,7 +31,8 @@ import { WarehouseService } from '../services/warehouse.service';
     MatListModule,
     MatMenuModule,
     MatButtonModule,
-    MatDividerModule
+    MatDividerModule,
+    MatTooltipModule,
   ],
   template: `
     <mat-sidenav-container class="shell-container">
@@ -86,6 +89,22 @@ import { WarehouseService } from '../services/warehouse.service';
           </button>
           <span class="shell-toolbar-title">my-warehouse</span>
           <span class="grow"></span>
+          <!-- Sync status indicator (always visible) -->
+          <button
+            mat-icon-button
+            class="sync-status-btn"
+            [class.sync-status-offline]="syncService.syncStatus() === 'offline'"
+            [class.sync-status-pending]="syncService.syncStatus() === 'pending'"
+            [class.sync-status-syncing]="syncService.syncStatus() === 'syncing'"
+            [class.sync-status-error]="syncService.syncStatus() === 'error'"
+            [matTooltip]="syncStatusTooltip()"
+            aria-label="Estado de sincronización"
+            type="button"
+          >
+            <mat-icon class="sync-status-icon" [class.sync-spin]="syncService.syncStatus() === 'syncing'">
+              {{ syncStatusIcon() }}
+            </mat-icon>
+          </button>
           <ng-container *ngIf="!isMobile; else mobileActions">
             <span class="inline-chip shell-warehouse-chip" *ngIf="selectedWarehouseId">WH: {{ selectedWarehouseId }}</span>
             <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
@@ -171,6 +190,7 @@ export class ShellComponent {
 
   isMobile = false;
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
+  readonly syncService = inject(SyncService);
   private announcedUpdateVersion: string | null = null;
 
   constructor(
@@ -208,6 +228,26 @@ export class ShellComponent {
         void this.applyAppUpdate();
       });
     });
+  }
+
+  syncStatusIcon(): string {
+    switch (this.syncService.syncStatus()) {
+      case 'offline': return 'cloud_off';
+      case 'syncing': return 'sync';
+      case 'pending': return 'cloud_upload';
+      case 'error':   return 'sync_problem';
+      default:        return 'cloud_done';
+    }
+  }
+
+  syncStatusTooltip(): string {
+    switch (this.syncService.syncStatus()) {
+      case 'offline': return 'Sin conexión';
+      case 'syncing': return 'Sincronizando…';
+      case 'pending': return 'Cambios pendientes de sincronizar';
+      case 'error':   return 'Error de sincronización';
+      default:        return 'Sincronizado';
+    }
   }
 
   closeIfMobile(): void {

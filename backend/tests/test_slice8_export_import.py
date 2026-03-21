@@ -1,4 +1,6 @@
+import io
 import uuid
+import zipfile
 
 
 def signup_and_login(client, email: str) -> dict[str, str]:
@@ -80,3 +82,45 @@ def test_export_import_roundtrip_between_warehouses(client):
     boxes_payload = target_boxes.json()
     assert len(boxes_payload) == 3
     assert len([node for node in boxes_payload if node["box"]["is_inbound"]]) == 1
+
+
+def test_export_csv_format(client):
+    headers = signup_and_login(client, "slice8-csv@example.com")
+
+    warehouse_id = create_warehouse(client, headers, "CSV Source")
+    box_id = create_box(client, headers, warehouse_id, "CSV Box")
+
+    client.post(
+        f"/api/v1/warehouses/{warehouse_id}/items",
+        json={"box_id": box_id, "name": "Resistor 10k", "description": "SMD"},
+        headers=headers,
+    )
+
+    res = client.get(f"/api/v1/warehouses/{warehouse_id}/export?format=csv", headers=headers)
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/zip"
+    assert "attachment" in res.headers.get("content-disposition", "")
+
+    with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+        names = zf.namelist()
+        assert "boxes.csv" in names
+        assert "items.csv" in names
+        assert "stock_movements.csv" in names
+
+        boxes_csv = zf.read("boxes.csv").decode()
+        assert "CSV Box" in boxes_csv
+
+        items_csv = zf.read("items.csv").decode()
+        assert "Resistor 10k" in items_csv
+
+        sm_csv = zf.read("stock_movements.csv").decode()
+        # header row must be present
+        assert "item_id" in sm_csv
+
+
+def test_export_invalid_format_returns_422(client):
+    headers = signup_and_login(client, "slice8-badformat@example.com")
+    warehouse_id = create_warehouse(client, headers, "Bad Format WH")
+
+    res = client.get(f"/api/v1/warehouses/{warehouse_id}/export?format=xml", headers=headers)
+    assert res.status_code == 422

@@ -21,6 +21,7 @@ from app.schemas.setting import (
     SMTPTestRequest,
 )
 from app.services.activity import record_activity
+from app.services.email import send_test_email
 from app.services.llm_enrichment import generate_tags_and_aliases
 from app.services.secret_store import decrypt_secret, encrypt_secret, mask_secret
 
@@ -121,15 +122,13 @@ def test_smtp_settings(
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     _ensure_membership(db, warehouse_id, current_user.id)
-    setting = db.scalar(select(SMTPSetting).where(SMTPSetting.warehouse_id == warehouse_id))
-    if setting is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP settings not configured")
-
-    # Bootstrap environment: validate config presence and simulate delivery.
-    if not setting.host or not setting.from_address:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP settings incomplete")
-
-    return MessageResponse(message=f"SMTP test queued for {payload.to_email} (simulated)")
+    try:
+        send_test_email(db, warehouse_id, payload.to_email)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return MessageResponse(message="Test email sent successfully")
 
 
 @router.get("/llm", response_model=LLMSettingsResponse)

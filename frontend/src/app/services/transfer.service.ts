@@ -28,6 +28,12 @@ export class TransferService {
     return this.http.get<WarehouseExportPayload>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/export`);
   }
 
+  exportWarehouseCsv(warehouseId: string): Observable<Blob> {
+    return this.http.get(`${environment.apiBaseUrl}/warehouses/${warehouseId}/export?format=csv`, {
+      responseType: 'blob'
+    });
+  }
+
   importWarehouse(warehouseId: string, payload: WarehouseExportPayload): Observable<WarehouseImportResponse> {
     return this.http.post<WarehouseImportResponse>(
       `${environment.apiBaseUrl}/warehouses/${warehouseId}/import`,

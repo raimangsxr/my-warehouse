@@ -26,6 +26,7 @@ from app.schemas.warehouse import (
 )
 from app.services.activity import record_activity
 from app.services.box_codes import generate_unique_short_code
+from app.services.email import send_invite_email
 from app.services.security import hash_token
 from app.services.sync_log import append_change_log
 
@@ -190,11 +191,24 @@ def create_invite(
 
     invite_url = f"{settings.frontend_url.rstrip('/')}/invites/{invite_token}"
     logger.info("Invite created warehouse_id=%s invite_id=%s", warehouse_id, invite.id)
+
+    email_sent = False
+    if invite.invitee_email:
+        email_sent = send_invite_email(
+            db=db,
+            warehouse_id=warehouse_id,
+            warehouse_name=warehouse.name,
+            invitee_email=invite.invitee_email,
+            invite_url=invite_url,
+            invited_by_name=current_user.display_name,
+        )
+
     return WarehouseInviteResponse(
         warehouse_id=warehouse_id,
         invite_token=invite_token,
         invite_url=invite_url,
         expires_at=invite.expires_at,
+        email_sent=email_sent,
     )
 
 

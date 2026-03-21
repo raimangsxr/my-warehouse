@@ -50,14 +50,22 @@ def test_smtp_settings_roundtrip_and_test_endpoint(client):
     assert get.json()["host"] == "smtp.example.com"
     assert get.json()["has_password"] is True
 
-    test_mail = client.post(
-        "/api/v1/settings/smtp/test",
-        params={"warehouse_id": warehouse_id},
-        json={"to_email": "target@example.com"},
-        headers=headers,
-    )
+    from unittest.mock import MagicMock, patch
+
+    with patch("smtplib.SMTP") as mock_smtp_cls:
+        mock_smtp = MagicMock()
+        mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_smtp)
+        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        test_mail = client.post(
+            "/api/v1/settings/smtp/test",
+            params={"warehouse_id": warehouse_id},
+            json={"to_email": "target@example.com"},
+            headers=headers,
+        )
+
     assert test_mail.status_code == 200
-    assert "simulated" in test_mail.json()["message"]
+    assert test_mail.json()["message"] == "Test email sent successfully"
 
 
 def test_llm_settings_and_reprocess_item(client, monkeypatch):

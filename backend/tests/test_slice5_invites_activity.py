@@ -79,3 +79,131 @@ def test_activity_and_trash_restore_events(client):
     event_types = [row["event_type"] for row in activity.json()]
     assert "item.deleted" in event_types
     assert "item.restored" in event_types
+
+
+# ---------------------------------------------------------------------------
+# Email service tests
+# ---------------------------------------------------------------------------
+
+def test_invite_sends_email_when_smtp_configured(client, monkeypatch):
+    """When SMTP is configured, creating an invite should trigger send_invite_email."""
+    from app.api.v1.endpoints import warehouses as wh_endpoint
+
+    sent_calls: list[dict] = []
+
+    def fake_send(db, warehouse_id, warehouse_name, invitee_email, invite_url, invited_by_name=None):
+        sent_calls.append(
+            {
+                "warehouse_id": warehouse_id,
+                "invitee_email": invitee_email,
+                "invite_url": invite_url,
+            }
+        )
+        return True
+
+    monkeypatch.setattr(wh_endpoint, "send_invite_email", fake_send)
+
+    owner_headers = signup_and_login(client, "email-owner@example.com")
+    warehouse_id = create_warehouse(client, owner_headers)
+
+    invite = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/invites",
+        json={"email": "guest-email@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 201
+    data = invite.json()
+    assert "invite_url" in data
+
+    # Email service was called once with correct args
+    assert len(sent_calls) == 1
+    assert sent_calls[0]["warehouse_id"] == warehouse_id
+    assert sent_calls[0]["invitee_email"] == "guest-email@example.com"
+    assert sent_calls[0]["invite_url"] == data["invite_url"]
+
+
+def test_invite_succeeds_even_when_email_fails(client, monkeypatch):
+    """A failing email send must not prevent the invite from being created."""
+    from app.api.v1.endpoints import warehouses as wh_endpoint
+
+    def failing_send(*args, **kwargs):
+        return False  # simulates SMTP failure
+
+    monkeypatch.setattr(wh_endpoint, "send_invite_email", failing_send)
+
+    owner_headers = signup_and_login(client, "email-fail-owner@example.com")
+    warehouse_id = create_warehouse(client, owner_headers)
+
+    invite = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/invites",
+        json={"email": "guest-fail@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 201
+    assert invite.json()["invite_token"]
+
+
+def test_invite_without_email_skips_send(client, monkeypatch):
+    """When no invitee email is provided, send_invite_email should not be called."""
+    from app.api.v1.endpoints import warehouses as wh_endpoint
+
+    sent_calls: list[dict] = []
+
+    def fake_send(*args, **kwargs):
+        sent_calls.append({})
+        return True
+
+    monkeypatch.setattr(wh_endpoint, "send_invite_email", fake_send)
+
+    owner_headers = signup_and_login(client, "email-noemail-owner@example.com")
+    warehouse_id = create_warehouse(client, owner_headers)
+
+    invite = client.post(
+        f"/api/v1/warehouses/{warehouse_id}/invites",
+        json={},  # no email field
+        headers=owner_headers,
+    )
+    assert invite.status_code == 201
+    assert len(sent_calls) == 0
+
+
+def test_email_service_no_smtp_returns_false():
+    """send_invite_email returns False when no SMTP settings exist for the warehouse."""
+    from unittest.mock import MagicMock
+
+    from app.services.email import send_invite_email
+
+    mock_db = MagicMock()
+    mock_db.scalar.return_value = None  # no SMTP setting
+
+    result = send_invite_email(
+        db=mock_db,
+        warehouse_id="nonexistent-wh",
+        warehouse_name="Test WH",
+        invitee_email="someone@example.com",
+        invite_url="http://localhost:4200/invites/abc",
+    )
+    assert result is False
+
+
+def test_email_service_incomplete_smtp_returns_false():
+    """send_invite_email returns False when SMTP host is missing."""
+    from unittest.mock import MagicMock
+
+    from app.services.email import send_invite_email
+
+    mock_setting = MagicMock()
+    mock_setting.host = ""
+    mock_setting.from_address = "noreply@example.com"
+
+    mock_db = MagicMock()
+    mock_db.scalar.return_value = mock_setting
+
+    result = send_invite_email(
+        db=mock_db,
+        warehouse_id="wh-id",
+        warehouse_name="Test WH",
+        invitee_email="someone@example.com",
+        invite_url="http://localhost:4200/invites/abc",
+    )
+    assert result is False

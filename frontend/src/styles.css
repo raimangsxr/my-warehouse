@@ -326,6 +326,38 @@ a:hover {
   white-space: nowrap;
 }
 
+/* Sync status indicator */
+.sync-status-btn {
+  color: var(--text-3);
+  transition: color 0.2s ease;
+}
+
+.sync-status-btn.sync-status-offline {
+  color: var(--danger);
+}
+
+.sync-status-btn.sync-status-pending {
+  color: #e65100;
+}
+
+.sync-status-btn.sync-status-syncing {
+  color: var(--brand);
+}
+
+.sync-status-btn.sync-status-error {
+  color: var(--danger);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.sync-spin {
+  display: inline-block;
+  animation: spin 1.2s linear infinite;
+}
+
 .shell-content {
   min-height: calc(100dvh - 64px);
   padding-bottom: env(safe-area-inset-bottom);

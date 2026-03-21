@@ -1,9 +1,11 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 
 import { environment } from '../core/environment';
 import { generateUuid } from '../core/uuid';
+
+export type SyncStatus = 'online' | 'offline' | 'syncing' | 'pending' | 'error';
 
 export interface SyncCommand {
   command_id: string;
@@ -71,10 +73,19 @@ export class SyncService {
   private readonly onlineSubject = new BehaviorSubject<boolean>(navigator.onLine);
   private readonly deviceId = this.ensureDeviceId();
 
+  /** Reactive sync status for UI indicators. */
+  readonly syncStatus = signal<SyncStatus>(navigator.onLine ? 'online' : 'offline');
+
   constructor(private readonly http: HttpClient) {
     this.dbPromise = this.openDb();
-    window.addEventListener('online', () => this.onlineSubject.next(true));
-    window.addEventListener('offline', () => this.onlineSubject.next(false));
+    window.addEventListener('online', () => {
+      this.onlineSubject.next(true);
+      this.syncStatus.set('online');
+    });
+    window.addEventListener('offline', () => {
+      this.onlineSubject.next(false);
+      this.syncStatus.set('offline');
+    });
   }
 
   get online$() {
@@ -92,6 +103,10 @@ export class SyncService {
       warehouse_id: warehouseId,
       created_at: new Date().toISOString(),
     });
+    // If offline, reflect pending state; if online it will sync shortly
+    if (!this.isOnline()) {
+      this.syncStatus.set('pending');
+    }
   }
 
   async getQueueCount(warehouseId: string): Promise<number> {
@@ -124,6 +139,7 @@ export class SyncService {
     const queueBefore = await this.getQueueCount(warehouseId);
 
     if (!this.isOnline()) {
+      this.syncStatus.set(queueBefore > 0 ? 'pending' : 'offline');
       return {
         queueCountBefore: queueBefore,
         queueCountAfter: queueBefore,
@@ -134,51 +150,60 @@ export class SyncService {
       };
     }
 
+    this.syncStatus.set('syncing');
+
     const commands = await this.listQueuedCommands(warehouseId);
 
     let applied = 0;
     let skipped = 0;
     let conflicts = 0;
 
-    if (commands.length > 0) {
-      const pushResponse = await firstValueFrom(
-        this.http.post<SyncPushResponse>(`${environment.apiBaseUrl}/sync/push`, {
-          warehouse_id: warehouseId,
-          device_id: this.deviceId,
-          commands: commands.map((command) => ({
-            command_id: command.command_id,
-            type: command.type,
-            entity_id: command.entity_id,
-            base_version: command.base_version,
-            payload: command.payload,
-          })),
-        })
-      );
+    try {
+      if (commands.length > 0) {
+        const pushResponse = await firstValueFrom(
+          this.http.post<SyncPushResponse>(`${environment.apiBaseUrl}/sync/push`, {
+            warehouse_id: warehouseId,
+            device_id: this.deviceId,
+            commands: commands.map((command) => ({
+              command_id: command.command_id,
+              type: command.type,
+              entity_id: command.entity_id,
+              base_version: command.base_version,
+              payload: command.payload,
+            })),
+          })
+        );
 
-      applied = pushResponse.applied_command_ids.length;
-      skipped = pushResponse.skipped_command_ids.length;
-      conflicts = pushResponse.conflicts.length;
+        applied = pushResponse.applied_command_ids.length;
+        skipped = pushResponse.skipped_command_ids.length;
+        conflicts = pushResponse.conflicts.length;
 
-      const removeIds = new Set<string>([
-        ...pushResponse.applied_command_ids,
-        ...pushResponse.skipped_command_ids,
-        ...pushResponse.conflicts.map((c) => c.command_id),
-      ]);
-      await this.removeQueuedCommands([...removeIds]);
-      await this.replaceConflicts(warehouseId, pushResponse.conflicts);
+        const removeIds = new Set<string>([
+          ...pushResponse.applied_command_ids,
+          ...pushResponse.skipped_command_ids,
+          ...pushResponse.conflicts.map((c) => c.command_id),
+        ]);
+        await this.removeQueuedCommands([...removeIds]);
+        await this.replaceConflicts(warehouseId, pushResponse.conflicts);
+      }
+
+      const pullResponse = await this.pull(warehouseId);
+      const queueAfter = await this.getQueueCount(warehouseId);
+
+      this.syncStatus.set(queueAfter > 0 ? 'pending' : 'online');
+
+      return {
+        queueCountBefore: queueBefore,
+        queueCountAfter: queueAfter,
+        applied,
+        skipped,
+        conflicts: pullResponse.conflicts.length,
+        lastSeq: pullResponse.last_seq,
+      };
+    } catch {
+      this.syncStatus.set('error');
+      throw new Error('Sync failed');
     }
-
-    const pullResponse = await this.pull(warehouseId);
-    const queueAfter = await this.getQueueCount(warehouseId);
-
-    return {
-      queueCountBefore: queueBefore,
-      queueCountAfter: queueAfter,
-      applied,
-      skipped,
-      conflicts: pullResponse.conflicts.length,
-      lastSeq: pullResponse.last_seq,
-    };
   }
 
   async resolveConflict(
