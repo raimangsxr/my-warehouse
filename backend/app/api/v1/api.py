@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, boxes, intake, items, photos, settings, sync, tags, transfer, warehouses
+from app.api.v1.endpoints import auth, boxes, intake, items, photos, reorganization, settings, sync, tags, transfer, warehouses
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
@@ -15,3 +15,4 @@ api_router.include_router(settings.router)
 api_router.include_router(tags.router)
 api_router.include_router(sync.router)
 api_router.include_router(transfer.router)
+api_router.include_router(reorganization.router)

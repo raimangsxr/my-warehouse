@@ -1,0 +1,155 @@
+<div class="app-page">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">Reorganización</h1>
+      <p class="page-subtitle">Sugerencias inteligentes para reorganizar tu almacén.</p>
+    </div>
+    @if (viewState() === 'completed') {
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        (click)="openNewAnalysisDialog()"
+        [disabled]="isStarting()"
+        aria-label="Nuevo análisis de reorganización"
+      >
+        <mat-icon>auto_fix_high</mat-icon>
+        Nuevo análisis
+      </button>
+    }
+  </header>
+
+  <!-- STATE: empty -->
+  @if (viewState() === 'empty') {
+    <div class="reorg-empty-state">
+      <mat-icon class="reorg-empty-icon">auto_fix_high</mat-icon>
+      <h2 class="reorg-empty-title">Sin análisis activo</h2>
+      <p class="reorg-empty-desc">
+        Lanza un análisis para obtener sugerencias de reorganización basadas en el contenido de tu almacén.
+      </p>
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        class="reorg-start-btn"
+        (click)="startAnalysis()"
+        [disabled]="isStarting()"
+        aria-label="Analizar reorganización"
+      >
+        <mat-icon>auto_fix_high</mat-icon>
+        {{ isStarting() ? 'Iniciando…' : 'Analizar reorganización' }}
+      </button>
+    </div>
+  }
+
+  <!-- STATE: loading -->
+  @if (viewState() === 'loading') {
+    <div class="reorg-loading-state">
+      <mat-spinner diameter="56" aria-label="Analizando reorganización"></mat-spinner>
+      <h2 class="reorg-loading-title">Analizando tu almacén…</h2>
+      <p class="reorg-loading-desc">
+        El análisis se ejecuta en segundo plano. Puedes seguir usando la app mientras esperas.
+        El indicador de operaciones en el encabezado te avisará cuando termine.
+      </p>
+    </div>
+  }
+
+  <!-- STATE: ready or completed -->
+  @if (viewState() === 'ready' || viewState() === 'completed') {
+    @if (viewState() === 'completed') {
+      <div class="reorg-completed-banner">
+        <mat-icon>check_circle</mat-icon>
+        <span>Todas las sugerencias han sido procesadas.</span>
+      </div>
+    }
+
+    @if (groups().length === 0) {
+      <div class="reorg-empty-state">
+        <mat-icon class="reorg-empty-icon">inventory_2</mat-icon>
+        <h2 class="reorg-empty-title">Sin sugerencias</h2>
+        <p class="reorg-empty-desc">
+          El análisis no encontró movimientos que optimicen la organización actual.
+        </p>
+      </div>
+    } @else {
+      <mat-accordion class="reorg-accordion" multi>
+        @for (group of groups(); track trackByGroupId($index, group)) {
+          <mat-expansion-panel class="reorg-panel">
+            <mat-expansion-panel-header>
+              <mat-panel-title class="reorg-panel-title">
+                <mat-icon class="reorg-panel-icon">inventory_2</mat-icon>
+                <span class="reorg-panel-box-name">{{ group.from_box_name }}</span>
+              </mat-panel-title>
+              <mat-panel-description class="reorg-panel-desc">
+                @if (pendingCount(group) > 0) {
+                  <span class="reorg-badge">{{ pendingCount(group) }} pendiente{{ pendingCount(group) !== 1 ? 's' : '' }}</span>
+                } @else {
+                  <span class="reorg-badge reorg-badge-done">Completado</span>
+                }
+              </mat-panel-description>
+            </mat-expansion-panel-header>
+
+            <div class="reorg-suggestions-list">
+              @for (suggestion of group.suggestions; track trackBySuggestionId($index, suggestion)) {
+                <mat-card
+                  class="reorg-suggestion-card"
+                  [class.reorg-suggestion-confirmed]="suggestion.status === 'confirmed'"
+                  [class.reorg-suggestion-dismissed]="suggestion.status === 'dismissed'"
+                >
+                  <mat-card-content class="reorg-suggestion-content">
+                    <div class="reorg-suggestion-main">
+                      <div class="reorg-suggestion-move">
+                        <span class="reorg-item-name">{{ suggestion.item_name }}</span>
+                        <mat-icon class="reorg-arrow">arrow_forward</mat-icon>
+                        <span class="reorg-to-box">{{ suggestion.to_box_name }}</span>
+                      </div>
+                      <p class="reorg-reason">{{ suggestion.reason }}</p>
+                    </div>
+
+                    <div class="reorg-suggestion-actions">
+                      @if (suggestion.status === 'pending') {
+                        <button
+                          mat-stroked-button
+                          color="primary"
+                          type="button"
+                          class="reorg-action-btn"
+                          (click)="confirmSuggestion(group, suggestion)"
+                          matTooltip="Confirmar movimiento"
+                          aria-label="Confirmar cambio"
+                        >
+                          <mat-icon>check</mat-icon>
+                          Confirmar
+                        </button>
+                        <button
+                          mat-stroked-button
+                          type="button"
+                          class="reorg-action-btn"
+                          (click)="dismissSuggestion(group, suggestion)"
+                          matTooltip="Descartar sugerencia"
+                          aria-label="Descartar sugerencia"
+                        >
+                          <mat-icon>close</mat-icon>
+                          Descartar
+                        </button>
+                      } @else if (suggestion.status === 'confirmed') {
+                        <span class="reorg-status-chip reorg-status-confirmed">
+                          <mat-icon>check_circle</mat-icon>
+                          Confirmado
+                        </span>
+                      } @else if (suggestion.status === 'dismissed') {
+                        <span class="reorg-status-chip reorg-status-dismissed">
+                          <mat-icon>cancel</mat-icon>
+                          Descartado
+                        </span>
+                      }
+                    </div>
+                  </mat-card-content>
+                </mat-card>
+              }
+            </div>
+          </mat-expansion-panel>
+        }
+      </mat-accordion>
+    }
+  }
+</div>

@@ -48,6 +48,13 @@ export const routes: Routes = [
       { path: 'activity', component: ActivityComponent },
       { path: 'conflicts', component: ConflictsComponent },
       { path: 'settings', component: SettingsComponent },
+      {
+        path: 'reorganization',
+        loadComponent: () =>
+          import('./reorganization/reorganization.component').then(
+            (m) => m.ReorganizationComponent
+          ),
+      },
       { path: '', pathMatch: 'full', redirectTo: 'home' }
     ]
   },

@@ -56,8 +56,9 @@ build/
 dist/
 
 # Test artifacts
-junit.xml
-pytest.xml
+backend/junit.xml
+backend/pytest.xml
+backend/.hypothesis/
 
 # Misc
 *.tmp

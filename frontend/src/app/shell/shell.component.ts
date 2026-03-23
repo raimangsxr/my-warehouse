@@ -16,6 +16,7 @@ import { NotificationService } from '../services/notification.service';
 import { PwaService } from '../services/pwa.service';
 import { SyncService } from '../services/sync.service';
 import { WarehouseService } from '../services/warehouse.service';
+import { BackgroundJobsIndicatorComponent } from './background-jobs-indicator.component';
 
 @Component({
   selector: 'app-shell',
@@ -33,6 +34,7 @@ import { WarehouseService } from '../services/warehouse.service';
     MatButtonModule,
     MatDividerModule,
     MatTooltipModule,
+    BackgroundJobsIndicatorComponent,
   ],
   template: `
     <mat-sidenav-container class="shell-container">
@@ -71,6 +73,10 @@ import { WarehouseService } from '../services/warehouse.service';
             <mat-icon matListItemIcon>sync_problem</mat-icon>
             <span matListItemTitle>Conflictos</span>
           </a>
+          <a mat-list-item class="shell-link" routerLink="/app/reorganization" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+            <mat-icon matListItemIcon>auto_fix_high</mat-icon>
+            <span matListItemTitle>Reorganización</span>
+          </a>
           <a mat-list-item class="shell-link" routerLink="/app/settings" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
             <mat-icon matListItemIcon>settings</mat-icon>
             <span matListItemTitle>Configuración</span>
@@ -105,6 +111,8 @@ import { WarehouseService } from '../services/warehouse.service';
               {{ syncStatusIcon() }}
             </mat-icon>
           </button>
+          <!-- Background jobs indicator (always visible) -->
+          <app-background-jobs-indicator />
           <ng-container *ngIf="!isMobile; else mobileActions">
             <span class="inline-chip shell-warehouse-chip" *ngIf="selectedWarehouseId">WH: {{ selectedWarehouseId }}</span>
             <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">

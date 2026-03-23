@@ -90,31 +90,31 @@
 > Diseño técnico completo en `design.md` sección "EPIC M". Migración: `20260321_0013_reorganization_sessions.py`.
 
 #### M.5 + M.6: Modelo, migración y worker (base de datos y background job)
-- [ ] Backend: modelo `ReorganizationSession` (`app/models/reorganization_session.py`) con campos: id (UUID PK), warehouse_id (FK), created_by (FK), status (running/ready/error/completed/archived), suggestions (JSON), error_message (nullable), created_at, updated_at
-- [ ] Backend: migración Alembic `20260321_0013_reorganization_sessions.py`
-- [ ] Backend: worker `reorganization_workers.py` con ThreadPoolExecutor (1 hilo por sesión, patrón de `intake_workers.py`)
+- [x] Backend: modelo `ReorganizationSession` (`app/models/reorganization_session.py`) con campos: id (UUID PK), warehouse_id (FK), created_by (FK), status (running/ready/error/completed/archived), suggestions (JSON), error_message (nullable), created_at, updated_at
+- [x] Backend: migración Alembic `20260321_0013_reorganization_sessions.py`
+- [x] Backend: worker `reorganization_workers.py` con ThreadPoolExecutor (1 hilo por sesión, patrón de `intake_workers.py`)
 
 #### M.1–M.3: Servicio LLM y schemas
-- [ ] Backend: servicio `reorganization.py` con `build_llm_prompt(items, boxes)`, `parse_llm_response(raw, warehouse_boxes)`, `run_analysis(session_id, warehouse_id, db)`, `confirm_suggestion(...)`, `dismiss_suggestion(...)`
-- [ ] Backend: schemas Pydantic `ReorganizationSuggestionItem`, `ReorganizationSessionRead`, `ReorganizationSessionCreate` (`app/schemas/reorganization.py`)
+- [x] Backend: servicio `reorganization.py` con `build_llm_prompt(items, boxes)`, `parse_llm_response(raw, warehouse_boxes)`, `run_analysis(session_id, warehouse_id, db)`, `confirm_suggestion(...)`, `dismiss_suggestion(...)`
+- [x] Backend: schemas Pydantic `ReorganizationSuggestionItem`, `ReorganizationSessionRead`, `ReorganizationSessionCreate` (`app/schemas/reorganization.py`)
 
 #### M.4–M.6: Endpoints REST
-- [ ] Backend: router `app/api/v1/endpoints/reorganization.py` con los 4 endpoints (POST /sessions, GET /sessions/current, POST confirm, POST dismiss)
-- [ ] Backend: registrar router en `api.py`
-- [ ] Backend: tests `test_box_reorganization_suggestions.py` (unit + property tests con hypothesis, mínimo 100 iteraciones)
+- [x] Backend: router `app/api/v1/endpoints/reorganization.py` con los 4 endpoints (POST /sessions, GET /sessions/current, POST confirm, POST dismiss)
+- [x] Backend: registrar router en `api.py`
+- [x] Backend: tests `test_box_reorganization_suggestions.py` (unit + property tests con hypothesis, mínimo 100 iteraciones)
 
 #### M.5: Frontend — BackgroundJobsService e indicador en shell
-- [ ] Frontend: `BackgroundJobsService` singleton con signal `activeJobs: Signal<BackgroundJob[]>` y métodos register/unregister/update
-- [ ] Frontend: `BackgroundJobsIndicatorComponent` en shell toolbar (icono `pending_actions` + badge, panel de jobs activos)
+- [x] Frontend: `BackgroundJobsService` singleton con signal `activeJobs: Signal<BackgroundJob[]>` y métodos register/unregister/update
+- [x] Frontend: `BackgroundJobsIndicatorComponent` en shell toolbar (icono `pending_actions` + badge, panel de jobs activos)
 
 #### M.5–M.6: Frontend — ReorganizationService
-- [ ] Frontend: `reorganization.service.ts` con `startAnalysis()`, `getCurrentSession()`, `confirmSuggestion()`, `dismissSuggestion()`, `pollSession$()`  (interval 3s + takeUntil status !== 'running')
-- [ ] Frontend: integración con `BackgroundJobsService` (register al lanzar, unregister + snackbar al completar)
+- [x] Frontend: `reorganization.service.ts` con `startAnalysis()`, `getCurrentSession()`, `confirmSuggestion()`, `dismissSuggestion()`, `pollSession$()`  (interval 3s + takeUntil status !== 'running')
+- [x] Frontend: integración con `BackgroundJobsService` (register al lanzar, unregister + snackbar al completar)
 
 #### M.7–M.8: Frontend — Vista y sidenav
-- [ ] Frontend: `ReorganizationComponent` standalone en `/app/reorganization` (lazy-loaded) con estados: empty / loading / ready / completed
-- [ ] Frontend: agrupación por `from_box_id` con `MatExpansionPanel`, ordenación por `to_box_id` compartido, actualización optimista con reversión en error
-- [ ] Frontend: entrada "Reorganización" con icono `auto_fix_high` en shell sidenav
+- [x] Frontend: `ReorganizationComponent` standalone en `/app/reorganization` (lazy-loaded) con estados: empty / loading / ready / completed
+- [x] Frontend: agrupación por `from_box_id` con `MatExpansionPanel`, ordenación por `to_box_id` compartido, actualización optimista con reversión en error
+- [x] Frontend: entrada "Reorganización" con icono `auto_fix_high` en shell sidenav
 
 ### Offline
 - [ ] Cobertura offline completa: crear/editar/mover cajas y artículos sin conexión

@@ -15,6 +15,7 @@ from app.models.stock_movement import StockMovement
 from app.models.sync_conflict import SyncConflict
 from app.models.user import User
 from app.models.warehouse import Warehouse
+from app.models.reorganization_session import ReorganizationSession
 from app.models.warehouse_invite import WarehouseInvite
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "SyncConflict",
     "SMTPSetting",
     "LLMSetting",
+    "ReorganizationSession",
 ]
