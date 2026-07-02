@@ -1,0 +1,77 @@
+name: Release Images
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  APP_NAME: kiosk-screen
+  BACKEND_IMAGE: kiosk-backend
+  FRONTEND_IMAGE: kiosk-frontend
+
+jobs:
+  build-and-push:
+    name: Test, build, and push release images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install backend dependencies
+        run: pip install -e "backend[dev]"
+
+      - name: Run backend tests
+        run: pytest backend/tests
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend install
+
+      - name: Run frontend tests
+        run: npm --prefix frontend run test -- --watch=false --browsers=ChromeHeadless
+
+      - name: Validate migrations import
+        run: alembic -c backend/alembic.ini current || true
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ github.event.release.tag_name }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:${{ github.event.release.tag_name }}
+
+      - name: Publish release tag artifact
+        run: |
+          mkdir -p release-info
+          echo "${{ github.event.release.tag_name }}" > release-info/tag.txt
+      - name: Upload release tag artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tag
+          path: release-info/tag.txt
