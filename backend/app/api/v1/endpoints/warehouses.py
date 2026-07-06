@@ -20,6 +20,8 @@ from app.schemas.warehouse import (
     InviteAcceptResponse,
     MemberResponse,
     WarehouseCreateRequest,
+    WarehouseDeleteRequest,
+    WarehouseDeleteResponse,
     WarehouseInviteCreateRequest,
     WarehouseInviteResponse,
     WarehouseResponse,
@@ -28,6 +30,11 @@ from app.services.activity import record_activity
 from app.services.box_codes import generate_unique_short_code
 from app.services.security import hash_token
 from app.services.sync_log import append_change_log
+from app.services.warehouse_delete import (
+    WarehouseDeletionFailedError,
+    assert_can_delete_warehouse,
+    delete_warehouse as delete_warehouse_service,
+)
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 invites_router = APIRouter(prefix="/invites", tags=["warehouses"])
@@ -118,6 +125,34 @@ def create_warehouse(
     db.refresh(warehouse)
     logger.info("Warehouse created warehouse_id=%s created_by=%s", warehouse.id, current_user.id)
     return WarehouseResponse.model_validate(warehouse)
+
+
+@router.delete("/{warehouse_id}", response_model=WarehouseDeleteResponse)
+def delete_warehouse_endpoint(
+    warehouse_id: str,
+    payload: WarehouseDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> WarehouseDeleteResponse:
+    logger.debug(
+        "Delete warehouse requested warehouse_id=%s user_id=%s",
+        warehouse_id,
+        current_user.id,
+    )
+    warehouse = assert_can_delete_warehouse(
+        db,
+        warehouse_id,
+        current_user.id,
+        payload.confirm_name,
+    )
+    try:
+        delete_warehouse_service(db, warehouse, current_user.id)
+    except WarehouseDeletionFailedError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Warehouse deletion failed",
+        ) from None
+    return WarehouseDeleteResponse()
 
 
 @router.get("/{warehouse_id}", response_model=WarehouseResponse)

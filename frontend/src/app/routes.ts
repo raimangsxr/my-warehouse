@@ -9,6 +9,7 @@ import { BoxDetailComponent } from './boxes/box-detail.component';
 import { BoxesComponent } from './boxes/boxes.component';
 import { ConflictsComponent } from './conflicts/conflicts.component';
 import { authGuard, guestGuard } from './core/auth.guard';
+import { warehouseSelectedGuard } from './core/warehouse.guard';
 import { HomeComponent } from './home/home.component';
 import { AcceptInviteComponent } from './invites/accept-invite.component';
 import { ItemFormComponent } from './items/item-form.component';
@@ -31,7 +32,7 @@ export const routes: Routes = [
   {
     path: 'app',
     component: ShellComponent,
-    canActivate: [authGuard],
+    canActivate: [authGuard, warehouseSelectedGuard],
     children: [
       { path: 'home', component: HomeComponent },
       { path: 'boxes', component: BoxesComponent },

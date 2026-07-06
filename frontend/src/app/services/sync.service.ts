@@ -85,6 +85,13 @@ export class SyncService {
     return this.onlineSubject.value;
   }
 
+  async purgeWarehouse(warehouseId: string): Promise<void> {
+    const db = await this.dbPromise;
+    await this.idbDeleteByIndex(db, COMMANDS_STORE, 'warehouse_id', warehouseId);
+    await this.idbDeleteByIndex(db, CONFLICTS_STORE, 'warehouse_id', warehouseId);
+    await this.idbDelete(db, META_STORE, `since_seq:${warehouseId}`);
+  }
+
   async enqueueCommand(warehouseId: string, command: SyncCommand): Promise<void> {
     const db = await this.dbPromise;
     await this.idbPut<QueuedCommandRecord>(db, COMMANDS_STORE, {
@@ -274,6 +281,15 @@ export class SyncService {
 
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  private idbDelete(db: IDBDatabase, storeName: string, key: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
 

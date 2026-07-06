@@ -63,11 +63,21 @@ export class WarehouseService {
     });
   }
 
+  delete(warehouseId: string, confirmName: string): Observable<{ message: string }> {
+    return this.http.request<{ message: string }>('DELETE', `${environment.apiBaseUrl}/warehouses/${warehouseId}`, {
+      body: { confirm_name: confirmName },
+    });
+  }
+
   getSelectedWarehouseId(): string | null {
     return localStorage.getItem(this.selectedWarehouseKey);
   }
 
   setSelectedWarehouseId(warehouseId: string): void {
     localStorage.setItem(this.selectedWarehouseKey, warehouseId);
+  }
+
+  clearSelectedWarehouseId(): void {
+    localStorage.removeItem(this.selectedWarehouseKey);
   }
 }
