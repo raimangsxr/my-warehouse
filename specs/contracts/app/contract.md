@@ -48,7 +48,7 @@ Signup → login (opcional *Mantener sesión*: access JWT sin `exp` + refresh en
 Listar/crear → seleccionar (persistido) → invitar por link manual (`invite_url` en UI; **no** envío SMTP automático).
 
 **Eliminar warehouse** (solo creador, solo desde `/warehouses`):
-- `DELETE /api/v1/warehouses/{warehouse_id}` con body `{ "confirm_name": "<nombre exacto>" }`.
+- `DELETE /api/warehouses/{warehouse_id}` con body `{ "confirm_name": "<nombre exacto>" }`.
 - Requiere red; la UI deshabilita la acción offline.
 - Solo `created_by` puede eliminar; miembros no creadores no ven el botón.
 - Bloqueado con HTTP 409 si existe un lote intake con `status=processing`.
@@ -132,7 +132,7 @@ Definidas en `frontend/src/app/routes.ts`. Shell en `/app/*`; redirect raíz →
 
 ## API Summary
 
-**Base:** `/api/v1` · **Auth:** Bearer JWT · **Health:** `/healthz`
+**Base:** `/api` · **Auth:** Bearer JWT · **Health:** `/health`
 
 Grupos: auth (8), warehouses+invites+activity+**DELETE warehouse**, boxes+QR, items+batch+draft, intake (11), photos upload, tags+cloud, settings SMTP/LLM, sync push/pull/resolve, export/import.
 

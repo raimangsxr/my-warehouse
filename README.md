@@ -60,21 +60,36 @@ Combina cajas jerárquicas, búsqueda potente, QR por caja y ayuda de IA para ac
 
 ## Ejecutar en local
 
-### Backend
+### Con Docker Compose (recomendado)
 
 ```bash
-cd /Users/rromanit/workspace/my-warehouse/backend
+cp .env.example .env   # editar secretos
+docker compose up --build
+```
+
+- Frontend: `http://localhost:4200` (hot-reload)
+- API: `http://localhost:8000/api`
+- Health: `http://localhost:8000/health`
+
+Ver `specs/archive/003-dev-docker-setup/quickstart.md` para smoke test y troubleshooting.
+
+### Sin Docker (alternativa)
+
+**Backend** (SQLite por defecto):
+
+```bash
+cd backend
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e ".[dev]"
 pytest -q
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend
+**Frontend**:
 
 ```bash
-cd /Users/rromanit/workspace/my-warehouse/frontend
+cd frontend
 npm install
 npm start
 ```
@@ -84,4 +99,4 @@ npm start
 
 ## Documentación de producto
 
-La especificación viva del producto está en `/Users/rromanit/workspace/my-warehouse/specs.md` y actúa como fuente de verdad funcional y técnica.
+La especificación viva del producto está en `specs/contracts/app/contract.md` y `specs/README.md`.

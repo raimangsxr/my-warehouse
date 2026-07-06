@@ -5,6 +5,10 @@ contracts:
     path: specs/contracts/app/contract.md
     status: active
     description: Current baseline behavior for the application.
+  - id: ops-platform
+    path: specs/contracts/ops-platform/contract.md
+    status: active
+    description: Local development, Docker, and release workflow tooling.
 
 changes:
   - id: 001-initial-sdd-baseline
@@ -18,6 +22,12 @@ changes:
     status: completed
     contract: app
     description: Permanent warehouse deletion with full data and media cleanup.
+    completed: 2026-07-06
+  - id: 003-dev-docker-setup
+    path: specs/archive/003-dev-docker-setup/
+    status: completed
+    contract: ops-platform
+    description: Docker Compose dev environment and platform Dockerfile/workflow alignment.
     completed: 2026-07-06
 
 active:

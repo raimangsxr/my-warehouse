@@ -10,9 +10,9 @@ permissions:
   actions: read
 
 env:
-  APP_NAME: kiosk-screen
-  BACKEND_IMAGE: kiosk-backend
-  FRONTEND_IMAGE: kiosk-frontend
+  APP_NAME: my-warehouse
+  BACKEND_IMAGE: my-warehouse-backend
+  FRONTEND_IMAGE: my-warehouse-frontend
 
 jobs:
   open-bump-pr:

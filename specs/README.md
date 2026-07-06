@@ -35,15 +35,15 @@ Ver `AGENTS.md` en la raíz del repositorio.
 specs/
 ├── manifest.yml              # Índice
 ├── contracts/
-│   └── app/
-│       └── contract.md       # Contrato activo de la aplicación
+│   ├── app/
+│   │   └── contract.md       # Comportamiento de la aplicación
+│   └── ops-platform/
+│       └── contract.md       # Docker, compose, release workflows
 ├── changes/                  # Changes activos (vacío hasta el próximo)
 └── archive/
-    └── 001-initial-sdd-baseline/   # Baseline inicial (cerrado 2026-07-06)
-        ├── context-pack.md
-        ├── spec.md
-        ├── plan.md
-        └── tasks.md
+    ├── 001-initial-sdd-baseline/
+    ├── 002-delete-warehouse/
+    └── 003-dev-docker-setup/   # Docker Compose + platform (cerrado 2026-07-06)
 ```
 
 ## Validación rápida

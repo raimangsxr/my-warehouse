@@ -1,11 +1,38 @@
+# Keep Python build cache and bytecode out of the image
 __pycache__/
 *.py[cod]
-*.sqlite3
-*.db
+*.egg-info/
+
+# Local virtual environments
 .venv/
 venv/
+
+# Tests + caches
+tests/
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
+htmlcov/
+.coverage
+
+# Editor + OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# Local env files (we ship .env.example separately)
+.env
+.env.*
+!.env.example
+
+# Build artefacts and runtime data
+build/
+dist/
+var/
+*.db
+*.sqlite3
+
+# Repo-level metadata that shouldn't be baked into the image
 .git/
 .gitignore
-tests/
+README.md

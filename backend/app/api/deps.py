@@ -14,7 +14,7 @@ from app.models.user import User
 from app.services.security import decode_token, hash_token
 from app.utils.datetime import ensure_utc, utcnow
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_v1_prefix}/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_prefix}/auth/login")
 logger = logging.getLogger(__name__)
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:

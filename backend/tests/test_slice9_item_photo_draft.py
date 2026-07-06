@@ -4,22 +4,22 @@ from urllib.parse import urlparse
 
 def signup_and_login(client, email: str) -> dict[str, str]:
     client.post(
-        "/api/v1/auth/signup",
+        "/api/auth/signup",
         json={"email": email, "password": "password123", "display_name": email.split("@")[0]},
     )
-    login = client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def create_warehouse(client, headers) -> str:
-    res = client.post("/api/v1/warehouses", json={"name": "Photo WH"}, headers=headers)
+    res = client.post("/api/warehouses", json={"name": "Photo WH"}, headers=headers)
     assert res.status_code == 201
     return res.json()["id"]
 
 
 def create_box(client, headers, warehouse_id) -> str:
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        f"/api/warehouses/{warehouse_id}/boxes",
         json={"name": "MainBox"},
         headers=headers,
     )
@@ -38,7 +38,7 @@ def test_draft_from_photo_fallback_without_llm_settings(client):
     warehouse_id = create_warehouse(client, headers)
 
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items/draft-from-photo",
+        f"/api/warehouses/{warehouse_id}/items/draft-from-photo",
         json={"image_data_url": SAMPLE_IMAGE_DATA_URL},
         headers=headers,
     )
@@ -55,7 +55,7 @@ def test_draft_from_photo_rejects_invalid_data_url(client):
     warehouse_id = create_warehouse(client, headers)
 
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items/draft-from-photo",
+        f"/api/warehouses/{warehouse_id}/items/draft-from-photo",
         json={"image_data_url": "https://example.com/photo-not-a-data-url-long-enough.jpg"},
         headers=headers,
     )
@@ -76,7 +76,7 @@ def test_draft_from_photo_uses_llm_when_configured(client, monkeypatch):
     headers = signup_and_login(client, "slice9-llm@example.com")
     warehouse_id = create_warehouse(client, headers)
     llm_put = client.put(
-        "/api/v1/settings/llm",
+        "/api/settings/llm",
         params={"warehouse_id": warehouse_id},
         json={
             "provider": "gemini",
@@ -114,7 +114,7 @@ def test_draft_from_photo_uses_llm_when_configured(client, monkeypatch):
     monkeypatch.setattr(items_endpoint, "generate_item_draft_from_photo", fake_photo_draft)
 
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items/draft-from-photo",
+        f"/api/warehouses/{warehouse_id}/items/draft-from-photo",
         json={"image_data_url": SAMPLE_IMAGE_DATA_URL},
         headers=headers,
     )
@@ -132,7 +132,7 @@ def test_upload_photo_and_use_photo_url_in_item(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        "/api/v1/photos/upload",
+        "/api/photos/upload",
         params={"warehouse_id": warehouse_id},
         files={"file": ("item.png", png_bytes, "image/png")},
         headers=headers,
@@ -147,7 +147,7 @@ def test_upload_photo_and_use_photo_url_in_item(client):
     assert fetched.headers["content-type"] == "image/png"
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items",
+        f"/api/warehouses/{warehouse_id}/items",
         json={"box_id": box_id, "name": "Articulo con foto", "photo_url": photo_url},
         headers=headers,
     )

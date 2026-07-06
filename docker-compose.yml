@@ -1,0 +1,74 @@
+x-backend-build: &backend-build
+  context: ./backend
+  dockerfile: Dockerfile
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://mywarehouse:${DATABASE_PASSWORD}@postgres:5432/mywarehouse
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+  SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?set SECRET_ENCRYPTION_KEY in .env}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4200}
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  MEDIA_ROOT: /app/media
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mywarehouse
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
+      POSTGRES_DB: mywarehouse
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mywarehouse -d mywarehouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: my-warehouse-backend:local
+    build: *backend-build
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *backend-env
+    command: ["alembic", "upgrade", "head"]
+
+  backend:
+    image: my-warehouse-backend:local
+    build: *backend-build
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment: *backend-env
+    volumes:
+      - media-data:/app/media
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        NODE_IMAGE: node:22-alpine
+    ports:
+      - "4200:4200"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    command: npm run start -- --host 0.0.0.0 --port 4200 --poll 2000
+
+volumes:
+  postgres-data:
+  media-data:
+  frontend_node_modules:

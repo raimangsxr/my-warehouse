@@ -1,21 +1,21 @@
 def signup_and_login(client, email: str) -> dict[str, str]:
     client.post(
-        "/api/v1/auth/signup",
+        "/api/auth/signup",
         json={"email": email, "password": "password123", "display_name": email.split("@")[0]},
     )
-    login = client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def create_warehouse(client, headers) -> str:
-    res = client.post("/api/v1/warehouses", json={"name": "Cfg"}, headers=headers)
+    res = client.post("/api/warehouses", json={"name": "Cfg"}, headers=headers)
     assert res.status_code == 201
     return res.json()["id"]
 
 
 def create_box(client, headers, warehouse_id) -> str:
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        f"/api/warehouses/{warehouse_id}/boxes",
         json={"name": "MainBox"},
         headers=headers,
     )
@@ -28,7 +28,7 @@ def test_smtp_settings_roundtrip_and_test_endpoint(client):
     warehouse_id = create_warehouse(client, headers)
 
     put = client.put(
-        "/api/v1/settings/smtp",
+        "/api/settings/smtp",
         params={"warehouse_id": warehouse_id},
         json={
             "host": "smtp.example.com",
@@ -45,13 +45,13 @@ def test_smtp_settings_roundtrip_and_test_endpoint(client):
     assert put.json()["has_password"] is True
     assert put.json()["password_masked"]
 
-    get = client.get("/api/v1/settings/smtp", params={"warehouse_id": warehouse_id}, headers=headers)
+    get = client.get("/api/settings/smtp", params={"warehouse_id": warehouse_id}, headers=headers)
     assert get.status_code == 200
     assert get.json()["host"] == "smtp.example.com"
     assert get.json()["has_password"] is True
 
     test_mail = client.post(
-        "/api/v1/settings/smtp/test",
+        "/api/settings/smtp/test",
         params={"warehouse_id": warehouse_id},
         json={"to_email": "target@example.com"},
         headers=headers,
@@ -75,7 +75,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
         "gemini-2.5-flash-lite",
     ]
 
-    llm_get_default = client.get("/api/v1/settings/llm", params={"warehouse_id": warehouse_id}, headers=headers)
+    llm_get_default = client.get("/api/settings/llm", params={"warehouse_id": warehouse_id}, headers=headers)
     assert llm_get_default.status_code == 200
     assert llm_get_default.json()["language"] == "es"
     assert llm_get_default.json()["api_key_value"] is None
@@ -88,7 +88,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     ]
 
     llm_put = client.put(
-        "/api/v1/settings/llm",
+        "/api/settings/llm",
         params={"warehouse_id": warehouse_id},
         json={
             "provider": "gemini",
@@ -126,7 +126,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     monkeypatch.setattr(settings_endpoint, "generate_tags_and_aliases", fake_tags_aliases)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items",
+        f"/api/warehouses/{warehouse_id}/items",
         json={"box_id": box_id, "name": "Cordless Drill", "description": "Heavy duty garage tool"},
         headers=headers,
     )
@@ -135,7 +135,7 @@ def test_llm_settings_and_reprocess_item(client, monkeypatch):
     assert len(item["tags"]) >= 1
 
     reprocess = client.post(
-        f"/api/v1/settings/llm/reprocess-item/{item['id']}",
+        f"/api/settings/llm/reprocess-item/{item['id']}",
         params={"warehouse_id": warehouse_id},
         json={"fields": ["tags"]},
         headers=headers,

@@ -20,8 +20,8 @@ See `specs/README.md` for the full precedence table and `.specify/memory/constit
 
 ## Active SDD work
 
-- Active contract: `specs/contracts/app/contract.md`
-- No active change (last completed: `specs/archive/002-delete-warehouse/`)
+- Active contracts: `specs/contracts/app/contract.md`, `specs/contracts/ops-platform/contract.md`
+- No active change (last completed: `specs/archive/003-dev-docker-setup/`)
 
 ## Suggested flow
 

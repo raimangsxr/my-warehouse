@@ -3,22 +3,22 @@ import uuid
 
 def signup_and_login(client, email: str) -> dict[str, str]:
     client.post(
-        "/api/v1/auth/signup",
+        "/api/auth/signup",
         json={"email": email, "password": "password123", "display_name": email.split("@")[0]},
     )
-    login = client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def create_warehouse(client, headers) -> str:
-    res = client.post("/api/v1/warehouses", json={"name": "Sync WH"}, headers=headers)
+    res = client.post("/api/warehouses", json={"name": "Sync WH"}, headers=headers)
     assert res.status_code == 201
     return res.json()["id"]
 
 
 def create_box(client, headers, warehouse_id: str) -> str:
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        f"/api/warehouses/{warehouse_id}/boxes",
         json={"name": "Tools"},
         headers=headers,
     )
@@ -33,7 +33,7 @@ def test_sync_push_pull_and_conflict_resolution(client):
 
     offline_item_id = str(uuid.uuid4())
     push = client.post(
-        "/api/v1/sync/push",
+        "/api/sync/push",
         json={
             "warehouse_id": warehouse_id,
             "device_id": "device-a",
@@ -61,7 +61,7 @@ def test_sync_push_pull_and_conflict_resolution(client):
     assert push_body["last_seq"] >= 1
 
     pull = client.get(
-        "/api/v1/sync/pull",
+        "/api/sync/pull",
         params={"warehouse_id": warehouse_id, "since_seq": 0},
         headers=headers,
     )
@@ -70,19 +70,19 @@ def test_sync_push_pull_and_conflict_resolution(client):
     assert pull_body["last_seq"] >= 1
     assert any(change["entity_type"] == "item" and change["action"] == "create" for change in pull_body["changes"])
 
-    item_before = client.get(f"/api/v1/warehouses/{warehouse_id}/items/{offline_item_id}", headers=headers)
+    item_before = client.get(f"/api/warehouses/{warehouse_id}/items/{offline_item_id}", headers=headers)
     assert item_before.status_code == 200
     base_version = item_before.json()["version"]
 
     server_update = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/items/{offline_item_id}",
+        f"/api/warehouses/{warehouse_id}/items/{offline_item_id}",
         json={"name": "Battery Pack Server"},
         headers=headers,
     )
     assert server_update.status_code == 200
 
     conflict_push = client.post(
-        "/api/v1/sync/push",
+        "/api/sync/push",
         json={
             "warehouse_id": warehouse_id,
             "device_id": "device-a",
@@ -105,7 +105,7 @@ def test_sync_push_pull_and_conflict_resolution(client):
 
     conflict_id = conflict_body["conflicts"][0]["id"]
     resolve = client.post(
-        "/api/v1/sync/resolve",
+        "/api/sync/resolve",
         json={
             "warehouse_id": warehouse_id,
             "conflict_id": conflict_id,
@@ -116,7 +116,7 @@ def test_sync_push_pull_and_conflict_resolution(client):
     assert resolve.status_code == 200
     assert resolve.json()["conflict"]["status"] == "resolved"
 
-    item_after = client.get(f"/api/v1/warehouses/{warehouse_id}/items/{offline_item_id}", headers=headers)
+    item_after = client.get(f"/api/warehouses/{warehouse_id}/items/{offline_item_id}", headers=headers)
     assert item_after.status_code == 200
     assert item_after.json()["name"] == "Battery Pack Client"
 
@@ -127,7 +127,7 @@ def test_sync_push_idempotency_skips_processed_command(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created_item = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items",
+        f"/api/warehouses/{warehouse_id}/items",
         json={"box_id": box_id, "name": "Tape"},
         headers=headers,
     )
@@ -148,11 +148,11 @@ def test_sync_push_idempotency_skips_processed_command(client):
         ],
     }
 
-    first = client.post("/api/v1/sync/push", json=payload, headers=headers)
+    first = client.post("/api/sync/push", json=payload, headers=headers)
     assert first.status_code == 200
     assert first.json()["applied_command_ids"] == [command_id]
 
-    second = client.post("/api/v1/sync/push", json=payload, headers=headers)
+    second = client.post("/api/sync/push", json=payload, headers=headers)
     assert second.status_code == 200
     assert second.json()["applied_command_ids"] == []
     assert command_id in second.json()["skipped_command_ids"]

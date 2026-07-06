@@ -19,22 +19,22 @@ from app.models.warehouse import Warehouse
 
 def signup_and_login(client, email: str) -> dict[str, str]:
     client.post(
-        "/api/v1/auth/signup",
+        "/api/auth/signup",
         json={"email": email, "password": "password123", "display_name": email.split("@")[0]},
     )
-    login = client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def create_warehouse(client, headers, name: str = "Garaje principal") -> dict:
-    res = client.post("/api/v1/warehouses", json={"name": name}, headers=headers)
+    res = client.post("/api/warehouses", json={"name": name}, headers=headers)
     assert res.status_code == 201
     return res.json()
 
 
 def seed_warehouse_content(client, headers, warehouse_id: str) -> None:
     box_res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        f"/api/warehouses/{warehouse_id}/boxes",
         json={"name": "Herramientas"},
         headers=headers,
     )
@@ -42,7 +42,7 @@ def seed_warehouse_content(client, headers, warehouse_id: str) -> None:
     box = box_res.json()
 
     item_res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/items",
+        f"/api/warehouses/{warehouse_id}/items",
         json={"box_id": box["id"], "name": "Martillo"},
         headers=headers,
     )
@@ -56,7 +56,7 @@ def seed_warehouse_content(client, headers, warehouse_id: str) -> None:
 def delete_warehouse_api(client, headers, warehouse_id: str, confirm_name: str):
     return client.request(
         "DELETE",
-        f"/api/v1/warehouses/{warehouse_id}",
+        f"/api/warehouses/{warehouse_id}",
         json={"confirm_name": confirm_name},
         headers=headers,
     )
@@ -75,13 +75,13 @@ def test_creator_can_delete_warehouse(client):
     assert res.status_code == 200
     assert res.json()["message"] == "Warehouse deleted"
 
-    listed = client.get("/api/v1/warehouses", headers=headers)
+    listed = client.get("/api/warehouses", headers=headers)
     assert listed.status_code == 200
     ids = {row["id"] for row in listed.json()}
     assert target["id"] not in ids
     assert keep["id"] in ids
 
-    get_res = client.get(f"/api/v1/warehouses/{target['id']}", headers=headers)
+    get_res = client.get(f"/api/warehouses/{target['id']}", headers=headers)
     assert get_res.status_code == 403
 
     assert not media_path.exists()
@@ -195,13 +195,13 @@ def test_non_creator_forbidden(client):
     warehouse = create_warehouse(client, owner_headers, name="Shared WH")
 
     invite = client.post(
-        f"/api/v1/warehouses/{warehouse['id']}/invites",
+        f"/api/warehouses/{warehouse['id']}/invites",
         json={"email": "member-delete@example.com"},
         headers=owner_headers,
     )
     assert invite.status_code == 201
     accept = client.post(
-        f"/api/v1/invites/{invite.json()['invite_token']}/accept",
+        f"/api/invites/{invite.json()['invite_token']}/accept",
         headers=member_headers,
     )
     assert accept.status_code == 200
@@ -217,21 +217,21 @@ def test_co_member_loses_access(client):
     warehouse = create_warehouse(client, owner_headers, name="CoMember WH")
 
     invite = client.post(
-        f"/api/v1/warehouses/{warehouse['id']}/invites",
+        f"/api/warehouses/{warehouse['id']}/invites",
         json={"email": "guest-co@example.com"},
         headers=owner_headers,
     )
     token = invite.json()["invite_token"]
-    assert client.post(f"/api/v1/invites/{token}/accept", headers=guest_headers).status_code == 200
+    assert client.post(f"/api/invites/{token}/accept", headers=guest_headers).status_code == 200
 
     delete_res = delete_warehouse_api(client, owner_headers, warehouse["id"], warehouse["name"])
     assert delete_res.status_code == 200
 
-    guest_list = client.get("/api/v1/warehouses", headers=guest_headers)
+    guest_list = client.get("/api/warehouses", headers=guest_headers)
     assert guest_list.status_code == 200
     assert all(row["id"] != warehouse["id"] for row in guest_list.json())
 
-    guest_get = client.get(f"/api/v1/warehouses/{warehouse['id']}", headers=guest_headers)
+    guest_get = client.get(f"/api/warehouses/{warehouse['id']}", headers=guest_headers)
     assert guest_get.status_code == 403
 
 
@@ -240,11 +240,11 @@ def test_blocked_while_batch_processing(client):
     warehouse = create_warehouse(client, headers, name="Processing WH")
     warehouse_id = warehouse["id"]
 
-    tree = client.get(f"/api/v1/warehouses/{warehouse_id}/boxes/tree", headers=headers)
+    tree = client.get(f"/api/warehouses/{warehouse_id}/boxes/tree", headers=headers)
     inbound_box_id = tree.json()[0]["box"]["id"]
 
     batch_res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": inbound_box_id, "name": "Lote test"},
         headers=headers,
     )

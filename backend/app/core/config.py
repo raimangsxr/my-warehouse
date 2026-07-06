@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "my-warehouse-api"
-    api_v1_prefix: str = "/api/v1"
+    api_prefix: str = "/api"
     database_url: str = "sqlite:///./my_warehouse.db"
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"

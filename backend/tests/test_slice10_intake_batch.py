@@ -13,22 +13,22 @@ SAMPLE_IMAGE_DATA_URL = (
 
 def signup_and_login(client, email: str) -> dict[str, str]:
     client.post(
-        "/api/v1/auth/signup",
+        "/api/auth/signup",
         json={"email": email, "password": "password123", "display_name": email.split("@")[0]},
     )
-    login = client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def create_warehouse(client, headers) -> str:
-    res = client.post("/api/v1/warehouses", json={"name": "Intake WH"}, headers=headers)
+    res = client.post("/api/warehouses", json={"name": "Intake WH"}, headers=headers)
     assert res.status_code == 201
     return res.json()["id"]
 
 
 def create_box(client, headers, warehouse_id) -> str:
     res = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/boxes",
+        f"/api/warehouses/{warehouse_id}/boxes",
         json={"name": "Caja destino"},
         headers=headers,
     )
@@ -49,7 +49,7 @@ def wait_for_batch_detail(
     last_payload = None
     while time.time() < deadline:
         response = client.get(
-            f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+            f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}",
             headers=headers,
         )
         assert response.status_code == 200
@@ -66,7 +66,7 @@ def test_intake_batch_full_lifecycle(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote inicial"},
         headers=headers,
     )
@@ -76,7 +76,7 @@ def test_intake_batch_full_lifecycle(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[
             ("files", ("a.png", png_bytes, "image/png")),
             ("files", ("b.png", png_bytes, "image/png")),
@@ -104,7 +104,7 @@ def test_intake_batch_full_lifecycle(client):
     expected_quantities = {drafts[0]["id"]: 4, drafts[1]["id"]: 2}
     for draft in drafts:
         patch = client.patch(
-            f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft['id']}",
+            f"/api/warehouses/{warehouse_id}/intake/drafts/{draft['id']}",
             json={
                 "name": draft.get("name") or "Articulo",  # fallback local
                 "description": draft.get("description") or "Descripcion",
@@ -120,7 +120,7 @@ def test_intake_batch_full_lifecycle(client):
         assert patch.json()["quantity"] == expected_quantities[draft["id"]]
 
     commit = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
         json={"include_review": False},
         headers=headers,
     )
@@ -130,7 +130,7 @@ def test_intake_batch_full_lifecycle(client):
     assert payload["errors"] == 0
     assert payload["batch"]["status"] == "committed"
 
-    items = client.get(f"/api/v1/warehouses/{warehouse_id}/items", headers=headers)
+    items = client.get(f"/api/warehouses/{warehouse_id}/items", headers=headers)
     assert items.status_code == 200
     assert len(items.json()) == 2
     assert all(item["box_id"] == box_id for item in items.json())
@@ -146,7 +146,7 @@ def test_intake_allows_uploading_new_photos_after_batch_committed(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote incremental"},
         headers=headers,
     )
@@ -155,7 +155,7 @@ def test_intake_allows_uploading_new_photos_after_batch_committed(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     first_upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("first.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -163,7 +163,7 @@ def test_intake_allows_uploading_new_photos_after_batch_committed(client):
     first_draft_id = first_upload.json()["drafts"][0]["id"]
 
     mark_ready = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{first_draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{first_draft_id}",
         json={
             "name": "Articulo inicial",
             "description": "Primer articulo",
@@ -176,7 +176,7 @@ def test_intake_allows_uploading_new_photos_after_batch_committed(client):
     assert mark_ready.status_code == 200
 
     commit = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
         json={"include_review": False},
         headers=headers,
     )
@@ -184,7 +184,7 @@ def test_intake_allows_uploading_new_photos_after_batch_committed(client):
     assert commit.json()["batch"]["status"] == "committed"
 
     append_upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("second.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -201,7 +201,7 @@ def test_committed_draft_quantity_updates_item_stock(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote cantidad commit"},
         headers=headers,
     )
@@ -210,7 +210,7 @@ def test_committed_draft_quantity_updates_item_stock(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("quantity.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -218,7 +218,7 @@ def test_committed_draft_quantity_updates_item_stock(client):
     draft_id = upload.json()["drafts"][0]["id"]
 
     mark_ready = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={
             "name": "Caja de tornillos",
             "quantity": 3,
@@ -230,7 +230,7 @@ def test_committed_draft_quantity_updates_item_stock(client):
     assert mark_ready.json()["quantity"] == 3
 
     commit = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit",
         json={"include_review": False},
         headers=headers,
     )
@@ -238,7 +238,7 @@ def test_committed_draft_quantity_updates_item_stock(client):
     assert commit.json()["created"] == 1
 
     committed = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={"quantity": 5},
         headers=headers,
     )
@@ -247,7 +247,7 @@ def test_committed_draft_quantity_updates_item_stock(client):
     assert committed.json()["quantity"] == 5
     assert committed.json()["committed_quantity"] == 5
 
-    items = client.get(f"/api/v1/warehouses/{warehouse_id}/items", headers=headers)
+    items = client.get(f"/api/warehouses/{warehouse_id}/items", headers=headers)
     assert items.status_code == 200
     assert len(items.json()) == 1
     assert items.json()[0]["stock"] == 5
@@ -259,7 +259,7 @@ def test_intake_processing_without_llm_fallback_sets_error(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote sin LLM"},
         headers=headers,
     )
@@ -268,14 +268,14 @@ def test_intake_processing_without_llm_fallback_sets_error(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("no-llm.png", png_bytes, "image/png"))],
         headers=headers,
     )
     assert upload.status_code == 201
 
     start = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
         json={"retry_errors": False},
         headers=headers,
     )
@@ -303,7 +303,7 @@ def test_retry_errors_only_processes_error_drafts(client, monkeypatch):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote retry errores"},
         headers=headers,
     )
@@ -312,7 +312,7 @@ def test_retry_errors_only_processes_error_drafts(client, monkeypatch):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[
             ("files", ("retry-a.png", png_bytes, "image/png")),
             ("files", ("retry-b.png", png_bytes, "image/png")),
@@ -327,7 +327,7 @@ def test_retry_errors_only_processes_error_drafts(client, monkeypatch):
     untouched_draft_id = drafts[1]["id"]
 
     mark_error = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{error_draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{error_draft_id}",
         json={"status": "error"},
         headers=headers,
     )
@@ -352,7 +352,7 @@ def test_retry_errors_only_processes_error_drafts(client, monkeypatch):
     monkeypatch.setattr(intake_service, "_process_photo_url", fake_process_photo_url)
 
     start_retry = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
         json={"retry_errors": True},
         headers=headers,
     )
@@ -380,7 +380,7 @@ def test_intake_batch_requires_membership(client):
     box_id = create_box(client, owner_headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id},
         headers=owner_headers,
     )
@@ -388,9 +388,9 @@ def test_intake_batch_requires_membership(client):
     batch_id = created.json()["batch"]["id"]
 
     for method, url in [
-        ("get", f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}"),
-        ("post", f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start"),
-        ("post", f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit"),
+        ("get", f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}"),
+        ("post", f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/start"),
+        ("post", f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/commit"),
     ]:
         if method == "get":
             response = client.get(url, headers=other_headers)
@@ -406,7 +406,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     warehouse_id = create_warehouse(client, headers)
     box_id = create_box(client, headers, warehouse_id)
     llm_put = client.put(
-        "/api/v1/settings/llm",
+        "/api/settings/llm",
         params={"warehouse_id": warehouse_id},
         json={
             "provider": "gemini",
@@ -426,7 +426,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     assert llm_put.status_code == 200
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote retry"},
         headers=headers,
     )
@@ -479,7 +479,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     monkeypatch.setattr(intake_service, "generate_item_draft_from_photo", fake_generate)
 
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("retry.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -496,7 +496,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     assert detail_initial["drafts"][0]["name"] == suggested_name
 
     requeue_changed_name = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={
             "name": changed_name,
             "description": "Taladro inalambrico 18V para pared.",
@@ -509,7 +509,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     assert requeue_changed_name.status_code == 200
 
     start_with_changed_name = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
         json={"retry_errors": False},
         headers=headers,
     )
@@ -525,7 +525,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     assert detail_changed_name["drafts"][0]["name"] == changed_name
 
     requeue_unchanged_name = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={
             "name": suggested_name,
             "status": "uploaded",
@@ -535,7 +535,7 @@ def test_intake_retry_uses_name_context_only_when_user_changes_suggested_name(cl
     assert requeue_unchanged_name.status_code == 200
 
     start_with_same_name = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/start",
         json={"retry_errors": False},
         headers=headers,
     )
@@ -563,7 +563,7 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
 
     committed_batch = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote committed"},
         headers=owner_headers,
     )
@@ -571,7 +571,7 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
     committed_batch_id = committed_batch.json()["batch"]["id"]
 
     upload_committed = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{committed_batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{committed_batch_id}/photos",
         files=[("files", ("committed.png", png_bytes, "image/png"))],
         headers=owner_headers,
     )
@@ -579,14 +579,14 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
     committed_draft_id = upload_committed.json()["drafts"][0]["id"]
 
     patch_committed = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{committed_draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{committed_draft_id}",
         json={"name": "Producto committed", "status": "ready"},
         headers=owner_headers,
     )
     assert patch_committed.status_code == 200
 
     commit_committed = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{committed_batch_id}/commit",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{committed_batch_id}/commit",
         json={"include_review": False},
         headers=owner_headers,
     )
@@ -594,7 +594,7 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
     assert commit_committed.json()["batch"]["status"] == "committed"
 
     open_owner = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote owner abierto"},
         headers=owner_headers,
     )
@@ -602,7 +602,7 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
     open_owner_id = open_owner.json()["batch"]["id"]
 
     upload_owner = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{open_owner_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{open_owner_id}/photos",
         files=[("files", ("owner.png", png_bytes, "image/png"))],
         headers=owner_headers,
     )
@@ -610,30 +610,30 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
 
     other_headers = signup_and_login(client, "slice10-list-other@example.com")
     invite = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/invites",
+        f"/api/warehouses/{warehouse_id}/invites",
         json={"email": "slice10-list-other@example.com"},
         headers=owner_headers,
     )
     assert invite.status_code == 201
     token = invite.json()["invite_token"]
-    accepted = client.post(f"/api/v1/invites/{token}/accept", json={}, headers=other_headers)
+    accepted = client.post(f"/api/invites/{token}/accept", json={}, headers=other_headers)
     assert accepted.status_code == 200
 
     open_other = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote other abierto"},
         headers=other_headers,
     )
     assert open_other.status_code == 201
     open_other_id = open_other.json()["batch"]["id"]
 
-    list_default = client.get(f"/api/v1/warehouses/{warehouse_id}/intake/batches", headers=owner_headers)
+    list_default = client.get(f"/api/warehouses/{warehouse_id}/intake/batches", headers=owner_headers)
     assert list_default.status_code == 200
     default_ids = {batch["id"] for batch in list_default.json()}
     assert default_ids == {open_owner_id}
 
     list_all_open = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches?only_mine=false",
+        f"/api/warehouses/{warehouse_id}/intake/batches?only_mine=false",
         headers=owner_headers,
     )
     assert list_all_open.status_code == 200
@@ -641,7 +641,7 @@ def test_list_intake_batches_filters_open_and_only_mine(client):
     assert all_open_ids == {open_owner_id, open_other_id}
 
     list_owner_with_committed = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches?include_committed=true",
+        f"/api/warehouses/{warehouse_id}/intake/batches?include_committed=true",
         headers=owner_headers,
     )
     assert list_owner_with_committed.status_code == 200
@@ -655,7 +655,7 @@ def test_delete_batch_removes_temporary_media_folder(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote temporal"},
         headers=headers,
     )
@@ -664,7 +664,7 @@ def test_delete_batch_removes_temporary_media_folder(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("temp.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -674,7 +674,7 @@ def test_delete_batch_removes_temporary_media_folder(client):
     assert batch_dir.exists()
 
     deleted = client.delete(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}",
         headers=headers,
     )
     assert deleted.status_code == 200
@@ -688,7 +688,7 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     warehouse_id = create_warehouse(client, headers)
     box_id = create_box(client, headers, warehouse_id)
     llm_put = client.put(
-        "/api/v1/settings/llm",
+        "/api/settings/llm",
         params={"warehouse_id": warehouse_id},
         json={
             "provider": "gemini",
@@ -708,7 +708,7 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     assert llm_put.status_code == 200
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote reproceso draft"},
         headers=headers,
     )
@@ -740,7 +740,7 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     monkeypatch.setattr(intake_service, "generate_item_draft_from_photo", fake_generate)
 
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("draft-reprocess.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -756,14 +756,14 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     )
 
     set_base_name = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={"name": "Nombre manual base", "status": "error"},
         headers=headers,
     )
     assert set_base_name.status_code == 200
 
     reprocess_photo = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess",
         json={"mode": "photo"},
         headers=headers,
     )
@@ -783,14 +783,14 @@ def test_reprocess_draft_modes_photo_vs_name_context(client, monkeypatch):
     assert captured_context_names[0] is None
 
     set_manual_name = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={"name": "Taladro manual 18V", "status": "error"},
         headers=headers,
     )
     assert set_manual_name.status_code == 200
 
     reprocess_name = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}/reprocess",
         json={"mode": "name"},
         headers=headers,
     )
@@ -817,7 +817,7 @@ def test_delete_draft_removes_temp_photo_and_draft_row(client):
     box_id = create_box(client, headers, warehouse_id)
 
     created = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches",
+        f"/api/warehouses/{warehouse_id}/intake/batches",
         json={"target_box_id": box_id, "name": "Lote borrar draft"},
         headers=headers,
     )
@@ -826,7 +826,7 @@ def test_delete_draft_removes_temp_photo_and_draft_row(client):
 
     png_bytes = b64decode(SAMPLE_IMAGE_DATA_URL.split(",", 1)[1])
     upload = client.post(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}/photos",
         files=[("files", ("delete-draft.png", png_bytes, "image/png"))],
         headers=headers,
     )
@@ -838,13 +838,13 @@ def test_delete_draft_removes_temp_photo_and_draft_row(client):
     assert len(list(batch_dir.iterdir())) == 1
 
     deleted = client.delete(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         headers=headers,
     )
     assert deleted.status_code == 200
 
     detail = client.get(
-        f"/api/v1/warehouses/{warehouse_id}/intake/batches/{batch_id}",
+        f"/api/warehouses/{warehouse_id}/intake/batches/{batch_id}",
         headers=headers,
     )
     assert detail.status_code == 200
@@ -852,7 +852,7 @@ def test_delete_draft_removes_temp_photo_and_draft_row(client):
     assert not batch_dir.exists()
 
     patch_deleted = client.patch(
-        f"/api/v1/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
+        f"/api/warehouses/{warehouse_id}/intake/drafts/{draft_id}",
         json={"name": "No existe"},
         headers=headers,
     )

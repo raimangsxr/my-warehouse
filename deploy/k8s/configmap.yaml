@@ -4,5 +4,5 @@ metadata:
   name: my-warehouse-config
   namespace: my-warehouse
 data:
-  FRONTEND_URL: "https://my-warehouse.example.com"
-  CORS_ORIGINS: "https://my-warehouse.example.com,http://localhost:4200"
+  FRONTEND_URL: "https://warehouse.rromani.eu"
+  CORS_ORIGINS: "https://warehouse.rromani.eu,http://localhost:4200"

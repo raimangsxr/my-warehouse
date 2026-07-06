@@ -22,7 +22,7 @@ metadata:
   labels:
     app.kubernetes.io/name: my-warehouse-frontend
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: my-warehouse-frontend
@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: ghcr.io/your-org/my-warehouse-frontend:latest
+          image: rromani/my-warehouse-frontend:0.3.4
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -56,13 +56,13 @@ spec:
               containerPort: 8080
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health
               port: http
             initialDelaySeconds: 20
             periodSeconds: 20

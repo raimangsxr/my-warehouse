@@ -36,15 +36,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(api_router, prefix=settings.api_v1_prefix)
+app.include_router(api_router, prefix=settings.api_prefix)
 
 media_root = Path(settings.media_root)
 media_root.mkdir(parents=True, exist_ok=True)
 app.mount(settings.media_url_path, StaticFiles(directory=str(media_root)), name="media")
-logger.info("API started app=%s api_prefix=%s log_level=%s", settings.app_name, settings.api_v1_prefix, settings.log_level)
+logger.info("API started app=%s api_prefix=%s log_level=%s", settings.app_name, settings.api_prefix, settings.log_level)
 logger.debug("Media mount configured at path=%s root=%s", settings.media_url_path, media_root)
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
+@app.get("/health")
+def health() -> dict[str, str]:
     return {"status": "ok"}

@@ -1,5 +1,21 @@
+# Frontend ignores for Docker builds. Avoids shipping local
+# node_modules, dev caches and editor metadata into the image.
+
 node_modules/
-dist/
+
 .angular/
+dist/
+build/
+coverage/
+
+.vscode/
+.idea/
+.DS_Store
+
+# Local env files
+.env
+.env.*
+!.env.example
+
 .git/
 .gitignore

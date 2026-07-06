@@ -46,7 +46,7 @@ def _persistent_token_expires_at() -> datetime:
 
 
 def _refresh_cookie_path() -> str:
-    return f"{settings.api_v1_prefix}/auth"
+    return f"{settings.api_prefix}/auth"
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str, remember_me: bool) -> None:
