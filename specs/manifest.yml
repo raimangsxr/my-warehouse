@@ -1,0 +1,26 @@
+project: my-warehouse
+
+contracts:
+  - id: app
+    path: specs/contracts/app/contract.md
+    status: active
+    description: Current baseline behavior for the application.
+
+changes:
+  - id: 001-initial-sdd-baseline
+    path: specs/archive/001-initial-sdd-baseline/
+    status: completed
+    contract: app
+    description: Initial SDD baseline for documenting existing behavior.
+    completed: 2026-07-06
+  - id: 002-delete-warehouse
+    path: specs/archive/002-delete-warehouse/
+    status: completed
+    contract: app
+    description: Permanent warehouse deletion with full data and media cleanup.
+    completed: 2026-07-06
+
+active:
+  contract: specs/contracts/app/contract.md
+  change: null
+  context_pack: null

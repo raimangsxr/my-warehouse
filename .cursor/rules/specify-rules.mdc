@@ -1,0 +1,19 @@
+---
+alwaysApply: true
+---
+
+<!-- SPECKIT START -->
+SDD Spec Kit for my-warehouse:
+
+1. Start from `specs/manifest.yml` and the active contract.
+2. Follow `.specify/memory/constitution.md` (my-warehouse v1.0.0).
+3. **Code wins:** on conflict between docs and `backend/`/`frontend/`, the code defines current behavior.
+3. Active contract: `specs/contracts/app/contract.md` — keep aligned with code.
+4. Active plan: `specs/changes/002-delete-warehouse/plan.md`
+5. Do **not** use root `specs.md` (deprecated historical archive).
+6. Read `specs/changes/**/context-pack.md` before planning.
+7. Update contract before intentional behavior changes.
+8. Validate: `cd backend && uv run pytest` then `cd frontend && npm run build`.
+
+See `specs/README.md` and `AGENTS.md`.
+<!-- SPECKIT END -->

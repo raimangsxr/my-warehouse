@@ -39,6 +39,14 @@ class InviteAcceptResponse(BaseModel):
     warehouse_id: str
 
 
+class WarehouseDeleteRequest(BaseModel):
+    confirm_name: str = Field(min_length=1, max_length=120)
+
+
+class WarehouseDeleteResponse(BaseModel):
+    message: str = "Warehouse deleted"
+
+
 class ActivityEventResponse(BaseModel):
     id: str
     warehouse_id: str

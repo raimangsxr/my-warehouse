@@ -4,13 +4,21 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { HttpErrorResponse } from '@angular/common/http';
 
-import { Warehouse, WarehouseService } from '../services/warehouse.service';
+import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
+import { SyncService } from '../services/sync.service';
+import { Warehouse, WarehouseService } from '../services/warehouse.service';
+import {
+  WarehouseDeleteDialogComponent,
+  WarehouseDeleteDialogData,
+} from './warehouse-delete-dialog.component';
 
 @Component({
   selector: 'app-warehouses',
@@ -23,7 +31,8 @@ import { NotificationService } from '../services/notification.service';
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
-    MatIconModule
+    MatIconModule,
+    MatDialogModule,
   ],
   template: `
     <div class="app-page">
@@ -60,6 +69,16 @@ import { NotificationService } from '../services/notification.service';
                 <div class="inline-actions">
                   <button mat-flat-button color="primary" type="button" (click)="openWarehouse(warehouse.id)">
                     Abrir
+                  </button>
+                  <button
+                    mat-stroked-button
+                    color="warn"
+                    type="button"
+                    *ngIf="canDeleteWarehouse(warehouse)"
+                    [disabled]="!isOnline || deletingWarehouseId === warehouse.id"
+                    (click)="confirmDeleteWarehouse(warehouse)"
+                  >
+                    Eliminar
                   </button>
                 </div>
               </div>
@@ -135,37 +154,64 @@ import { NotificationService } from '../services/notification.service';
       .invite-link-card .status-line {
         word-break: break-word;
       }
-    `
-  ]
+
+      .inline-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+    `,
+  ],
 })
 export class WarehousesComponent implements OnInit {
   loading = false;
   inviteLoading = false;
+  deletingWarehouseId: string | null = null;
   errorMessage = '';
   inviteError = '';
   inviteMessage = '';
   inviteLink = '';
   inviteToken = '';
   warehouses: Warehouse[] = [];
+  currentUserId: string | null = null;
+
+  get isOnline(): boolean {
+    return this.syncService.isOnline();
+  }
 
   readonly form = this.fb.nonNullable.group({
-    name: ['', [Validators.required, Validators.maxLength(120)]]
+    name: ['', [Validators.required, Validators.maxLength(120)]],
   });
 
   readonly inviteForm = this.fb.group({
     warehouseId: ['', [Validators.required]],
-    email: ['', [Validators.email]]
+    email: ['', [Validators.email]],
   });
 
   constructor(
     private readonly fb: FormBuilder,
     private readonly warehouseService: WarehouseService,
+    private readonly authService: AuthService,
+    private readonly syncService: SyncService,
+    private readonly dialog: MatDialog,
     private readonly router: Router,
     private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
+    this.authService.me().subscribe({
+      next: (user) => {
+        this.currentUserId = user.id;
+      },
+      error: () => {
+        this.errorMessage = 'No se pudo cargar tu perfil.';
+      },
+    });
     this.loadWarehouses();
+  }
+
+  canDeleteWarehouse(warehouse: Warehouse): boolean {
+    return !!this.currentUserId && warehouse.created_by === this.currentUserId;
   }
 
   createWarehouse(): void {
@@ -188,13 +234,57 @@ export class WarehousesComponent implements OnInit {
         this.loading = false;
         this.errorMessage = 'No se pudo crear el warehouse.';
         this.notificationService.error(this.errorMessage);
-      }
+      },
     });
   }
 
   openWarehouse(warehouseId: string): void {
     this.warehouseService.setSelectedWarehouseId(warehouseId);
     this.router.navigateByUrl('/app/home');
+  }
+
+  confirmDeleteWarehouse(warehouse: Warehouse): void {
+    if (!this.isOnline) {
+      this.notificationService.error('Necesitas conexión a internet para eliminar un almacén.');
+      return;
+    }
+
+    const dialogRef = this.dialog.open<WarehouseDeleteDialogComponent, WarehouseDeleteDialogData, boolean>(
+      WarehouseDeleteDialogComponent,
+      {
+        width: '520px',
+        data: { warehouseName: warehouse.name },
+      }
+    );
+
+    dialogRef.afterClosed().subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.deleteWarehouse(warehouse);
+    });
+  }
+
+  private deleteWarehouse(warehouse: Warehouse): void {
+    this.deletingWarehouseId = warehouse.id;
+    this.errorMessage = '';
+
+    this.warehouseService.delete(warehouse.id, warehouse.name).subscribe({
+      next: async () => {
+        this.deletingWarehouseId = null;
+        if (this.warehouseService.getSelectedWarehouseId() === warehouse.id) {
+          this.warehouseService.clearSelectedWarehouseId();
+        }
+        await this.syncService.purgeWarehouse(warehouse.id);
+        this.notificationService.success('Almacén eliminado correctamente.');
+        this.loadWarehouses();
+      },
+      error: (error: HttpErrorResponse) => {
+        this.deletingWarehouseId = null;
+        this.errorMessage = this.mapDeleteError(error);
+        this.notificationService.error(this.errorMessage);
+      },
+    });
   }
 
   createInvite(): void {
@@ -224,7 +314,7 @@ export class WarehousesComponent implements OnInit {
         this.inviteLoading = false;
         this.inviteError = 'No se pudo crear la invitación.';
         this.notificationService.error(this.inviteError);
-      }
+      },
     });
   }
 
@@ -239,7 +329,23 @@ export class WarehousesComponent implements OnInit {
       error: () => {
         this.errorMessage = 'No se pudieron cargar los warehouses.';
         this.notificationService.error(this.errorMessage);
-      }
+      },
     });
+  }
+
+  private mapDeleteError(error: HttpErrorResponse): string {
+    const detail = typeof error.error?.detail === 'string' ? error.error.detail : '';
+    switch (detail) {
+      case 'Confirmation name does not match warehouse name':
+        return 'El nombre de confirmación no coincide.';
+      case 'Only the warehouse creator can delete this warehouse':
+        return 'Solo el creador del almacén puede eliminarlo.';
+      case 'Cannot delete warehouse while intake batches are processing':
+        return 'No se puede eliminar mientras hay lotes en procesamiento.';
+      case 'Warehouse deletion failed':
+        return 'No se pudo eliminar el almacén. Inténtalo de nuevo.';
+      default:
+        return 'No se pudo eliminar el almacén.';
+    }
   }
 }

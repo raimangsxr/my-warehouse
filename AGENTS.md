@@ -1,32 +1,28 @@
-# AGENTS.md — Instrucciones para Codex (my-warehouse)
+# my-warehouse Agent Instructions
 
-> Este repositorio mantiene una especificación viva en `specs.md`.
-> **Codex debe tratar `specs.md` como la fuente de verdad** y mantenerla actualizada.
+Governed by `.specify/memory/constitution.md` (v1.0.0). This file is the runtime shortcut for agents.
 
-## Fuente de verdad (obligatorio)
-- `specs.md` es la **especificación del producto**.
-- **Al inicio de cada tarea**, abre `specs.md` y lee las secciones relevantes antes de proponer cambios.
-- **Si cambias comportamiento, UX, API, modelo de datos, migraciones, sync, o settings**, actualiza `specs.md` **en el mismo PR/commit**.
-- Cada cambio relevante debe:
-  - Añadir entrada al **Changelog** dentro de `specs.md`.
-  - Mantener consistencia con el resto de secciones (API, Modelo, UX, Slices, etc.).
+## SDD policy
 
-## Forma de trabajar (preferencias del repo)
-- Implementa por **vertical slices** (ver sección “Plan de implementación” en `specs.md`).
-- Mantén el diseño **Material Design** (Angular Material) y responsive (móvil/tablet/escritorio).
-- Multiusuario desde el día 1 (sin roles): valida siempre `warehouse_id` y pertenencia del usuario.
-- Stock como eventos (`stock_movements`) para reducir conflictos de sync.
+1. Start every SDD task from `specs/manifest.yml`.
+2. Do not scan all specs by default.
+3. **Code wins on conflict:** if docs disagree with `backend/` or `frontend/`, treat the code as current behavior and update the contract.
+4. Treat `specs/contracts/**/contract.md` as the source of truth for **documented** behavior (must stay aligned with code).
+5. Treat `specs/changes/**` as incremental records.
+6. Read `context-pack.md` for the active change before planning or implementation.
+7. Do not read `specs/archive/**` unless explicitly justified.
+8. **Do not use root `specs.md`** — it is deprecated historical archive only.
+9. If behavior changes intentionally, update the affected active contract **before** implementation.
+10. Keep `specs/manifest.yml` synchronized with new contracts, moved paths, and change status.
+11. Run narrow tests first, then broader validation.
 
-## Calidad mínima por cambio
-- Si tocas el modelo: crea/actualiza migraciones Alembic y documenta el cambio en `specs.md`.
-- Añade/ajusta tests mínimos razonables (backend) y revisa que el build de frontend siga sano.
-- Evita introducir dependencias nuevas sin justificarlo y documentarlo.
+See `specs/README.md` for the full precedence table and `.specify/memory/constitution.md` for governance principles.
 
-## Cuando haya ambigüedad
-- Toma una decisión razonable y **documéntala** en `specs.md` en “Open Questions / Assumptions”.
-- Si la ambigüedad afecta UX o datos de forma importante, prioriza una solución simple y reversible.
+## Active SDD work
 
-## Seguridad (recordatorio)
-- No guardar secretos en el frontend:
-  - Gemini API key y credenciales SMTP viven en backend (cifradas).
-- No exponer tokens sensibles en QR (solo `qr_token` no adivinable, validado por backend).
+- Active contract: `specs/contracts/app/contract.md`
+- No active change (last completed: `specs/archive/002-delete-warehouse/`)
+
+## Suggested flow
+
+`specify -> clarify -> checklist -> plan -> tasks -> analyze -> implement`
