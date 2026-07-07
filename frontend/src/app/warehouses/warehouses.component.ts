@@ -15,6 +15,7 @@ import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
 import { SyncService } from '../services/sync.service';
 import { Warehouse, WarehouseService } from '../services/warehouse.service';
+import { APP_VERSION } from '../core/app-version';
 import {
   WarehouseDeleteDialogComponent,
   WarehouseDeleteDialogData,
@@ -35,7 +36,8 @@ import {
     MatDialogModule,
   ],
   template: `
-    <div class="app-page">
+    <div class="warehouses-page">
+      <div class="app-page">
       <header class="page-header">
         <div>
           <h1 class="page-title">Tus warehouses</h1>
@@ -147,10 +149,41 @@ import {
           </mat-card>
         </div>
       </div>
+      </div>
+
+      <footer class="warehouses-footer">
+        <p class="warehouses-version">Versión {{ appVersion }}</p>
+      </footer>
     </div>
   `,
   styles: [
     `
+      :host {
+        display: block;
+        min-height: 100vh;
+      }
+
+      .warehouses-page {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+
+      .warehouses-page .app-page {
+        flex: 1;
+      }
+
+      .warehouses-footer {
+        padding: 0 20px calc(16px + env(safe-area-inset-bottom));
+        text-align: center;
+      }
+
+      .warehouses-version {
+        margin: 0;
+        font-size: 0.8rem;
+        color: var(--text-3);
+      }
+
       .invite-link-card .status-line {
         word-break: break-word;
       }
@@ -164,6 +197,8 @@ import {
   ],
 })
 export class WarehousesComponent implements OnInit {
+  protected readonly appVersion = APP_VERSION;
+
   loading = false;
   inviteLoading = false;
   deletingWarehouseId: string | null = null;

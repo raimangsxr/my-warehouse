@@ -3,17 +3,31 @@ alwaysApply: true
 ---
 
 <!-- SPECKIT START -->
-SDD Spec Kit for my-warehouse:
+SDD Spec Kit for my-warehouse (constitution v1.1.0):
 
-1. Start from `specs/manifest.yml` and the active contract.
-2. Follow `.specify/memory/constitution.md` (my-warehouse v1.0.0).
-3. **Code wins:** on conflict between docs and `backend/`/`frontend/`, the code defines current behavior.
-3. Active contracts: `specs/contracts/app/contract.md`, `specs/contracts/ops-platform/contract.md` — keep aligned with code.
-4. No active change plan (last: `specs/archive/003-dev-docker-setup/plan.md`).
-5. Do **not** use root `specs.md` (deprecated historical archive).
-6. Read `specs/changes/**/context-pack.md` before planning.
-7. Update contract before intentional behavior changes.
-8. Validate: `cd backend && uv run pytest` then `cd frontend && npm run build`.
+## Before ANY product or ops code change
 
-See `specs/README.md` and `AGENTS.md`.
+1. Read `specs/manifest.yml` — confirm `active.change` is set (not `null`).
+2. Read `specs/changes/<active>/context-pack.md` and `spec.md`.
+3. Confirm `plan.md` and `tasks.md` exist for the active change.
+4. Update affected `specs/contracts/**/contract.md` **before** implementation (Principle III).
+5. Only then edit `backend/`, `frontend/`, `deploy/`, `.github/`, or Dockerfiles.
+
+**If `active.change` is null:** run `/speckit-specify` first. Do **not** implement.
+
+## Full sequence (mandatory)
+
+`specify → clarify → checklist → plan → tasks → analyze → implement`
+
+Use the matching `.cursor/skills/speckit-*/SKILL.md` at each step.
+
+## Rules
+
+- **Code wins** on conflict between docs and `backend/`/`frontend/` — then update the contract.
+- Active contracts: `specs/contracts/app/contract.md`, `specs/contracts/ops-platform/contract.md`.
+- Do **not** use root `specs.md` (deprecated).
+- Last completed change: `specs/archive/004-app-version-warehouses-footer/`.
+- Validate: `cd backend && uv run pytest` then `cd frontend && npm run build`.
+
+See `AGENTS.md`, `specs/README.md`, `.cursor/rules/speckit-mandatory-flow.mdc`.
 <!-- SPECKIT END -->

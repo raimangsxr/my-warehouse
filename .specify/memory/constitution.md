@@ -1,11 +1,8 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 (Kiosk Screen, erroneous) → 1.0.0 (my-warehouse, ratified)
-- Modified principles: Full replacement — previous file was from another project template
-- Added sections: Code precedence, deprecated specs.md, validation commands, my-warehouse stack
-- Removed sections: Kiosk safety, mandatory docs/adr/, change-spec fields not used in manifest
-- Templates: plan-template.md ✅ | tasks-template.md ✅ | AGENTS.md ✅ | specs/README.md ✅
-- Deferred: docs/adr/ directory (use research.md per change until ADR folder is introduced)
+- Version change: 1.0.0 → 1.1.0 (hard gate: no implementation without active change + tasks.md)
+- Modified: Principle IV (hard gate), Development Workflow (forbidden shortcuts)
+- Templates: AGENTS.md ✅ | specs/README.md ✅ | .cursor/rules/speckit-mandatory-flow.mdc ✅
 -->
 
 # my-warehouse Constitution
@@ -27,6 +24,15 @@ If a change alters user-visible behavior, API behavior, data persistence, securi
 ### IV. Incremental Changes
 
 Feature work lives under `specs/changes/NNN-<slug>/` (spec, plan, tasks, research, contracts, context-pack). Completed changes move to `specs/archive/`. Change artifacts describe intent and delivery record; durable product behavior lives in active contracts.
+
+**Hard gate:** Agents MUST NOT edit `backend/`, `frontend/`, `deploy/`, `.github/workflows/`, or Dockerfiles for intentional behavior changes until **all** of the following exist:
+
+1. An active change directory under `specs/changes/NNN-<slug>/` registered in `specs/manifest.yml` (`active.change`, `active.context_pack`).
+2. `spec.md` and `context-pack.md` for that change.
+3. `plan.md` and `tasks.md` with at least Phase 0 (contract) tasks defined.
+4. Affected active contracts updated **before** implementation tasks begin (Principle III).
+
+If code was written without SDD artifacts, **stop**, create the change retroactively, update contracts, then reconcile code — do not treat ad-hoc implementation as acceptable precedent.
 
 ### V. Tests and Validation
 
@@ -52,13 +58,16 @@ Implement the smallest correct diff. Avoid drive-by refactors, speculative abstr
 
 1. Read `specs/manifest.yml` and active `context-pack.md`.
 2. Read affected `specs/contracts/**/contract.md`.
-3. Create or update change under `specs/changes/NNN-<slug>/` via Spec Kit (`speckit-specify` → clarify → plan → tasks).
+3. Create or update change under `specs/changes/NNN-<slug>/` via Spec Kit (`speckit-specify` → clarify → checklist → plan → tasks → analyze).
 4. Update active contract before implementation when behavior changes.
-5. Implement on a feature branch; keep code and contract aligned.
-6. Run narrow tests, then full validation.
-7. On change completion: update contract if needed, move change to `specs/archive/`, update `manifest.yml`.
+5. Run `speckit-implement` (or execute `tasks.md` manually) — **only after** steps 1–4.
+6. Implement on a feature branch; keep code and contract aligned.
+7. Run narrow tests, then full validation.
+8. On change completion: update contract if needed, move change to `specs/archive/`, update `manifest.yml` (`active.change: null`).
 
 Suggested Spec Kit sequence: `specify → clarify → checklist → plan → tasks → analyze → implement`.
+
+**Forbidden shortcuts:** jumping directly to `backend/` or `frontend/` edits for feature/ops work; skipping `manifest.yml`; skipping `tasks.md`; implementing before contract updates.
 
 ## Governance
 
@@ -68,4 +77,4 @@ This constitution is the governing document for SDD process and quality gates in
 
 **Compliance:** Implementation plans MUST include a Constitution Check section referencing principles I–VII. Violations MUST be justified in Complexity Tracking or resolved before implementation.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-06 | **Last Amended**: 2026-07-06
+**Version**: 1.1.0 | **Ratified**: 2026-07-06 | **Last Amended**: 2026-07-08

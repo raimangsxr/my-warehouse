@@ -29,6 +29,12 @@ changes:
     contract: ops-platform
     description: Docker Compose dev environment and platform Dockerfile/workflow alignment.
     completed: 2026-07-06
+  - id: 004-app-version-warehouses-footer
+    path: specs/archive/004-app-version-warehouses-footer/
+    status: completed
+    contract: app
+    description: Deployed version footer on /warehouses and APP_VERSION Docker build injection.
+    completed: 2026-07-08
 
 active:
   contract: specs/contracts/app/contract.md

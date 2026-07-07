@@ -82,6 +82,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
           build-args: |
             BUILD_CONFIGURATION=production
+            APP_VERSION=${{ github.event.release.tag_name }}
             NODE_IMAGE=node:22-alpine
             NGINX_IMAGE=nginxinc/nginx-unprivileged:1.27-alpine
           cache-from: type=gha,scope=frontend

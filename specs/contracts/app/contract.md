@@ -2,7 +2,7 @@
 
 **Product:** my-warehouse — PWA de inventario doméstico (garaje/trastero).  
 **Versions:** backend `0.3.4`, frontend `0.3.5`.  
-**Last verified:** 2026-07-05 (auditoría código ↔ spec).
+**Last verified:** 2026-07-08 (change `004-app-version-warehouses-footer`).
 
 ## Governance
 
@@ -46,6 +46,8 @@ Signup → login (opcional *Mantener sesión*: access JWT sin `exp` + refresh en
 
 ### Warehouse
 Listar/crear → seleccionar (persistido) → invitar por link manual (`invite_url` en UI; **no** envío SMTP automático).
+
+La vista `/warehouses` muestra un pie de página discreto con la versión desplegada (`Versión {APP_VERSION}`). En desarrollo local sin inyección de build: `dev`. En imágenes de release: tag de GitHub (ver `ops-platform` contract).
 
 **Eliminar warehouse** (solo creador, solo desde `/warehouses`):
 - `DELETE /api/warehouses/{warehouse_id}` con body `{ "confirm_name": "<nombre exacto>" }`.
@@ -156,7 +158,9 @@ Grupos: auth (8), warehouses+invites+activity+**DELETE warehouse**, boxes+QR, it
 
 ## PWA
 
-Manifest, iconos, Service Worker (solo `production`). Cache shell + `/media/**`; `/api/**` excluida. Install/update en shell y Settings con versión (`appData.version`).
+Manifest, iconos, Service Worker (solo `production`). Cache shell + `/media/**`; `/api/**` excluida. Install/update en shell y Settings con versión (`appData.version` en `ngsw-config.json`).
+
+La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `PwaService` (Settings, shell) y el footer de `/warehouses`. Valor por defecto checked-in: `dev`. Imágenes prod: generado en build Docker vía `write-app-version.mjs` + build arg `APP_VERSION` (ver `ops-platform` contract, change `004-app-version-warehouses-footer`).
 
 ---
 

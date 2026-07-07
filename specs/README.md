@@ -1,6 +1,6 @@
 # Specs (SDD Spec Kit)
 
-Governance: [.specify/memory/constitution.md](../.specify/memory/constitution.md)
+Governance: [.specify/memory/constitution.md](../.specify/memory/constitution.md) (v1.1.0)
 
 ## Fuente de verdad
 
@@ -21,11 +21,13 @@ Cuando un documento de specs **discrepa** del código:
 3. Si el legacy `specs.md` contradice el contrato o el código, **ignorar el legacy**.
 4. Los cambios de comportamiento futuros siguen el flujo SDD: contrato primero → implementación → tests.
 
-## Flujo de trabajo
+## Flujo de trabajo (obligatorio)
 
 ```
-manifest.yml → context-pack.md → contract.md → spec/plan/tasks del change → implementar → validar
+manifest.yml → specify → clarify → checklist → plan → tasks → analyze → implement → archive
 ```
+
+**Puerta dura:** no editar `backend/`, `frontend/`, `deploy/` ni workflows sin `active.change` en manifest y `tasks.md` generado. Ver `.cursor/rules/speckit-mandatory-flow.mdc`.
 
 Ver `AGENTS.md` en la raíz del repositorio.
 
@@ -43,7 +45,8 @@ specs/
 └── archive/
     ├── 001-initial-sdd-baseline/
     ├── 002-delete-warehouse/
-    └── 003-dev-docker-setup/   # Docker Compose + platform (cerrado 2026-07-06)
+    ├── 003-dev-docker-setup/
+    └── 004-app-version-warehouses-footer/   # Footer versión + APP_VERSION build (2026-07-08)
 ```
 
 ## Validación rápida

@@ -7,6 +7,13 @@ metadata:
   source: "templates/commands/specify.md"
 ---
 
+## my-warehouse gates (read first)
+
+Before creating or editing **any** `backend/`, `frontend/`, `deploy/`, or workflow files for a **new** behavior change:
+
+1. Read `.cursor/rules/speckit-mandatory-flow.mdc` and `specs/manifest.yml`.
+2. If `active.change` is `null`, **this command (`speckit-specify`) is the required entry point** — create `specs/changes/NNN-<slug>/` and update manifest before any implementation.
+3. Do not skip to code even if the user asks to "just implement".
 
 ## User Input
 

@@ -1,0 +1,59 @@
+---
+description: Mandatory Spec Kit SDD gates — blocks implementation without active change artifacts
+alwaysApply: true
+---
+
+# Spec Kit mandatory flow
+
+This rule applies to **every** agent session in my-warehouse. Constitution v1.1.0.
+
+## When this rule applies
+
+Any request to add, change, or remove behavior in:
+
+- `frontend/`, `backend/`, `deploy/`
+- `.github/workflows/`, `docker-compose.yml`, `Dockerfile*`
+- Active contracts or release tooling
+
+## Required sequence
+
+1. `specs/manifest.yml` — set `active.change` + `active.context_pack`
+2. `/speckit-specify` — create `specs/changes/NNN-<slug>/spec.md`
+3. `/speckit-clarify` — if spec has gaps (optional but recommended)
+4. `/speckit-checklist` — quality gate
+5. `/speckit-plan` — `plan.md` with Constitution Check
+6. `/speckit-tasks` — `tasks.md` (dependency-ordered)
+7. `/speckit-analyze` — cross-artifact consistency
+8. `/speckit-implement` — execute `tasks.md` only
+
+## Hard stops (never skip)
+
+| # | Condition | Action |
+|---|-----------|--------|
+| S1 | `manifest.yml` → `active.change: null` | STOP → `/speckit-specify` |
+| S2 | No `context-pack.md` for active change | STOP → create via specify/plan |
+| S3 | No `tasks.md` | STOP → `/speckit-tasks` |
+| S4 | Behavior change but contract not updated | STOP → update contract first (Phase 0) |
+| S5 | User asks to "just implement" a feature | STOP → explain SDD gate; offer to run specify flow |
+
+## Retroactive reconciliation
+
+If code was already written without SDD artifacts (as in change `004`):
+
+1. Create full change record (spec, context-pack, plan, tasks — mark completed).
+2. Update contracts to match code.
+3. Archive to `specs/archive/NNN-<slug>/`.
+4. Set `manifest.yml` → `active.change: null`.
+5. Do **not** repeat the shortcut on future work.
+
+## Exemptions (no full change required)
+
+- Answering questions / reading code
+- Fixes that strictly restore existing contract behavior
+- User explicitly names "emergency hotfix" — still require retroactive change within same session
+
+## References
+
+- `AGENTS.md`
+- `.specify/memory/constitution.md` (Principle IV hard gate)
+- `specs/README.md`

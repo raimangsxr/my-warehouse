@@ -7,6 +7,15 @@ metadata:
   source: "templates/commands/implement.md"
 ---
 
+## my-warehouse gates (read first)
+
+**Do not run this skill** unless:
+
+1. `specs/manifest.yml` has a non-null `active.change`.
+2. `tasks.md` exists for that change (run `/speckit-tasks` first if missing).
+3. Phase 0 contract tasks are complete or contracts are already updated.
+
+If any gate fails, STOP and run the earlier Spec Kit phases. See `.cursor/rules/speckit-mandatory-flow.mdc`.
 
 ## User Input
 

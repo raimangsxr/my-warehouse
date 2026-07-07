@@ -36,10 +36,14 @@ CMD ["npm", "run", "start", "--", "--host", "0.0.0.0", "--port", "4200", "--poll
 FROM deps AS build
 
 ARG BUILD_CONFIGURATION=production
+ARG APP_VERSION=dev
+
+ENV APP_VERSION=$APP_VERSION
 
 COPY . .
 
-RUN npm run build -- --configuration ${BUILD_CONFIGURATION}
+RUN node scripts/write-app-version.mjs \
+ && npm run build -- --configuration ${BUILD_CONFIGURATION}
 
 # -------------------------
 # Production with Nginx

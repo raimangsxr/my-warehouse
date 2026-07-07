@@ -27,7 +27,10 @@ the FastAPI + Angular stack. Does **not** define application domain behavior
     on port `8080`, preserving PWA routes in `nginx.conf` (`/health`,
     `ngsw-worker.js`, `manifest.webmanifest`).
 - Frontend build arguments include the Node base image, nginx base image,
-  and Angular build configuration.
+  Angular build configuration, and `APP_VERSION` (default `dev`).
+- Frontend production Docker builds run `scripts/write-app-version.mjs` to
+  generate `src/app/core/app-version.ts` before `ng build`. Release workflow
+  passes `github.event.release.tag_name` as `APP_VERSION`.
 - Frontend dev `environment.ts` MUST target `http://localhost:8000/api`
   when using compose (prod build keeps `/api` relative path).
 - Required compose secrets (validated via `.env` at repo root):
@@ -84,6 +87,7 @@ with `backend.yaml`, `frontend.yaml`, and `migration-job.yaml` before release.
 - `backend/.dockerignore`
 - `frontend/Dockerfile`
 - `frontend/.dockerignore`
+- `frontend/scripts/write-app-version.mjs`
 - `.github/workflows/release-images.yml`
 - `.github/workflows/bump-app.yml`
 - `deploy/k8s/` (production manifests; keep aligned with images and env)
