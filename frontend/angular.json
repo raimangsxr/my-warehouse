@@ -51,6 +51,19 @@
           }
           ,
           "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "buildTarget": "my-warehouse:build:development",
+            "tsConfig": "tsconfig.spec.json",
+            "runner": "vitest"
+          },
+          "configurations": {
+            "ci": {
+              "watch": false
+            }
+          }
         }
       }
     }

@@ -44,7 +44,7 @@ jobs:
         run: npm --prefix frontend ci
 
       - name: Run frontend tests
-        run: npm --prefix frontend run test -- --watch=false --browsers=ChromeHeadless
+        run: npm --prefix frontend run test -- --configuration=ci
 
       - name: Validate migrations import
         run: alembic -c backend/alembic.ini current || true
