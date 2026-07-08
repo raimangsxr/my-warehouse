@@ -96,6 +96,7 @@ with `backend.yaml`, `frontend.yaml`, and `migration-job.yaml` before release.
 
 - `docker compose config` succeeds.
 - `cd backend && uv run pytest`
+- `cd frontend && npm run test -- --configuration=ci`
 - `cd frontend && npm run build`
 - Smoke: `GET /health`, frontend on `:4200`, media write persists across
   backend restart.

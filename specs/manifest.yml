@@ -35,8 +35,13 @@ changes:
     contract: app
     description: Deployed version footer on /warehouses and APP_VERSION Docker build injection.
     completed: 2026-07-08
+  - id: 005-frontend-test-suite
+    path: specs/changes/005-frontend-test-suite/
+    status: in_progress
+    contract: ops-platform
+    description: Vitest unit-test suite for Angular services, guards, interceptors, and components.
 
 active:
-  contract: specs/contracts/app/contract.md
-  change: null
-  context_pack: null
+  contract: specs/contracts/ops-platform/contract.md
+  change: specs/changes/005-frontend-test-suite/
+  context_pack: specs/changes/005-frontend-test-suite/context-pack.md
