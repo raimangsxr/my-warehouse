@@ -57,7 +57,8 @@
           "options": {
             "buildTarget": "my-warehouse:build:development",
             "tsConfig": "tsconfig.spec.json",
-            "runner": "vitest"
+            "runner": "vitest",
+            "setupFiles": ["src/testing/vitest-setup.ts"]
           },
           "configurations": {
             "ci": {
