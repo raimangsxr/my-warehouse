@@ -1,11 +1,10 @@
-import { TestBed } from '@angular/core/testing';
+import { Type } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 
 import { routes } from '../app/routes';
 import { provideCommonTestProviders } from './test-helpers';
-
-type ComponentType = new (...args: never[]) => unknown;
 
 export function createActivatedRouteMock(
   params: Record<string, string> = {},
@@ -22,9 +21,9 @@ export function createActivatedRouteMock(
 }
 
 export async function createStandaloneComponent<T>(
-  component: ComponentType,
+  component: Type<T>,
   extraProviders: Parameters<typeof provideCommonTestProviders>[0] = []
-) {
+): Promise<ComponentFixture<T>> {
   await TestBed.configureTestingModule({
     imports: [component],
     providers: [
@@ -37,7 +36,7 @@ export async function createStandaloneComponent<T>(
     ]
   }).compileComponents();
 
-  const fixture = TestBed.createComponent(component as never);
+  const fixture = TestBed.createComponent(component);
   fixture.detectChanges();
   return fixture;
 }
