@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ItemPhotoCaptureStateService } from './item-photo-capture-state.service';
 
@@ -37,5 +37,15 @@ describe('ItemPhotoCaptureStateService', () => {
     service.markPreviewFailure(true);
 
     expect(service.getSnapshot()?.previewLoadFailed).toBe(true);
+  });
+
+  it('expires snapshot after max age', () => {
+    vi.useFakeTimers();
+    const file = new File(['x'], 'photo.jpg', { type: 'image/jpeg' });
+    service.saveSelection({ file, fileLabel: 'photo.jpg' });
+
+    vi.advanceTimersByTime(16 * 60 * 1000);
+    expect(service.getSnapshot()).toBeNull();
+    vi.useRealTimers();
   });
 });

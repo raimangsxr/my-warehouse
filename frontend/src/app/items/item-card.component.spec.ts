@@ -1,47 +1,69 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { routes } from '../routes';
+import { testItem } from '../../testing/fixtures';
 import { createActivatedRouteMock } from '../../testing/component-test-helpers';
 import { provideCommonTestProviders } from '../../testing/test-helpers';
-import { Item } from '../services/item.service';
 import { ItemCardComponent } from './item-card.component';
 
-const minimalItem: Item = {
-  id: 'item-test',
-  warehouse_id: 'wh-test',
-  box_id: 'box-test',
-  name: 'Test Item',
-  description: null,
-  photo_url: null,
-  physical_location: null,
-  tags: [],
-  aliases: [],
-  version: 1,
-  created_at: '2026-01-01T00:00:00.000Z',
-  updated_at: '2026-01-01T00:00:00.000Z',
-  deleted_at: null,
-  stock: 0,
-  is_favorite: false,
-  box_path: ['Root'],
-  box_is_inbound: false
-};
-
 describe('ItemCardComponent', () => {
-  it('should create', async () => {
+  async function createCard() {
     await TestBed.configureTestingModule({
       imports: [ItemCardComponent],
       providers: [
-        provideRouter(routes),
+        provideRouter([]),
         ...provideCommonTestProviders(),
         { provide: ActivatedRoute, useValue: createActivatedRouteMock() }
       ]
     }).compileComponents();
 
     const fixture = TestBed.createComponent(ItemCardComponent);
-    fixture.componentInstance.item = minimalItem;
+    fixture.componentInstance.item = testItem();
+    return fixture;
+  }
+
+  it('should create', async () => {
+    const fixture = await createCard();
     fixture.detectChanges();
     expect(fixture.componentInstance).toBeTruthy();
+  });
+
+  it('computes canLinkPath only with matching path ids', async () => {
+    const fixture = await createCard();
+    const component = fixture.componentInstance;
+    component.showPathLinks = true;
+    component.boxPathIds = ['box-1'];
+    component.item = testItem({ box_path: ['Root', 'Shelf'] });
+
+    expect(component.canLinkPath).toBe(false);
+
+    component.boxPathIds = ['box-1', 'box-2'];
+    expect(component.canLinkPath).toBe(true);
+  });
+
+  it('emits stock adjust events', async () => {
+    const fixture = await createCard();
+    const component = fixture.componentInstance;
+    const spy = vi.fn();
+    component.stockAdjust.subscribe(spy);
+
+    component.stockAdjust.emit(1);
+    expect(spy).toHaveBeenCalledWith(1);
+  });
+
+  it('does not emit avatar preview events when disabled', async () => {
+    const fixture = await createCard();
+    const component = fixture.componentInstance;
+    const clickSpy = vi.fn();
+    component.avatarClick.subscribe(clickSpy);
+
+    component.emitAvatarClick(new MouseEvent('click'));
+    expect(clickSpy).not.toHaveBeenCalled();
+
+    component.enablePhotoPreview = true;
+    component.item = testItem({ photo_url: '/media/item.jpg' });
+    component.emitAvatarClick(new MouseEvent('click'));
+    expect(clickSpy).toHaveBeenCalledTimes(1);
   });
 });

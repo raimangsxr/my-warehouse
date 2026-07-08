@@ -79,4 +79,70 @@ describe('AuthService', () => {
     expect(service.isLoggedIn()).toBe(false);
     expect(service.hasPersistentSession()).toBe(false);
   });
+
+  it('loads current user profile', () => {
+    service.me().subscribe((user) => {
+      expect(user.email).toBe('a@b.com');
+    });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`);
+    req.flush({ id: '1', email: 'a@b.com', display_name: 'Ana' });
+  });
+
+  it('logs out through API when refresh token exists', () => {
+    localStorage.setItem('mw_refresh_token', 'refresh');
+
+    service.logout().subscribe();
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/logout`);
+    expect(req.request.body).toEqual({ refresh_token: 'refresh' });
+    req.flush({ message: 'ok' });
+
+    expect(service.getRefreshToken()).toBeNull();
+  });
+
+  it('refreshes session when persistent login is enabled', () => {
+    localStorage.setItem('mw_refresh_token', 'refresh');
+    localStorage.setItem('mw_persistent_session', '1');
+
+    service.refreshSession().subscribe((tokens) => {
+      expect(tokens.access_token).toBe('new-access');
+    });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/refresh`);
+    req.flush({ access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'bearer' });
+    expect(service.getAccessToken()).toBe('new-access');
+  });
+
+  it('forgotPassword posts email', () => {
+    service.forgotPassword('a@b.com').subscribe((response) => {
+      expect(response.message).toBe('Check your email');
+    });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/forgot-password`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ email: 'a@b.com' });
+    req.flush({ message: 'Check your email' });
+  });
+
+  it('resetPassword posts token and new password', () => {
+    service.resetPassword('reset-token', 'new-secret').subscribe((response) => {
+      expect(response.message).toBe('Password updated');
+    });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/reset-password`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ token: 'reset-token', new_password: 'new-secret' });
+    req.flush({ message: 'Password updated' });
+  });
+
+  it('changePassword posts current and new password', () => {
+    service.changePassword('old-secret', 'new-secret').subscribe((response) => {
+      expect(response.message).toBe('Password changed');
+    });
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/change-password`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ current_password: 'old-secret', new_password: 'new-secret' });
+    req.flush({ message: 'Password changed' });
+  });
 });

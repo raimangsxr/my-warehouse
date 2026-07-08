@@ -53,4 +53,27 @@ describe('WarehouseService', () => {
     service.clearSelectedWarehouseId();
     expect(service.getSelectedWarehouseId()).toBeNull();
   });
+
+  it('creates invite for warehouse', () => {
+    service.createInvite('wh-1', { email: 'guest@example.com' }).subscribe();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/wh-1/invites`);
+    expect(req.request.body).toEqual({ email: 'guest@example.com' });
+    req.flush({
+      warehouse_id: 'wh-1',
+      invite_token: 'token',
+      invite_url: 'https://example.com/invite',
+      expires_at: '2026-01-02'
+    });
+  });
+
+  it('loads warehouse activity feed', () => {
+    service.activity('wh-1', 10).subscribe((events) => {
+      expect(events).toHaveLength(1);
+    });
+
+    const req = httpMock.expectOne((request) => request.url === `${environment.apiBaseUrl}/warehouses/wh-1/activity`);
+    expect(req.request.params.get('limit')).toBe('10');
+    req.flush([{ id: 'evt-1', warehouse_id: 'wh-1', actor_user_id: 'u1', event_type: 'item.created', entity_type: 'item', entity_id: 'i1', metadata: {}, created_at: '2026-01-01' }]);
+  });
 });
