@@ -166,7 +166,7 @@ export class ItemFormComponent implements OnInit {
 
   ngOnInit(): void {
     if (!this.selectedWarehouseId) {
-      this.router.navigateByUrl('/warehouses');
+      this.router.navigateByUrl('/app');
       return;
     }
 

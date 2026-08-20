@@ -1,6 +1,6 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
-import { Component, effect, ViewChild } from '@angular/core';
+import { Component, ViewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
@@ -29,7 +29,7 @@ import { WarehouseService } from '../services/warehouse.service';
     MatListModule,
     MatMenuModule,
     MatButtonModule,
-    MatDividerModule
+    MatDividerModule,
   ],
   template: `
     <mat-sidenav-container class="shell-container">
@@ -40,237 +40,141 @@ import { WarehouseService } from '../services/warehouse.service';
         </div>
         <mat-divider />
         <mat-nav-list>
-          <a mat-list-item class="shell-link" routerLink="/app/home" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>home</mat-icon>
-            <span matListItemTitle>Inicio</span>
-          </a>
-          <a mat-list-item class="shell-link" routerLink="/app/boxes" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>inventory_2</mat-icon>
-            <span matListItemTitle>Cajas</span>
-          </a>
-          <a mat-list-item class="shell-link" routerLink="/app/batches" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>collections</mat-icon>
-            <span matListItemTitle>Lotes</span>
-          </a>
-          <a mat-list-item class="shell-link" routerLink="/app/scan" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>qr_code_scanner</mat-icon>
-            <span matListItemTitle>Escanear QR</span>
-          </a>
-          <a mat-list-item class="shell-link" routerLink="/app/trash" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>delete</mat-icon>
-            <span matListItemTitle>Papelera</span>
-          </a>
-          <a mat-list-item class="shell-link" routerLink="/app/activity" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>history</mat-icon>
-            <span matListItemTitle>Actividad</span>
-          </a>
-          <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/conflicts" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>sync_problem</mat-icon>
-            <span matListItemTitle>Conflictos</span>
-          </a>
-          <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/members" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>group</mat-icon>
-            <span matListItemTitle>Miembros</span>
-          </a>
-          <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/settings" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
-            <mat-icon matListItemIcon>settings</mat-icon>
-            <span matListItemTitle>Configuración</span>
-          </a>
-          <a mat-list-item class="shell-link" routerLink="/warehouses" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+          <a mat-list-item class="shell-link" routerLink="/app/warehouses" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
             <mat-icon matListItemIcon>warehouse</mat-icon>
             <span matListItemTitle>Warehouses</span>
           </a>
+          <ng-container *ngIf="selectedWarehouseId()">
+            <a mat-list-item class="shell-link" routerLink="/app/home" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>home</mat-icon><span matListItemTitle>Inicio</span>
+            </a>
+            <a mat-list-item class="shell-link" routerLink="/app/boxes" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>inventory_2</mat-icon><span matListItemTitle>Cajas</span>
+            </a>
+            <a mat-list-item class="shell-link" routerLink="/app/batches" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>collections</mat-icon><span matListItemTitle>Lotes</span>
+            </a>
+            <a mat-list-item class="shell-link" routerLink="/app/scan" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>qr_code_scanner</mat-icon><span matListItemTitle>Escanear QR</span>
+            </a>
+            <a mat-list-item class="shell-link" routerLink="/app/trash" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>delete</mat-icon><span matListItemTitle>Papelera</span>
+            </a>
+            <a mat-list-item class="shell-link" routerLink="/app/activity" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>history</mat-icon><span matListItemTitle>Actividad</span>
+            </a>
+            <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/conflicts" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>sync_problem</mat-icon><span matListItemTitle>Conflictos</span>
+            </a>
+            <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/members" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>group</mat-icon><span matListItemTitle>Miembros</span>
+            </a>
+            <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/settings" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+              <mat-icon matListItemIcon>settings</mat-icon><span matListItemTitle>Configuración</span>
+            </a>
+          </ng-container>
         </mat-nav-list>
       </mat-sidenav>
 
       <mat-sidenav-content>
         <mat-toolbar class="shell-toolbar" [class.shell-toolbar-mobile]="isMobile">
-          <button mat-icon-button *ngIf="isMobile" (click)="sidenav.toggle()" aria-label="Abrir menú">
-            <mat-icon>menu</mat-icon>
-          </button>
+          <button mat-icon-button *ngIf="isMobile" (click)="sidenav.toggle()" aria-label="Abrir menú"><mat-icon>menu</mat-icon></button>
           <span class="shell-toolbar-title">my-warehouse</span>
           <span class="grow"></span>
-          <ng-container *ngIf="!isMobile; else mobileActions">
-            <span class="inline-chip shell-warehouse-chip" *ngIf="selectedWarehouseId">
-              WH: {{ selectedWarehouseId }} · {{ isAdministrator() ? 'Administrador' : 'Contribuidor' }}
-            </span>
-            <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
-              <mat-icon>qr_code_scanner</mat-icon>
-            </button>
-            <button mat-icon-button aria-label="Ir a lotes" routerLink="/app/batches">
-              <mat-icon>collections</mat-icon>
-            </button>
-            <button mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo">
-              <mat-icon>photo_camera</mat-icon>
-            </button>
-            <button
-              mat-icon-button
-              *ngIf="isAdministrator() && pwaService.canInstall()"
-              aria-label="Instalar aplicación"
-              type="button"
-              (click)="installApp()"
-            >
-              <mat-icon>download_for_offline</mat-icon>
-            </button>
-            <button
-              mat-icon-button
-              *ngIf="isAdministrator() && pwaService.updateAvailable()"
-              aria-label="Aplicar actualización"
-              type="button"
-              (click)="applyAppUpdate()"
-            >
-              <mat-icon>system_update_alt</mat-icon>
-            </button>
-            <button *ngIf="isAdministrator()" mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
-              <mat-icon>tune</mat-icon>
-            </button>
-            <button mat-stroked-button type="button" (click)="logout()">Salir</button>
-          </ng-container>
-          <ng-template #mobileActions>
-            <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
-              <mat-icon>qr_code_scanner</mat-icon>
-            </button>
-            <button mat-icon-button aria-label="Ir a lotes" routerLink="/app/batches">
-              <mat-icon>collections</mat-icon>
-            </button>
-            <button mat-icon-button [matMenuTriggerFor]="mobileToolbarMenu" aria-label="Más acciones">
-              <mat-icon>more_vert</mat-icon>
-            </button>
-          </ng-template>
-        </mat-toolbar>
-        <mat-menu #mobileToolbarMenu="matMenu">
-          <button mat-menu-item routerLink="/app/items/from-photo">
-            <mat-icon>photo_camera</mat-icon>
-            <span>Nuevo por foto</span>
-          </button>
-          <button *ngIf="isAdministrator()" mat-menu-item routerLink="/app/members">
-            <mat-icon>group</mat-icon>
-            <span>Miembros</span>
-          </button>
-          <button *ngIf="isAdministrator()" mat-menu-item routerLink="/app/settings">
-            <mat-icon>tune</mat-icon>
-            <span>Configuración</span>
-          </button>
-          <button mat-menu-item type="button" *ngIf="isAdministrator() && pwaService.canInstall()" (click)="installApp()">
-            <mat-icon>download_for_offline</mat-icon>
-            <span>Instalar app</span>
-          </button>
-          <button mat-menu-item type="button" *ngIf="isAdministrator() && pwaService.updateAvailable()" (click)="applyAppUpdate()">
-            <mat-icon>system_update_alt</mat-icon>
-            <span>Actualizar app</span>
-          </button>
-          <button mat-menu-item routerLink="/warehouses">
+
+          <button
+            *ngIf="selectedWarehouseId() && !isMobile"
+            mat-stroked-button
+            class="shell-warehouse-button"
+            routerLink="/app/warehouses"
+            aria-label="Cambiar warehouse"
+          >
             <mat-icon>warehouse</mat-icon>
-            <span>Warehouses</span>
+            {{ selectedWarehouseName() || selectedWarehouseId() }} · {{ isAdministrator() ? 'Administrador' : 'Contribuidor' }}
           </button>
-          <button mat-menu-item type="button" (click)="logout()">
-            <mat-icon>logout</mat-icon>
-            <span>Salir</span>
+          <ng-container *ngIf="selectedWarehouseId()">
+            <button *ngIf="!isMobile" mat-icon-button aria-label="Escanear QR" routerLink="/app/scan"><mat-icon>qr_code_scanner</mat-icon></button>
+            <button *ngIf="!isMobile" mat-icon-button aria-label="Ir a lotes" routerLink="/app/batches"><mat-icon>collections</mat-icon></button>
+            <button *ngIf="!isMobile" mat-icon-button aria-label="Añadir artículo por foto" routerLink="/app/items/from-photo"><mat-icon>photo_camera</mat-icon></button>
+            <button *ngIf="isMobile" mat-icon-button aria-label="Cambiar warehouse" routerLink="/app/warehouses"><mat-icon>warehouse</mat-icon></button>
+          </ng-container>
+          <button mat-icon-button [matMenuTriggerFor]="userMenu" [attr.aria-label]="'Abrir perfil de ' + userLabel()">
+            <mat-icon>account_circle</mat-icon>
           </button>
+        </mat-toolbar>
+
+        <mat-menu #userMenu="matMenu">
+          <div class="shell-user-summary" (click)="$event.stopPropagation()">
+            <strong>{{ userLabel() }}</strong>
+            <span *ngIf="currentUser()?.display_name">{{ currentUser()?.email }}</span>
+          </div>
+          <mat-divider />
+          <button mat-menu-item routerLink="/app/profile"><mat-icon>person</mat-icon><span>Perfil</span></button>
+          <button mat-menu-item type="button" (click)="logout()"><mat-icon>logout</mat-icon><span>Cerrar sesión</span></button>
         </mat-menu>
 
-        <main class="shell-content">
-          <router-outlet />
-        </main>
+        <main class="shell-content"><router-outlet /></main>
       </mat-sidenav-content>
     </mat-sidenav-container>
-  `
+  `,
+  styles: [`
+    .shell-warehouse-button { max-width: min(360px, 34vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; }
+    .shell-user-summary { display: grid; gap: 2px; padding: 10px 16px; max-width: 280px; overflow-wrap: anywhere; }
+    .shell-user-summary span { color: var(--text-2); font-size: .8rem; }
+  `]
 })
 export class ShellComponent {
   @ViewChild('sidenav') sidenav?: MatSidenav;
 
   isMobile = false;
-  readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
+  readonly selectedWarehouseId = this.warehouseService.selectedWarehouseId;
+  readonly selectedWarehouseName = this.warehouseService.selectedWarehouseName;
   readonly isAdministrator = this.warehouseService.isSelectedWarehouseAdministrator;
-  private announcedUpdateVersion: string | null = null;
+  readonly currentUser = this.authService.currentUser;
 
   constructor(
     private readonly warehouseService: WarehouseService,
     private readonly authService: AuthService,
     private readonly router: Router,
     private readonly notificationService: NotificationService,
-    public readonly pwaService: PwaService,
-    breakpointObserver: BreakpointObserver
+    private readonly pwaService: PwaService,
+    breakpointObserver: BreakpointObserver,
   ) {
     const updatedVersion = this.pwaService.consumePendingReloadSuccess();
     if (updatedVersion) {
       this.notificationService.success(`App actualizada correctamente a la versión ${updatedVersion}.`);
     }
-
-    breakpointObserver.observe('(max-width: 900px)').subscribe((res) => {
-      this.isMobile = res.matches;
-    });
-
-    effect(() => {
-      const updateAvailable = this.pwaService.updateAvailable();
-      const latestVersion = this.pwaService.latestVersionLabel();
-      if (
-        !this.isAdministrator()
-        || !updateAvailable
-        || !latestVersion
-        || this.announcedUpdateVersion === latestVersion
-      ) {
-        return;
-      }
-      this.announcedUpdateVersion = latestVersion;
-      const currentVersion = this.pwaService.currentVersionLabel();
-      const ref = this.notificationService.action(
-        `Ha salido la versión ${latestVersion} de la app. Tienes ${currentVersion}.`,
-        'Actualizar',
-        'info',
-        10000
-      );
-      ref.onAction().subscribe(() => {
-        void this.applyAppUpdate();
-      });
+    if (this.authService.isLoggedIn() && !this.currentUser()) {
+      this.authService.me().subscribe({ error: () => undefined });
+    }
+    breakpointObserver.observe('(max-width: 900px)').subscribe((result) => {
+      this.isMobile = result.matches;
     });
   }
 
+  userLabel(): string {
+    const user = this.currentUser();
+    return user?.display_name || user?.email || 'Mi perfil';
+  }
+
   closeIfMobile(): void {
-    if (this.isMobile) {
-      this.sidenav?.close();
-    }
+    if (this.isMobile) this.sidenav?.close();
   }
 
   logout(): void {
     this.authService.logout().subscribe({
-      next: () => {
-        this.notificationService.info('Sesión cerrada.');
-        this.router.navigateByUrl('/login');
-      },
+      next: () => this.finishLogout('Sesión cerrada.'),
       error: () => {
         this.authService.clearTokens();
-        this.notificationService.error('La sesión se cerró localmente por un error de red.');
-        this.router.navigateByUrl('/login');
-      }
+        this.finishLogout('La sesión se cerró localmente por un error de red.', true);
+      },
     });
   }
 
-  async installApp(): Promise<void> {
-    const result = await this.pwaService.promptInstall();
-    if (result === 'accepted') {
-      this.notificationService.success('La instalación de la app se ha iniciado.');
-      return;
-    }
-    if (result === 'dismissed') {
-      this.notificationService.info('La instalación se ha pospuesto.');
-      return;
-    }
-    if (this.pwaService.showIosInstallHint()) {
-      this.notificationService.info('En Safari usa Compartir > Añadir a pantalla de inicio.');
-      return;
-    }
-    this.notificationService.info('La instalación estará disponible cuando el navegador valide la PWA en HTTPS.');
-  }
-
-  async applyAppUpdate(): Promise<void> {
-    const result = await this.pwaService.activateUpdate();
-    if (result.status === 'none') {
-      this.notificationService.info('No hay actualizaciones pendientes para aplicar.');
-      return;
-    }
-    if (result.status === 'error') {
-      this.notificationService.error(result.message);
-    }
+  private finishLogout(message: string, isError = false): void {
+    this.warehouseService.clearSelectedWarehouseId();
+    if (isError) this.notificationService.error(message);
+    else this.notificationService.info(message);
+    this.router.navigateByUrl('/login');
   }
 }

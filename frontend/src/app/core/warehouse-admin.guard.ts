@@ -12,7 +12,7 @@ export const warehouseAdministratorGuard: CanActivateFn = async () => {
   const selectedId = warehouseService.getSelectedWarehouseId();
 
   if (!selectedId) {
-    return router.parseUrl('/warehouses');
+    return router.parseUrl('/app/warehouses');
   }
 
   try {

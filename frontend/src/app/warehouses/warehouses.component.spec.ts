@@ -53,7 +53,10 @@ describe('WarehousesComponent', () => {
     const component = fixture.componentInstance;
     fixture.detectChanges();
 
-    httpMock.expectOne(`${environment.apiBaseUrl}/warehouses`).flush([]);
+    httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`).flush({
+      id: 'user-1', email: 'user@example.com', display_name: 'User', default_warehouse_id: null
+    });
+    httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/overview`).flush([]);
     return component;
   }
 
@@ -85,7 +88,9 @@ describe('WarehousesComponent', () => {
     expect(req.request.method).toBe('POST');
     req.flush(testWarehouse({ id: 'wh-new', name: 'New WH' }));
 
-    httpMock.expectOne(`${environment.apiBaseUrl}/warehouses`).flush([testWarehouse({ id: 'wh-new', name: 'New WH' })]);
+    httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`).flush({
+      id: 'user-1', email: 'user@example.com', display_name: 'User', default_warehouse_id: 'wh-new'
+    });
 
     expect(notificationService.success).toHaveBeenCalled();
     expect(router.navigateByUrl).toHaveBeenCalledWith('/app/home');
@@ -177,7 +182,10 @@ describe('WarehousesComponent', () => {
       expect(syncService.purgeWarehouse).toHaveBeenCalledWith('wh-del');
     });
 
-    httpMock.expectOne(`${environment.apiBaseUrl}/warehouses`).flush([]);
+    httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`).flush({
+      id: 'user-1', email: 'user@example.com', display_name: 'User', default_warehouse_id: null
+    });
+    httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/overview`).flush([]);
 
     expect(localStorage.getItem('mw_selected_warehouse_id')).toBeNull();
     expect(notificationService.success).toHaveBeenCalledWith('Almacén eliminado correctamente.');

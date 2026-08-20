@@ -46,6 +46,6 @@ describe('guestGuard', () => {
     const result = TestBed.runInInjectionContext(() => guestGuard({} as never, { url: '/login' } as never));
     const router = TestBed.inject(Router);
 
-    expect(result).toEqual(router.parseUrl('/warehouses'));
+    expect(result).toEqual(router.parseUrl('/app'));
   });
 });

@@ -4,15 +4,12 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createStandaloneComponent } from '../../testing/component-test-helpers';
-import { NotificationService } from '../services/notification.service';
-import { PwaService } from '../services/pwa.service';
 import { WarehouseService } from '../services/warehouse.service';
 import { ShellComponent } from './shell.component';
 
 describe('ShellComponent', () => {
   let httpMock: HttpTestingController;
   let router: Router;
-  let pwaService: PwaService;
 
   beforeEach(() => {
     localStorage.setItem('mw_selected_warehouse_id', 'wh-test');
@@ -25,7 +22,6 @@ describe('ShellComponent', () => {
   async function createShell() {
     const fixture = await createStandaloneComponent(ShellComponent);
     httpMock = TestBed.inject(HttpTestingController);
-    pwaService = TestBed.inject(PwaService);
     return fixture;
   }
 
@@ -69,30 +65,4 @@ describe('ShellComponent', () => {
     expect(close).not.toHaveBeenCalled();
   });
 
-  it('shows unavailable install message when prompt is unavailable', async () => {
-    const fixture = await createShell();
-    const component = fixture.componentInstance;
-    const notificationService = TestBed.inject(NotificationService);
-    vi.spyOn(notificationService, 'info');
-    vi.spyOn(pwaService, 'promptInstall').mockResolvedValue('unavailable');
-    vi.spyOn(pwaService, 'showIosInstallHint').mockReturnValue(false);
-
-    await component.installApp();
-
-    expect(notificationService.info).toHaveBeenCalledWith(
-      'La instalación estará disponible cuando el navegador valide la PWA en HTTPS.'
-    );
-  });
-
-  it('shows info when applyAppUpdate has no pending update', async () => {
-    const fixture = await createShell();
-    const component = fixture.componentInstance;
-    const notificationService = TestBed.inject(NotificationService);
-    vi.spyOn(notificationService, 'info');
-    vi.spyOn(pwaService, 'activateUpdate').mockResolvedValue({ status: 'none' });
-
-    await component.applyAppUpdate();
-
-    expect(notificationService.info).toHaveBeenCalledWith('No hay actualizaciones pendientes para aplicar.');
-  });
 });

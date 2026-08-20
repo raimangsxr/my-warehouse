@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { Observable, finalize, of, shareReplay, tap, throwError } from 'rxjs';
 
 import { environment } from '../core/environment';
@@ -26,6 +26,7 @@ export interface UserResponse {
   id: string;
   email: string;
   display_name: string | null;
+  default_warehouse_id: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -34,6 +35,7 @@ export class AuthService {
   private readonly refreshTokenKey = 'mw_refresh_token';
   private readonly persistentSessionKey = 'mw_persistent_session';
   private refreshRequest$?: Observable<TokenResponse>;
+  readonly currentUser = signal<UserResponse | null>(null);
 
   constructor(private readonly http: HttpClient) {}
 
@@ -57,7 +59,21 @@ export class AuthService {
   }
 
   me(): Observable<UserResponse> {
-    return this.http.get<UserResponse>(`${environment.apiBaseUrl}/auth/me`);
+    return this.http.get<UserResponse>(`${environment.apiBaseUrl}/auth/me`).pipe(
+      tap((user) => this.currentUser.set(user))
+    );
+  }
+
+  updateProfile(displayName: string | null): Observable<UserResponse> {
+    return this.http.patch<UserResponse>(`${environment.apiBaseUrl}/auth/me`, {
+      display_name: displayName
+    }).pipe(tap((user) => this.currentUser.set(user)));
+  }
+
+  setDefaultWarehouse(warehouseId: string): Observable<UserResponse> {
+    return this.http.put<UserResponse>(`${environment.apiBaseUrl}/auth/me/default-warehouse`, {
+      warehouse_id: warehouseId
+    }).pipe(tap((user) => this.currentUser.set(user)));
   }
 
   forgotPassword(email: string): Observable<{ message: string; reset_token?: string }> {
@@ -154,6 +170,7 @@ export class AuthService {
     localStorage.removeItem(this.refreshTokenKey);
     localStorage.removeItem(this.persistentSessionKey);
     this.refreshRequest$ = undefined;
+    this.currentUser.set(null);
   }
 
   private persistTokens(tokens: TokenResponse, rememberMe: boolean): void {

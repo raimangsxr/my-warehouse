@@ -18,7 +18,24 @@ class WarehouseResponse(BaseModel):
     name: str
     created_by: str
     created_at: datetime
+    membership_created_at: datetime
     role: WarehouseRole
+
+
+class WarehouseOverviewMemberResponse(BaseModel):
+    user_id: str
+    display_name: str | None
+    email: str | None
+    role: WarehouseRole
+
+
+class WarehouseOverviewResponse(WarehouseResponse):
+    active_item_count: int
+    stock_unit_count: int
+    active_box_count: int
+    open_batch_count: int
+    member_count: int
+    members: list[WarehouseOverviewMemberResponse]
 
 
 class MemberResponse(BaseModel):

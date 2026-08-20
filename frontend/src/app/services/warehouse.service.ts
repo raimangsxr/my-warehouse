@@ -11,7 +11,24 @@ export interface Warehouse {
   name: string;
   created_by: string;
   created_at: string;
+  membership_created_at?: string;
   role: WarehouseRole;
+}
+
+export interface WarehouseOverviewMember {
+  user_id: string;
+  display_name: string | null;
+  email: string | null;
+  role: WarehouseRole;
+}
+
+export interface WarehouseOverview extends Warehouse {
+  active_item_count?: number;
+  stock_unit_count?: number;
+  active_box_count?: number;
+  open_batch_count?: number;
+  member_count?: number;
+  members?: WarehouseOverviewMember[];
 }
 
 export interface WarehouseMember {
@@ -47,18 +64,36 @@ export interface ActivityEvent {
 @Injectable({ providedIn: 'root' })
 export class WarehouseService {
   private readonly selectedWarehouseKey = 'mw_selected_warehouse_id';
-  private knownWarehouses: Warehouse[] = [];
+  private readonly knownWarehouses = signal<Warehouse[]>([]);
+  readonly selectedWarehouseId = signal<string | null>(localStorage.getItem(this.selectedWarehouseKey));
   readonly selectedWarehouseRole = signal<WarehouseRole | null>(null);
+  readonly selectedWarehouseName = computed(() => {
+    const selectedId = this.selectedWarehouseId();
+    return this.knownWarehouses().find((warehouse) => warehouse.id === selectedId)?.name ?? null;
+  });
   readonly isSelectedWarehouseAdministrator = computed(
     () => this.selectedWarehouseRole() === 'administrator'
   );
+  readonly canCreateWarehouse = computed(() => {
+    const warehouses = this.knownWarehouses();
+    return warehouses.length === 0 || warehouses.some((warehouse) => warehouse.role === 'administrator');
+  });
 
   constructor(private readonly http: HttpClient) {}
 
   list(): Observable<Warehouse[]> {
     return this.http.get<Warehouse[]>(`${environment.apiBaseUrl}/warehouses`).pipe(
       tap((warehouses) => {
-        this.knownWarehouses = warehouses;
+        this.knownWarehouses.set(warehouses);
+        this.syncSelectedWarehouseRole();
+      })
+    );
+  }
+
+  overview(): Observable<WarehouseOverview[]> {
+    return this.http.get<WarehouseOverview[]>(`${environment.apiBaseUrl}/warehouses/overview`).pipe(
+      tap((warehouses) => {
+        this.knownWarehouses.set(warehouses);
         this.syncSelectedWarehouseRole();
       })
     );
@@ -112,22 +147,28 @@ export class WarehouseService {
   }
 
   getSelectedWarehouseId(): string | null {
-    return localStorage.getItem(this.selectedWarehouseKey);
+    return this.selectedWarehouseId();
   }
 
   setSelectedWarehouseId(warehouseId: string): void {
     localStorage.setItem(this.selectedWarehouseKey, warehouseId);
+    this.selectedWarehouseId.set(warehouseId);
     this.syncSelectedWarehouseRole();
   }
 
   clearSelectedWarehouseId(): void {
     localStorage.removeItem(this.selectedWarehouseKey);
+    this.selectedWarehouseId.set(null);
     this.selectedWarehouseRole.set(null);
+  }
+
+  getKnownWarehouses(): Warehouse[] {
+    return this.knownWarehouses();
   }
 
   private syncSelectedWarehouseRole(): void {
     const selectedId = this.getSelectedWarehouseId();
-    const selected = this.knownWarehouses.find((warehouse) => warehouse.id === selectedId);
+    const selected = this.knownWarehouses().find((warehouse) => warehouse.id === selectedId);
     this.selectedWarehouseRole.set(selected?.role ?? null);
   }
 }

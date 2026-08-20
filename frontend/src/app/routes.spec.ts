@@ -9,13 +9,15 @@ describe('routes', () => {
     expect(guestPaths.every((route) => route.canActivate?.length)).toBe(true);
   });
 
-  it('defines authenticated app shell with warehouse guard', () => {
+  it('defines authenticated app shell with account and warehouse-scoped routes', () => {
     const appRoute = routes.find((route) => route.path === 'app');
-    expect(appRoute?.canActivate).toEqual(expect.arrayContaining([expect.any(Function), expect.any(Function)]));
+    expect(appRoute?.canActivate).toHaveLength(1);
+    expect(appRoute?.children?.some((child) => child.path === 'warehouses' && !child.canActivate)).toBe(true);
+    expect(appRoute?.children?.some((child) => child.path === 'profile' && !child.canActivate)).toBe(true);
     expect(appRoute?.children?.some((child) => child.path === 'home')).toBe(true);
     const administrativePaths = ['conflicts', 'members', 'settings'];
     for (const path of administrativePaths) {
-      expect(appRoute?.children?.find((child) => child.path === path)?.canActivate?.length).toBe(1);
+      expect(appRoute?.children?.find((child) => child.path === path)?.canActivate?.length).toBe(2);
     }
   });
 

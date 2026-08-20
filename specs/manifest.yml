@@ -53,8 +53,14 @@ changes:
     contract: app
     description: Per-warehouse Administrator and Contributor roles with enforced permissions.
     completed: 2026-08-20
+  - id: 008-warehouse-navigation-profile
+    path: specs/archive/008-warehouse-navigation-profile/
+    status: completed
+    contract: app
+    description: Integrated warehouse navigation, persisted defaults, user profile, summaries, and scroll-safe mobile actions.
+    completed: 2026-08-20
 
 active:
-  contract: specs/contracts/app/contract.md
+  contract: null
   change: null
   context_pack: null

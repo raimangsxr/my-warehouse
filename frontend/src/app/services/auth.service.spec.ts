@@ -26,7 +26,7 @@ describe('AuthService', () => {
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/signup`);
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual(payload);
-    req.flush({ id: '1', email: payload.email, display_name: null });
+    req.flush({ id: '1', email: payload.email, display_name: null, default_warehouse_id: null });
   });
 
   it('login persists tokens and remember-me flag', () => {
@@ -86,7 +86,23 @@ describe('AuthService', () => {
     });
 
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`);
-    req.flush({ id: '1', email: 'a@b.com', display_name: 'Ana' });
+    req.flush({ id: '1', email: 'a@b.com', display_name: 'Ana', default_warehouse_id: null });
+    expect(service.currentUser()?.email).toBe('a@b.com');
+  });
+
+  it('updates profile and default warehouse in reactive account state', () => {
+    service.updateProfile('Ana').subscribe();
+    const profile = httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`);
+    expect(profile.request.method).toBe('PATCH');
+    profile.flush({ id: '1', email: 'a@b.com', display_name: 'Ana', default_warehouse_id: null });
+
+    service.setDefaultWarehouse('wh-1').subscribe();
+    const preferred = httpMock.expectOne(`${environment.apiBaseUrl}/auth/me/default-warehouse`);
+    expect(preferred.request.method).toBe('PUT');
+    expect(preferred.request.body).toEqual({ warehouse_id: 'wh-1' });
+    preferred.flush({ id: '1', email: 'a@b.com', display_name: 'Ana', default_warehouse_id: 'wh-1' });
+
+    expect(service.currentUser()?.default_warehouse_id).toBe('wh-1');
   });
 
   it('logs out through API when refresh token exists', () => {

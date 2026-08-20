@@ -1,4 +1,4 @@
-from sqlalchemy import String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -10,6 +10,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    default_warehouse_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     memberships = relationship("Membership", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")

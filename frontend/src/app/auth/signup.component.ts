@@ -105,7 +105,7 @@ export class SignupComponent {
         this.authService.login(raw).subscribe({
           next: () => {
             this.loading = false;
-            this.router.navigateByUrl(this.redirectTarget() || '/warehouses');
+            this.router.navigateByUrl(this.redirectTarget() || '/app');
           },
           error: () => {
             this.loading = false;

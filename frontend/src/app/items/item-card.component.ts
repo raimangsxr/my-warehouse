@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { Item } from '../services/item.service';
@@ -11,7 +12,7 @@ import { Item } from '../services/item.service';
 @Component({
   selector: 'app-item-card',
   standalone: true,
-  imports: [CommonModule, RouterLink, MatButtonModule, MatCheckboxModule, MatIconModule, MatTooltipModule],
+  imports: [CommonModule, RouterLink, MatButtonModule, MatCheckboxModule, MatIconModule, MatMenuModule, MatTooltipModule],
   template: `
     <article class="product-card">
       <div class="product-card-main">
@@ -55,14 +56,20 @@ import { Item } from '../services/item.service';
         </div>
       </div>
 
-      <div class="product-actions" [class.product-actions-mobile]="isMobileView">
+      <div
+        class="product-actions"
+        [class.product-actions-mobile]="isMobileView"
+        (pointerdown)="onPointerDown($event)"
+        (pointermove)="onPointerMove($event)"
+        (pointerup)="onPointerEnd()"
+        (pointercancel)="onPointerEnd()"
+      >
         <div class="product-stock-inline">
           <button
-            *ngIf="canReprocess"
             mat-icon-button
             type="button"
             class="stock-step-btn stock-step-dec"
-            (click)="stockAdjust.emit(-1)"
+            (click)="emitStock($event, -1)"
             [attr.aria-label]="'Reducir stock de ' + item.name"
             matTooltip="Reducir stock"
           >
@@ -77,18 +84,18 @@ import { Item } from '../services/item.service';
             color="primary"
             type="button"
             class="stock-step-btn stock-step-inc"
-            (click)="stockAdjust.emit(1)"
+            (click)="emitStock($event, 1)"
             [attr.aria-label]="'Incrementar stock de ' + item.name"
             matTooltip="Incrementar stock"
           >
             <mat-icon>add</mat-icon>
           </button>
         </div>
-        <div class="product-quick-actions">
+        <div class="product-quick-actions" *ngIf="!isMobileView">
           <button
             mat-icon-button
             class="compact-icon-action"
-            (click)="favoriteToggle.emit()"
+            (click)="emitFavorite($event)"
             [attr.aria-label]="'Favorito ' + item.name"
             [matTooltip]="item.is_favorite ? 'Quitar favorito' : 'Marcar favorito'"
           >
@@ -99,16 +106,18 @@ import { Item } from '../services/item.service';
             class="compact-icon-action"
             type="button"
             [routerLink]="['/app/items', item.id]"
+            (click)="allowAction($event)"
             [attr.aria-label]="'Editar ' + item.name"
             matTooltip="Editar"
           >
             <mat-icon>edit</mat-icon>
           </button>
           <button
+            *ngIf="canReprocess"
             mat-icon-button
             type="button"
             class="compact-icon-action"
-            (click)="reprocess.emit()"
+            (click)="emitReprocess($event)"
             [disabled]="isReprocessing"
             [attr.aria-label]="'Reprocesar tags de ' + item.name"
             [matTooltip]="isReprocessing ? 'Reprocesando tags' : 'Reprocesar tags'"
@@ -120,12 +129,43 @@ import { Item } from '../services/item.service';
             color="warn"
             type="button"
             class="compact-icon-action"
-            (click)="deleteItem.emit()"
+            (click)="emitDelete($event)"
             [attr.aria-label]="'Borrar ' + item.name"
             matTooltip="Borrar"
           >
             <mat-icon>delete</mat-icon>
           </button>
+        </div>
+        <div class="product-quick-actions product-quick-actions-mobile" *ngIf="isMobileView">
+          <button
+            mat-icon-button
+            class="compact-icon-action"
+            (click)="emitFavorite($event)"
+            [attr.aria-label]="'Favorito ' + item.name"
+          >
+            <mat-icon>{{ item.is_favorite ? 'star' : 'star_border' }}</mat-icon>
+          </button>
+          <button
+            mat-icon-button
+            class="compact-icon-action"
+            [matMenuTriggerFor]="itemActionsMenu"
+            (click)="allowAction($event)"
+            [attr.aria-label]="'Más acciones para ' + item.name"
+          >
+            <mat-icon>more_horiz</mat-icon>
+          </button>
+          <mat-menu #itemActionsMenu="matMenu">
+            <button mat-menu-item [routerLink]="['/app/items', item.id]" (click)="allowAction($event)">
+              <mat-icon>edit</mat-icon><span>Editar</span>
+            </button>
+            <button mat-menu-item *ngIf="canReprocess" (click)="emitReprocess($event)" [disabled]="isReprocessing">
+              <mat-icon>{{ isReprocessing ? 'hourglass_top' : 'auto_awesome' }}</mat-icon>
+              <span>{{ isReprocessing ? 'Reprocesando tags' : 'Reprocesar tags' }}</span>
+            </button>
+            <button mat-menu-item class="warn-menu-action" (click)="emitDelete($event)">
+              <mat-icon color="warn">delete</mat-icon><span>Borrar</span>
+            </button>
+          </mat-menu>
         </div>
       </div>
     </article>
@@ -241,6 +281,12 @@ import { Item } from '../services/item.service';
 
       .product-actions-mobile {
         gap: 8px;
+        touch-action: pan-y;
+      }
+
+      .product-actions-mobile button,
+      .product-actions-mobile .mat-mdc-button-touch-target {
+        touch-action: pan-y;
       }
 
       .product-stock-inline {
@@ -301,6 +347,10 @@ import { Item } from '../services/item.service';
         gap: 6px;
       }
 
+      .product-quick-actions-mobile {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .compact-icon-action {
         width: 100% !important;
         max-width: none !important;
@@ -346,6 +396,8 @@ import { Item } from '../services/item.service';
   ]
 })
 export class ItemCardComponent {
+  private activePointer: { id: number; x: number; y: number; moved: boolean } | null = null;
+  private suppressClicksUntil = 0;
   @Input({ required: true }) item!: Item;
   @Input() showSelection = false;
   @Input() isSelected = false;
@@ -368,6 +420,47 @@ export class ItemCardComponent {
 
   get canLinkPath(): boolean {
     return this.showPathLinks && this.boxPathIds.length === this.item.box_path.length;
+  }
+
+  onPointerDown(event: PointerEvent): void {
+    if (event.pointerType === 'mouse') return;
+    this.activePointer = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  }
+
+  onPointerMove(event: PointerEvent): void {
+    const pointer = this.activePointer;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    if (Math.max(Math.abs(event.clientX - pointer.x), Math.abs(event.clientY - pointer.y)) >= 12) {
+      pointer.moved = true;
+    }
+  }
+
+  onPointerEnd(): void {
+    if (this.activePointer?.moved) this.suppressClicksUntil = Date.now() + 500;
+    this.activePointer = null;
+  }
+
+  allowAction(event: Event): boolean {
+    if (Date.now() >= this.suppressClicksUntil) return true;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return false;
+  }
+
+  emitStock(event: Event, delta: 1 | -1): void {
+    if (this.allowAction(event)) this.stockAdjust.emit(delta);
+  }
+
+  emitFavorite(event: Event): void {
+    if (this.allowAction(event)) this.favoriteToggle.emit();
+  }
+
+  emitReprocess(event: Event): void {
+    if (this.allowAction(event)) this.reprocess.emit();
+  }
+
+  emitDelete(event: Event): void {
+    if (this.allowAction(event)) this.deleteItem.emit();
   }
 
   emitAvatarMouseEnter(event: MouseEvent): void {

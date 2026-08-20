@@ -3,7 +3,7 @@ import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -15,12 +15,15 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.activity_event import ActivityEvent
 from app.models.box import Box
+from app.models.intake_batch import IntakeBatch
+from app.models.item import Item
 from app.models.membership import (
     Membership,
     WAREHOUSE_ROLE_ADMINISTRATOR,
     WAREHOUSE_ROLE_CONTRIBUTOR,
 )
 from app.models.smtp_setting import SMTPSetting
+from app.models.stock_movement import StockMovement
 from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.models.warehouse_invite import WarehouseInvite
@@ -34,6 +37,8 @@ from app.schemas.warehouse import (
     WarehouseDeleteResponse,
     WarehouseInviteCreateRequest,
     WarehouseInviteResponse,
+    WarehouseOverviewMemberResponse,
+    WarehouseOverviewResponse,
     WarehouseResponse,
 )
 from app.services.activity import record_activity
@@ -62,7 +67,7 @@ def list_warehouses(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[WarehouseResponse]:
     rows = db.execute(
-        select(Warehouse, Membership.role)
+        select(Warehouse, Membership)
         .join(Membership, Membership.warehouse_id == Warehouse.id)
         .where(Membership.user_id == current_user.id)
         .order_by(Warehouse.created_at.desc())
@@ -74,10 +79,100 @@ def list_warehouses(
             name=warehouse.name,
             created_by=warehouse.created_by,
             created_at=warehouse.created_at,
-            role=role,
+            membership_created_at=membership.created_at,
+            role=membership.role,
         )
-        for warehouse, role in rows
+        for warehouse, membership in rows
     ]
+
+
+@router.get("/overview", response_model=list[WarehouseOverviewResponse])
+def list_warehouse_overviews(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[WarehouseOverviewResponse]:
+    rows = db.execute(
+        select(Warehouse, Membership)
+        .join(Membership, Membership.warehouse_id == Warehouse.id)
+        .where(Membership.user_id == current_user.id)
+        .order_by(Warehouse.created_at.desc())
+    ).all()
+    if not rows:
+        return []
+
+    warehouse_ids = [warehouse.id for warehouse, _membership in rows]
+
+    def grouped_counts(statement) -> dict[str, int]:
+        return {warehouse_id: int(value or 0) for warehouse_id, value in db.execute(statement)}
+
+    item_counts = grouped_counts(
+        select(Item.warehouse_id, func.count(Item.id))
+        .where(Item.warehouse_id.in_(warehouse_ids), Item.deleted_at.is_(None))
+        .group_by(Item.warehouse_id)
+    )
+    box_counts = grouped_counts(
+        select(Box.warehouse_id, func.count(Box.id))
+        .where(Box.warehouse_id.in_(warehouse_ids), Box.deleted_at.is_(None))
+        .group_by(Box.warehouse_id)
+    )
+    stock_counts = grouped_counts(
+        select(StockMovement.warehouse_id, func.coalesce(func.sum(StockMovement.delta), 0))
+        .join(Item, Item.id == StockMovement.item_id)
+        .where(
+            StockMovement.warehouse_id.in_(warehouse_ids),
+            Item.deleted_at.is_(None),
+        )
+        .group_by(StockMovement.warehouse_id)
+    )
+    batch_counts = grouped_counts(
+        select(IntakeBatch.warehouse_id, func.count(IntakeBatch.id))
+        .where(
+            IntakeBatch.warehouse_id.in_(warehouse_ids),
+            IntakeBatch.status != "committed",
+        )
+        .group_by(IntakeBatch.warehouse_id)
+    )
+    member_rows = db.execute(
+        select(Membership, User)
+        .join(User, User.id == Membership.user_id)
+        .where(Membership.warehouse_id.in_(warehouse_ids))
+        .order_by(Membership.created_at.asc())
+    ).all()
+    members_by_warehouse: dict[str, list[tuple[Membership, User]]] = {
+        warehouse_id: [] for warehouse_id in warehouse_ids
+    }
+    for member, user in member_rows:
+        members_by_warehouse[member.warehouse_id].append((member, user))
+
+    overviews: list[WarehouseOverviewResponse] = []
+    for warehouse, membership in rows:
+        can_view_email = membership.role == WAREHOUSE_ROLE_ADMINISTRATOR
+        members = [
+            WarehouseOverviewMemberResponse(
+                user_id=member.user_id,
+                display_name=user.display_name,
+                email=user.email if can_view_email else None,
+                role=member.role,
+            )
+            for member, user in members_by_warehouse[warehouse.id]
+        ]
+        overviews.append(
+            WarehouseOverviewResponse(
+                id=warehouse.id,
+                name=warehouse.name,
+                created_by=warehouse.created_by,
+                created_at=warehouse.created_at,
+                membership_created_at=membership.created_at,
+                role=membership.role,
+                active_item_count=item_counts.get(warehouse.id, 0),
+                stock_unit_count=stock_counts.get(warehouse.id, 0),
+                active_box_count=box_counts.get(warehouse.id, 0),
+                open_batch_count=batch_counts.get(warehouse.id, 0),
+                member_count=len(members),
+                members=members,
+            )
+        )
+    return overviews
 
 
 @router.post("", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
@@ -87,6 +182,22 @@ def create_warehouse(
     db: Session = Depends(get_db),
 ) -> WarehouseResponse:
     logger.debug("Create warehouse requested user_id=%s name=%s", current_user.id, payload.name)
+    locked_user = db.scalar(
+        select(User).where(User.id == current_user.id).with_for_update()
+    )
+    if locked_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    memberships = db.scalars(
+        select(Membership).where(Membership.user_id == current_user.id)
+    ).all()
+    if memberships and not any(
+        membership.role == WAREHOUSE_ROLE_ADMINISTRATOR for membership in memberships
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator role required to create another warehouse",
+        )
+    is_first_warehouse = not memberships
     warehouse = Warehouse(name=payload.name.strip(), created_by=current_user.id)
     db.add(warehouse)
     db.flush()
@@ -97,6 +208,9 @@ def create_warehouse(
         role=WAREHOUSE_ROLE_ADMINISTRATOR,
     )
     db.add(membership)
+    db.flush()
+    if is_first_warehouse:
+        locked_user.default_warehouse_id = warehouse.id
     inbound_box = Box(
         warehouse_id=warehouse.id,
         parent_box_id=None,
@@ -148,6 +262,7 @@ def create_warehouse(
         name=warehouse.name,
         created_by=warehouse.created_by,
         created_at=warehouse.created_at,
+        membership_created_at=membership.created_at,
         role=WAREHOUSE_ROLE_ADMINISTRATOR,
     )
 
@@ -196,6 +311,7 @@ def get_warehouse(
         name=warehouse.name,
         created_by=warehouse.created_by,
         created_at=warehouse.created_at,
+        membership_created_at=membership.created_at,
         role=membership.role,
     )
 
