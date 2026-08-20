@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+WarehouseRole = Literal["administrator", "contributor"]
+
 
 class WarehouseCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -16,17 +18,26 @@ class WarehouseResponse(BaseModel):
     name: str
     created_by: str
     created_at: datetime
+    role: WarehouseRole
 
 
 class MemberResponse(BaseModel):
     user_id: str
     warehouse_id: str
+    email: str
+    display_name: str | None
+    role: WarehouseRole
     created_at: datetime
+
+
+class MemberRoleUpdateRequest(BaseModel):
+    role: WarehouseRole
 
 
 class WarehouseInviteCreateRequest(BaseModel):
     email: EmailStr | None = None
     expires_in_hours: int = Field(default=72, ge=1, le=168)
+    role: WarehouseRole = "contributor"
 
 
 class WarehouseInviteResponse(BaseModel):
@@ -34,6 +45,7 @@ class WarehouseInviteResponse(BaseModel):
     invite_token: str
     invite_url: str
     expires_at: datetime
+    role: WarehouseRole
     email_delivery_status: Literal["sent", "not_configured", "failed", "not_requested"]
     email_delivery_message: str
 

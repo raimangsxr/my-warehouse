@@ -47,6 +47,12 @@ changes:
     contract: app
     description: Real SMTP test and invitation delivery with reliable post-login invite acceptance.
     completed: 2026-08-20
+  - id: 007-warehouse-user-roles
+    path: specs/archive/007-warehouse-user-roles/
+    status: completed
+    contract: app
+    description: Per-warehouse Administrator and Contributor roles with enforced permissions.
+    completed: 2026-08-20
 
 active:
   contract: specs/contracts/app/contract.md

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_warehouse_membership
+from app.api.deps import get_current_user, require_warehouse_administrator
 from app.db.session import get_db
 from app.models.box import Box
 from app.models.change_log import ChangeLog
@@ -493,7 +493,7 @@ def push_commands(
     conflicts: list[SyncConflictResponse] = []
 
     # Path-parameter-free endpoint: enforce membership with request warehouse_id.
-    require_warehouse_membership(payload.warehouse_id, current_user=current_user, db=db)
+    require_warehouse_administrator(payload.warehouse_id, current_user=current_user, db=db)
 
     seen_in_request: set[str] = set()
     for command in payload.commands:
@@ -566,7 +566,7 @@ def push_commands(
 def pull_changes(
     warehouse_id: str,
     since_seq: int = 0,
-    _membership=Depends(require_warehouse_membership),
+    _membership=Depends(require_warehouse_administrator),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SyncPullResponse:
@@ -576,7 +576,7 @@ def pull_changes(
         current_user.id,
         since_seq,
     )
-    require_warehouse_membership(warehouse_id, current_user=current_user, db=db)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
 
     change_rows = db.scalars(
         select(ChangeLog)
@@ -639,7 +639,7 @@ def resolve_conflict(
         current_user.id,
         payload.resolution.value,
     )
-    require_warehouse_membership(payload.warehouse_id, current_user=current_user, db=db)
+    require_warehouse_administrator(payload.warehouse_id, current_user=current_user, db=db)
 
     conflict = db.scalar(
         select(SyncConflict).where(

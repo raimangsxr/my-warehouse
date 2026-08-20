@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_warehouse_membership
+from app.api.deps import get_current_user, require_warehouse_administrator
 from app.db.session import get_db
 from app.models.box import Box
 from app.models.item import Item
@@ -42,7 +42,7 @@ def _get_warehouse(db: Session, warehouse_id: str) -> Warehouse:
 @router.get("/export", response_model=WarehouseExportResponse)
 def export_warehouse(
     warehouse_id: str,
-    _membership=Depends(require_warehouse_membership),
+    _membership=Depends(require_warehouse_administrator),
     _current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> WarehouseExportResponse:
@@ -105,7 +105,7 @@ def export_warehouse(
 def import_warehouse(
     warehouse_id: str,
     payload: WarehouseImportRequest,
-    _membership=Depends(require_warehouse_membership),
+    _membership=Depends(require_warehouse_administrator),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> WarehouseImportResponse:

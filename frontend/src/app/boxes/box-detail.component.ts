@@ -139,6 +139,7 @@ type DetailViewMode = 'cards' | 'list';
                 [item]="item"
                 [isMobileView]="isMobileView"
                 [isReprocessing]="reprocessingItemIds.has(item.id)"
+                [canReprocess]="isAdministrator()"
                 [enablePhotoPreview]="true"
                 [showPathLinks]="true"
                 [boxPathIds]="item.box_path_ids"
@@ -157,6 +158,7 @@ type DetailViewMode = 'cards' | 'list';
               <app-item-list
                 [items]="items"
                 [reprocessingItemIds]="reprocessingItemIds"
+                [canReprocess]="isAdministrator()"
                 [enablePhotoPreview]="true"
                 [showPathLinks]="true"
                 [boxPathIdsByItemId]="boxPathIdsByItemId"
@@ -356,6 +358,7 @@ type DetailViewMode = 'cards' | 'list';
   ]
 })
 export class BoxDetailComponent implements OnInit, OnDestroy {
+  readonly isAdministrator = this.warehouseService.isSelectedWarehouseAdministrator;
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
   private readonly viewModeStorageKey = 'box_detail_view_mode';
   private readonly destroy$ = new Subject<void>();

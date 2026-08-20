@@ -48,7 +48,7 @@ describe('warehouseSelectedGuard', () => {
   it('allows navigation when selected warehouse still exists', async () => {
     vi.mocked(warehouseService.getSelectedWarehouseId).mockReturnValue('wh-1');
     vi.mocked(warehouseService.list).mockReturnValue(
-      of([{ id: 'wh-1', name: 'Main', created_by: 'u1', created_at: '2026-01-01' }])
+      of([{ id: 'wh-1', name: 'Main', created_by: 'u1', created_at: '2026-01-01', role: 'administrator' }])
     );
 
     const result = await TestBed.runInInjectionContext(() => warehouseSelectedGuard({} as never, { url: '/app' } as never));

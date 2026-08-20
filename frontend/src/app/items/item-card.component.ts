@@ -58,6 +58,7 @@ import { Item } from '../services/item.service';
       <div class="product-actions" [class.product-actions-mobile]="isMobileView">
         <div class="product-stock-inline">
           <button
+            *ngIf="canReprocess"
             mat-icon-button
             type="button"
             class="stock-step-btn stock-step-dec"
@@ -350,6 +351,7 @@ export class ItemCardComponent {
   @Input() isSelected = false;
   @Input() isMobileView = false;
   @Input() isReprocessing = false;
+  @Input() canReprocess = true;
   @Input() enablePhotoPreview = false;
   @Input() showPathLinks = false;
   @Input() boxPathIds: string[] = [];

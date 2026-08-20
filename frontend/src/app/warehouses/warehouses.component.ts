@@ -11,7 +11,6 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { HttpErrorResponse } from '@angular/common/http';
 
-import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
 import { SyncService } from '../services/sync.service';
 import { Warehouse, WarehouseService } from '../services/warehouse.service';
@@ -51,7 +50,7 @@ import {
             <div class="card-header-row">
               <div>
                 <h2 class="card-title">Espacios disponibles</h2>
-                <p class="card-subtitle">Acceso multiusuario sin roles</p>
+                <p class="card-subtitle">Tu rol se aplica de forma independiente en cada espacio</p>
               </div>
             </div>
 
@@ -65,6 +64,7 @@ import {
                     <p class="item-card-title">{{ warehouse.name }}</p>
                     <div class="item-card-meta">
                       <span>ID: {{ warehouse.id }}</span>
+                      <span class="inline-chip">{{ roleLabel(warehouse.role) }}</span>
                     </div>
                   </div>
                 </div>
@@ -96,7 +96,7 @@ import {
           <mat-card class="surface-card">
             <mat-card-content>
               <h2 class="card-title">Crear warehouse</h2>
-              <p class="card-subtitle">Se te asignará como miembro automáticamente</p>
+              <p class="card-subtitle">Serás Administrador del nuevo warehouse</p>
 
               <form [formGroup]="form" (ngSubmit)="createWarehouse()" class="form-stack mt-10">
                 <mat-form-field class="full-width">
@@ -112,7 +112,7 @@ import {
             </mat-card-content>
           </mat-card>
 
-          <mat-card class="surface-card">
+          <mat-card class="surface-card" *ngIf="administratorWarehouses.length > 0">
             <mat-card-content>
               <h2 class="card-title">Invitar miembro</h2>
               <p class="card-subtitle">Genera un enlace de invitación por warehouse</p>
@@ -121,7 +121,7 @@ import {
                 <mat-form-field class="full-width">
                   <mat-label>Warehouse</mat-label>
                   <mat-select formControlName="warehouseId">
-                    <mat-option *ngFor="let warehouse of warehouses" [value]="warehouse.id">
+                    <mat-option *ngFor="let warehouse of administratorWarehouses" [value]="warehouse.id">
                       {{ warehouse.name }}
                     </mat-option>
                   </mat-select>
@@ -131,6 +131,14 @@ import {
                   <mat-label>Email (opcional)</mat-label>
                   <mat-icon matPrefix>mail</mat-icon>
                   <input matInput formControlName="email" placeholder="usuario@correo.com" />
+                </mat-form-field>
+
+                <mat-form-field class="full-width">
+                  <mat-label>Rol</mat-label>
+                  <mat-select formControlName="role">
+                    <mat-option value="contributor">Contribuidor</mat-option>
+                    <mat-option value="administrator">Administrador</mat-option>
+                  </mat-select>
                 </mat-form-field>
 
                 <button mat-stroked-button color="primary" type="submit" [disabled]="inviteForm.invalid || inviteLoading">
@@ -208,7 +216,10 @@ export class WarehousesComponent implements OnInit {
   inviteLink = '';
   inviteToken = '';
   warehouses: Warehouse[] = [];
-  currentUserId: string | null = null;
+
+  get administratorWarehouses(): Warehouse[] {
+    return this.warehouses.filter((warehouse) => warehouse.role === 'administrator');
+  }
 
   get isOnline(): boolean {
     return this.syncService.isOnline();
@@ -221,12 +232,12 @@ export class WarehousesComponent implements OnInit {
   readonly inviteForm = this.fb.group({
     warehouseId: ['', [Validators.required]],
     email: ['', [Validators.email]],
+    role: this.fb.nonNullable.control<'administrator' | 'contributor'>('contributor'),
   });
 
   constructor(
     private readonly fb: FormBuilder,
     private readonly warehouseService: WarehouseService,
-    private readonly authService: AuthService,
     private readonly syncService: SyncService,
     private readonly dialog: MatDialog,
     private readonly router: Router,
@@ -234,19 +245,15 @@ export class WarehousesComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
-    this.authService.me().subscribe({
-      next: (user) => {
-        this.currentUserId = user.id;
-      },
-      error: () => {
-        this.errorMessage = 'No se pudo cargar tu perfil.';
-      },
-    });
     this.loadWarehouses();
   }
 
   canDeleteWarehouse(warehouse: Warehouse): boolean {
-    return !!this.currentUserId && warehouse.created_by === this.currentUserId;
+    return warehouse.role === 'administrator';
+  }
+
+  roleLabel(role: Warehouse['role']): string {
+    return role === 'administrator' ? 'Administrador' : 'Contribuidor';
   }
 
   createWarehouse(): void {
@@ -337,7 +344,10 @@ export class WarehousesComponent implements OnInit {
     this.inviteError = '';
     this.inviteMessage = '';
 
-    this.warehouseService.createInvite(warehouseId, { email }).subscribe({
+    this.warehouseService.createInvite(warehouseId, {
+      email,
+      role: this.inviteForm.controls.role.value,
+    }).subscribe({
       next: (invite) => {
         this.inviteLoading = false;
         this.inviteLink = invite.invite_url;
@@ -361,8 +371,14 @@ export class WarehousesComponent implements OnInit {
     this.warehouseService.list().subscribe({
       next: (warehouses) => {
         this.warehouses = warehouses;
-        if (!this.inviteForm.controls.warehouseId.value && warehouses.length > 0) {
-          this.inviteForm.patchValue({ warehouseId: warehouses[0].id });
+        const selectedInviteWarehouse = this.inviteForm.controls.warehouseId.value;
+        const selectedStillAllowed = this.administratorWarehouses.some(
+          (warehouse) => warehouse.id === selectedInviteWarehouse
+        );
+        if (!selectedStillAllowed) {
+          this.inviteForm.patchValue({
+            warehouseId: this.administratorWarehouses[0]?.id ?? '',
+          });
         }
       },
       error: () => {
@@ -377,8 +393,8 @@ export class WarehousesComponent implements OnInit {
     switch (detail) {
       case 'Confirmation name does not match warehouse name':
         return 'El nombre de confirmación no coincide.';
-      case 'Only the warehouse creator can delete this warehouse':
-        return 'Solo el creador del almacén puede eliminarlo.';
+      case 'Administrator role required':
+        return 'Necesitas el rol Administrador para eliminar el almacén.';
       case 'Cannot delete warehouse while intake batches are processing':
         return 'No se puede eliminar mientras hay lotes en procesamiento.';
       case 'Warehouse deletion failed':

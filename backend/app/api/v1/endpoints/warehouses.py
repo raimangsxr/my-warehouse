@@ -6,12 +6,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_warehouse_membership
+from app.api.deps import (
+    get_current_user,
+    require_warehouse_administrator,
+    require_warehouse_membership,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.activity_event import ActivityEvent
 from app.models.box import Box
-from app.models.membership import Membership
+from app.models.membership import (
+    Membership,
+    WAREHOUSE_ROLE_ADMINISTRATOR,
+    WAREHOUSE_ROLE_CONTRIBUTOR,
+)
 from app.models.smtp_setting import SMTPSetting
 from app.models.user import User
 from app.models.warehouse import Warehouse
@@ -20,6 +28,7 @@ from app.schemas.warehouse import (
     ActivityEventResponse,
     InviteAcceptResponse,
     MemberResponse,
+    MemberRoleUpdateRequest,
     WarehouseCreateRequest,
     WarehouseDeleteRequest,
     WarehouseDeleteResponse,
@@ -52,15 +61,23 @@ def _new_qr_token() -> str:
 def list_warehouses(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[WarehouseResponse]:
-    rows = db.scalars(
-        select(Warehouse)
+    rows = db.execute(
+        select(Warehouse, Membership.role)
         .join(Membership, Membership.warehouse_id == Warehouse.id)
         .where(Membership.user_id == current_user.id)
         .order_by(Warehouse.created_at.desc())
-    )
-    warehouses = rows.all()
-    logger.debug("Listed warehouses user_id=%s count=%s", current_user.id, len(warehouses))
-    return [WarehouseResponse.model_validate(r) for r in warehouses]
+    ).all()
+    logger.debug("Listed warehouses user_id=%s count=%s", current_user.id, len(rows))
+    return [
+        WarehouseResponse(
+            id=warehouse.id,
+            name=warehouse.name,
+            created_by=warehouse.created_by,
+            created_at=warehouse.created_at,
+            role=role,
+        )
+        for warehouse, role in rows
+    ]
 
 
 @router.post("", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
@@ -74,7 +91,11 @@ def create_warehouse(
     db.add(warehouse)
     db.flush()
 
-    membership = Membership(user_id=current_user.id, warehouse_id=warehouse.id)
+    membership = Membership(
+        user_id=current_user.id,
+        warehouse_id=warehouse.id,
+        role=WAREHOUSE_ROLE_ADMINISTRATOR,
+    )
     db.add(membership)
     inbound_box = Box(
         warehouse_id=warehouse.id,
@@ -122,7 +143,13 @@ def create_warehouse(
     db.commit()
     db.refresh(warehouse)
     logger.info("Warehouse created warehouse_id=%s created_by=%s", warehouse.id, current_user.id)
-    return WarehouseResponse.model_validate(warehouse)
+    return WarehouseResponse(
+        id=warehouse.id,
+        name=warehouse.name,
+        created_by=warehouse.created_by,
+        created_at=warehouse.created_at,
+        role=WAREHOUSE_ROLE_ADMINISTRATOR,
+    )
 
 
 @router.delete("/{warehouse_id}", response_model=WarehouseDeleteResponse)
@@ -156,7 +183,7 @@ def delete_warehouse_endpoint(
 @router.get("/{warehouse_id}", response_model=WarehouseResponse)
 def get_warehouse(
     warehouse_id: str,
-    _membership: Membership = Depends(require_warehouse_membership),
+    membership: Membership = Depends(require_warehouse_membership),
     db: Session = Depends(get_db),
 ) -> WarehouseResponse:
     warehouse = db.scalar(select(Warehouse).where(Warehouse.id == warehouse_id))
@@ -164,29 +191,108 @@ def get_warehouse(
         logger.error("Warehouse not found warehouse_id=%s", warehouse_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
     logger.debug("Warehouse details requested warehouse_id=%s", warehouse_id)
-    return WarehouseResponse.model_validate(warehouse)
+    return WarehouseResponse(
+        id=warehouse.id,
+        name=warehouse.name,
+        created_by=warehouse.created_by,
+        created_at=warehouse.created_at,
+        role=membership.role,
+    )
 
 
 @router.get("/{warehouse_id}/members", response_model=list[MemberResponse])
 def get_members(
     warehouse_id: str,
-    _membership: Membership = Depends(require_warehouse_membership),
+    _membership: Membership = Depends(require_warehouse_administrator),
     db: Session = Depends(get_db),
 ) -> list[MemberResponse]:
-    members = db.scalars(select(Membership).where(Membership.warehouse_id == warehouse_id))
-    memberships = members.all()
-    logger.debug("Warehouse members listed warehouse_id=%s count=%s", warehouse_id, len(memberships))
+    members = db.execute(
+        select(Membership, User)
+        .join(User, User.id == Membership.user_id)
+        .where(Membership.warehouse_id == warehouse_id)
+        .order_by(Membership.created_at.asc())
+    ).all()
+    logger.debug("Warehouse members listed warehouse_id=%s count=%s", warehouse_id, len(members))
     return [
-        MemberResponse(user_id=m.user_id, warehouse_id=m.warehouse_id, created_at=m.created_at)
-        for m in memberships
+        MemberResponse(
+            user_id=membership.user_id,
+            warehouse_id=membership.warehouse_id,
+            email=user.email,
+            display_name=user.display_name,
+            role=membership.role,
+            created_at=membership.created_at,
+        )
+        for membership, user in members
     ]
+
+
+@router.patch("/{warehouse_id}/members/{user_id}", response_model=MemberResponse)
+def update_member_role(
+    warehouse_id: str,
+    user_id: str,
+    payload: MemberRoleUpdateRequest,
+    _membership: Membership = Depends(require_warehouse_administrator),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MemberResponse:
+    memberships = db.scalars(
+        select(Membership)
+        .where(Membership.warehouse_id == warehouse_id)
+        .with_for_update()
+    ).all()
+    target = next((membership for membership in memberships if membership.user_id == user_id), None)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+    if (
+        target.role == WAREHOUSE_ROLE_ADMINISTRATOR
+        and payload.role == WAREHOUSE_ROLE_CONTRIBUTOR
+        and sum(
+            membership.role == WAREHOUSE_ROLE_ADMINISTRATOR
+            for membership in memberships
+        ) <= 1
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Warehouse must keep at least one administrator",
+        )
+
+    previous_role = target.role
+    target.role = payload.role
+    if previous_role != target.role:
+        record_activity(
+            db,
+            warehouse_id=warehouse_id,
+            actor_user_id=current_user.id,
+            event_type="member.role_changed",
+            entity_type="membership",
+            entity_id=user_id,
+            metadata={
+                "user_id": user_id,
+                "previous_role": previous_role,
+                "role": target.role,
+            },
+        )
+    user = db.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    db.commit()
+    db.refresh(target)
+    return MemberResponse(
+        user_id=target.user_id,
+        warehouse_id=target.warehouse_id,
+        email=user.email,
+        display_name=user.display_name,
+        role=target.role,
+        created_at=target.created_at,
+    )
 
 
 @router.post("/{warehouse_id}/invites", response_model=WarehouseInviteResponse, status_code=status.HTTP_201_CREATED)
 def create_invite(
     warehouse_id: str,
     payload: WarehouseInviteCreateRequest,
-    _membership: Membership = Depends(require_warehouse_membership),
+    _membership: Membership = Depends(require_warehouse_administrator),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> WarehouseInviteResponse:
@@ -208,6 +314,7 @@ def create_invite(
         invitee_email=payload.email.lower().strip() if payload.email else None,
         token_hash=hash_token(invite_token),
         expires_at=utcnow() + timedelta(hours=payload.expires_in_hours),
+        role=payload.role,
     )
     db.add(invite)
     record_activity(
@@ -217,7 +324,7 @@ def create_invite(
         event_type="invite.created",
         entity_type="invite",
         entity_id=invite.id,
-        metadata={"email": invite.invitee_email},
+        metadata={"email": invite.invitee_email, "role": invite.role},
     )
     db.commit()
 
@@ -267,6 +374,7 @@ def create_invite(
         invite_token=invite_token,
         invite_url=invite_url,
         expires_at=invite.expires_at,
+        role=invite.role,
         email_delivery_status=email_delivery_status,
         email_delivery_message=email_delivery_message,
     )
@@ -305,7 +413,13 @@ def accept_invite(
         )
     )
     if existing is None:
-        db.add(Membership(user_id=current_user.id, warehouse_id=invite.warehouse_id))
+        db.add(
+            Membership(
+                user_id=current_user.id,
+                warehouse_id=invite.warehouse_id,
+                role=invite.role,
+            )
+        )
 
     invite.accepted_at = utcnow()
     record_activity(
@@ -315,7 +429,7 @@ def accept_invite(
         event_type="invite.accepted",
         entity_type="invite",
         entity_id=invite.id,
-        metadata={"invitee_email": current_user.email},
+        metadata={"invitee_email": current_user.email, "role": invite.role},
     )
     db.commit()
     logger.info(

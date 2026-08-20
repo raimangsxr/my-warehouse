@@ -53,7 +53,6 @@ describe('WarehousesComponent', () => {
     const component = fixture.componentInstance;
     fixture.detectChanges();
 
-    httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`).flush({ id: 'user-1', email: 'a@b.com', display_name: null });
     httpMock.expectOne(`${environment.apiBaseUrl}/warehouses`).flush([]);
     return component;
   }
@@ -62,12 +61,11 @@ describe('WarehousesComponent', () => {
     expect(createComponent()).toBeTruthy();
   });
 
-  it('allows delete only for warehouses created by current user', () => {
+  it('allows delete only for warehouses where the user is administrator', () => {
     const component = createComponent();
-    component.currentUserId = 'user-1';
 
-    expect(component.canDeleteWarehouse(testWarehouse({ created_by: 'user-1' }))).toBe(true);
-    expect(component.canDeleteWarehouse(testWarehouse({ created_by: 'user-2' }))).toBe(false);
+    expect(component.canDeleteWarehouse(testWarehouse({ role: 'administrator' }))).toBe(true);
+    expect(component.canDeleteWarehouse(testWarehouse({ role: 'contributor' }))).toBe(false);
   });
 
   it('opens warehouse and stores selection', () => {
@@ -104,8 +102,6 @@ describe('WarehousesComponent', () => {
 
   it('maps delete API errors to user-facing messages', () => {
     const component = createComponent();
-    component.currentUserId = 'user-1';
-
     dialog.open.mockReturnValue({ afterClosed: () => of(true) });
     component.confirmDeleteWarehouse(testWarehouse({ id: 'wh-del', name: 'Main', created_by: 'user-1' }));
 
@@ -121,17 +117,18 @@ describe('WarehousesComponent', () => {
 
   it('creates invite successfully', () => {
     const component = createComponent();
-    component.inviteForm.setValue({ warehouseId: 'wh-test', email: 'guest@example.com' });
+    component.inviteForm.setValue({ warehouseId: 'wh-test', email: 'guest@example.com', role: 'contributor' });
     component.createInvite();
 
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/wh-test/invites`);
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ email: 'guest@example.com' });
+    expect(req.request.body).toEqual({ email: 'guest@example.com', role: 'contributor' });
     req.flush({
       warehouse_id: 'wh-test',
       invite_token: 'token-abc',
       invite_url: 'https://app.test/invites/token-abc',
       expires_at: '2026-12-31T00:00:00.000Z',
+      role: 'contributor',
       email_delivery_status: 'sent',
       email_delivery_message: 'Invitación enviada por correo.'
     });
@@ -143,7 +140,7 @@ describe('WarehousesComponent', () => {
 
   it('keeps the manual invite link when email delivery fails', () => {
     const component = createComponent();
-    component.inviteForm.setValue({ warehouseId: 'wh-test', email: 'guest@example.com' });
+    component.inviteForm.setValue({ warehouseId: 'wh-test', email: 'guest@example.com', role: 'administrator' });
     component.createInvite();
 
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/wh-test/invites`);
@@ -152,6 +149,7 @@ describe('WarehousesComponent', () => {
       invite_token: 'token-fallback',
       invite_url: 'https://app.test/invites/token-fallback',
       expires_at: '2026-12-31T00:00:00.000Z',
+      role: 'administrator',
       email_delivery_status: 'failed',
       email_delivery_message: 'Invitación creada, pero no se pudo enviar el correo.'
     });
@@ -166,7 +164,6 @@ describe('WarehousesComponent', () => {
     localStorage.setItem('mw_selected_warehouse_id', 'wh-del');
 
     const component = createComponent();
-    component.currentUserId = 'user-1';
     component.warehouses = [testWarehouse({ id: 'wh-del', name: 'Main', created_by: 'user-1' })];
 
     dialog.open.mockReturnValue({ afterClosed: () => of(true) });
