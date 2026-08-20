@@ -11,9 +11,11 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
+from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    DefaultWarehouseUpdateRequest,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     LoginRequest,
@@ -21,6 +23,7 @@ from app.schemas.auth import (
     ResetPasswordRequest,
     SignupRequest,
     TokenResponse,
+    UserUpdateRequest,
     UserResponse,
 )
 from app.schemas.common import MessageResponse
@@ -301,4 +304,46 @@ def change_password(
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     logger.debug("User profile requested user_id=%s", current_user.id)
+    return UserResponse.model_validate(current_user)
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    payload: UserUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    display_name = payload.display_name.strip() if payload.display_name else None
+    current_user.display_name = display_name or None
+    db.commit()
+    db.refresh(current_user)
+    logger.info("User profile updated user_id=%s", current_user.id)
+    return UserResponse.model_validate(current_user)
+
+
+@router.put("/me/default-warehouse", response_model=UserResponse)
+def update_default_warehouse(
+    payload: DefaultWarehouseUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    membership = db.scalar(
+        select(Membership).where(
+            Membership.user_id == current_user.id,
+            Membership.warehouse_id == payload.warehouse_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Warehouse membership required",
+        )
+    current_user.default_warehouse_id = payload.warehouse_id
+    db.commit()
+    db.refresh(current_user)
+    logger.info(
+        "Default warehouse updated user_id=%s warehouse_id=%s",
+        current_user.id,
+        payload.warehouse_id,
+    )
     return UserResponse.model_validate(current_user)

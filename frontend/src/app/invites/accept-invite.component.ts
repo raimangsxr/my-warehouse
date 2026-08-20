@@ -5,9 +5,11 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { forkJoin } from 'rxjs';
 
 import { WarehouseService } from '../services/warehouse.service';
 import { NotificationService } from '../services/notification.service';
+import { AuthService } from '../services/auth.service';
 
 @Component({
   selector: 'app-accept-invite',
@@ -54,6 +56,7 @@ export class AcceptInviteComponent implements OnInit {
     private readonly route: ActivatedRoute,
     private readonly router: Router,
     private readonly warehouseService: WarehouseService,
+    private readonly authService: AuthService,
     private readonly notificationService: NotificationService
   ) {}
 
@@ -71,7 +74,22 @@ export class AcceptInviteComponent implements OnInit {
         this.warehouseService.setSelectedWarehouseId(res.warehouse_id);
         this.successMessage = 'Invitación aceptada correctamente.';
         this.notificationService.success(this.successMessage);
-        this.router.navigateByUrl('/app/home');
+        forkJoin({ user: this.authService.me(), warehouses: this.warehouseService.list() }).subscribe({
+          next: ({ user, warehouses }) => {
+            const hasValidDefault = warehouses.some(
+              (warehouse) => warehouse.id === user.default_warehouse_id
+            );
+            if (hasValidDefault) {
+              this.router.navigateByUrl('/app/home');
+              return;
+            }
+            this.authService.setDefaultWarehouse(res.warehouse_id).subscribe({
+              next: () => this.router.navigateByUrl('/app/home'),
+              error: () => this.router.navigateByUrl('/app/home'),
+            });
+          },
+          error: () => this.router.navigateByUrl('/app/home'),
+        });
       },
       error: (err) => {
         this.loading = false;
@@ -97,6 +115,6 @@ export class AcceptInviteComponent implements OnInit {
   }
 
   goWarehouses(): void {
-    this.router.navigateByUrl('/warehouses');
+    this.router.navigateByUrl('/app/warehouses');
   }
 }

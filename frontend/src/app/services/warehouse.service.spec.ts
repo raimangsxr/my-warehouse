@@ -26,6 +26,21 @@ describe('WarehouseService', () => {
     req.flush([{ id: 'wh-1', name: 'Main', created_by: 'u1', created_at: '2026-01-01', role: 'administrator' }]);
   });
 
+  it('loads warehouse overviews and updates selected name and role', () => {
+    service.setSelectedWarehouseId('wh-1');
+    service.overview().subscribe((overviews) => expect(overviews[0].active_item_count).toBe(3));
+
+    const request = httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/overview`);
+    request.flush([{
+      id: 'wh-1', name: 'Main', created_by: 'u1', created_at: '2026-01-01',
+      membership_created_at: '2026-01-01', role: 'administrator', active_item_count: 3,
+      stock_unit_count: 4, active_box_count: 2, open_batch_count: 1, member_count: 1, members: []
+    }]);
+
+    expect(service.selectedWarehouseName()).toBe('Main');
+    expect(service.isSelectedWarehouseAdministrator()).toBe(true);
+  });
+
   it('creates a warehouse', () => {
     service.create('Secondary').subscribe((warehouse) => {
       expect(warehouse.name).toBe('Secondary');

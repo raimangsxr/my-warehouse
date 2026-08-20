@@ -20,6 +20,7 @@ from app.models.processed_command import ProcessedCommand
 from app.models.smtp_setting import SMTPSetting
 from app.models.stock_movement import StockMovement
 from app.models.sync_conflict import SyncConflict
+from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.models.warehouse_invite import WarehouseInvite
 
@@ -79,6 +80,11 @@ def assert_can_delete_warehouse(
 
 
 def _delete_warehouse_rows(db: Session, warehouse_id: str) -> None:
+    db.execute(
+        update(User)
+        .where(User.default_warehouse_id == warehouse_id)
+        .values(default_warehouse_id=None)
+    )
     item_ids = select(Item.id).where(Item.warehouse_id == warehouse_id)
     db.execute(delete(ItemFavorite).where(ItemFavorite.item_id.in_(item_ids)))
     db.execute(delete(StockMovement).where(StockMovement.warehouse_id == warehouse_id))

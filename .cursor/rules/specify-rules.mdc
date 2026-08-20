@@ -26,7 +26,7 @@ Use the matching `.cursor/skills/speckit-*/SKILL.md` at each step.
 - **Code wins** on conflict between docs and `backend/`/`frontend/` — then update the contract.
 - Active contracts: `specs/contracts/app/contract.md`, `specs/contracts/ops-platform/contract.md`.
 - Do **not** use root `specs.md` (deprecated).
-- Last completed change: `specs/archive/007-warehouse-user-roles/`.
+- Last completed change: `specs/archive/008-warehouse-navigation-profile/`.
 - Validate: `cd backend && uv run pytest` then `cd frontend && npm run build`.
 
 See `AGENTS.md`, `specs/README.md`, `.cursor/rules/speckit-mandatory-flow.mdc`.

@@ -42,6 +42,13 @@ describe('AcceptInviteComponent', () => {
 
     const req = httpMock.expectOne(`${environment.apiBaseUrl}/invites/invite-token/accept`);
     req.flush({ message: 'ok', warehouse_id: 'wh-invited' });
+    httpMock.expectOne(`${environment.apiBaseUrl}/auth/me`).flush({
+      id: 'user-1', email: 'member@example.com', display_name: 'Member', default_warehouse_id: 'wh-main'
+    });
+    httpMock.expectOne(`${environment.apiBaseUrl}/warehouses`).flush([
+      { id: 'wh-main', name: 'Main', created_by: 'owner', created_at: '2026-01-01', membership_created_at: '2026-01-01', role: 'contributor' },
+      { id: 'wh-invited', name: 'Invited', created_by: 'owner', created_at: '2026-01-02', membership_created_at: '2026-01-02', role: 'contributor' }
+    ]);
 
     expect(fixture.componentInstance.successMessage).toContain('aceptada');
     expect(localStorage.getItem('mw_selected_warehouse_id')).toBe('wh-invited');
@@ -63,7 +70,7 @@ describe('AcceptInviteComponent', () => {
   it('navigates to warehouses list', () => {
     const fixture = TestBed.createComponent(AcceptInviteComponent);
     fixture.componentInstance.goWarehouses();
-    expect(router.navigateByUrl).toHaveBeenCalledWith('/warehouses');
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/app/warehouses');
   });
 
   it('shows an invalid link message on 404', () => {

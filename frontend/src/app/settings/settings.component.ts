@@ -12,13 +12,11 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { Subscription } from 'rxjs';
 
-import { AuthService } from '../services/auth.service';
 import { NotificationService } from '../services/notification.service';
 import { GeminiModelId, SettingsService } from '../services/settings.service';
 import { SyncService } from '../services/sync.service';
 import { TransferService, WarehouseExportPayload } from '../services/transfer.service';
 import { WarehouseService } from '../services/warehouse.service';
-import { PwaService } from '../services/pwa.service';
 
 @Component({
   selector: 'app-settings',
@@ -42,108 +40,9 @@ import { PwaService } from '../services/pwa.service';
       <header class="page-header">
         <div>
           <h1 class="page-title">Configuración</h1>
-          <p class="page-subtitle">Seguridad de cuenta, PWA, SMTP, LLM, sync y backup/import</p>
+          <p class="page-subtitle">SMTP, LLM, sincronización y backup del warehouse activo</p>
         </div>
       </header>
-
-      <mat-card class="surface-card">
-        <mat-card-content>
-          <div class="card-header-row">
-            <div>
-              <h2 class="card-title">App instalada (PWA)</h2>
-              <p class="card-subtitle">Instalación, caché de shell y actualizaciones del cliente</p>
-            </div>
-          </div>
-
-          <div class="pwa-status-grid">
-            <div class="item-card">
-              <div class="status-line"><strong>Instalada:</strong> {{ pwaService.isInstalled() ? 'Sí' : 'No' }}</div>
-              <div class="status-line"><strong>Versión actual:</strong> {{ pwaService.currentVersionLabel() }}</div>
-              <div class="status-line">
-                <strong>Nueva versión:</strong>
-                {{ pwaService.latestVersionLabel() || 'No detectada' }}
-              </div>
-              <div class="status-line">
-                <strong>Service Worker:</strong>
-                {{ pwaService.serviceWorkerEnabled() ? 'Activo' : 'Desactivado en modo desarrollo' }}
-              </div>
-              <div class="status-line">
-                <strong>Prompt de instalación:</strong>
-                {{ pwaService.canInstall() ? 'Disponible' : 'Pendiente de elegibilidad del navegador' }}
-              </div>
-              <div class="status-line" *ngIf="pwaService.lastUpdateCheck()">
-                <strong>Última comprobación:</strong> {{ pwaService.lastUpdateCheck() | date: 'short' }}
-              </div>
-              <div class="status-line" *ngIf="pwaService.updateAvailable() && pwaService.latestVersionLabel()">
-                Hay una actualización pendiente: {{ pwaService.currentVersionLabel() }} → {{ pwaService.latestVersionLabel() }}
-              </div>
-            </div>
-            <div class="pwa-hint-card">
-              <p class="status-line">
-                Instalar la app exige build de producción servida por HTTPS. El shell y los assets quedan cacheados por
-                Angular Service Worker; la API autenticada no se cachea.
-              </p>
-              <p class="status-line" *ngIf="pwaService.lastUpdateError()">
-                {{ pwaService.lastUpdateError() }}
-              </p>
-              <p class="status-line" *ngIf="pwaService.showIosInstallHint()">
-                En iPhone/iPad usa Safari y toca <strong>Compartir</strong> → <strong>Añadir a pantalla de inicio</strong>.
-              </p>
-            </div>
-          </div>
-
-          <div class="actions-mobile-full mt-10">
-            <button mat-flat-button color="primary" type="button" *ngIf="pwaService.canInstall()" (click)="installApp()">
-              Instalar app
-            </button>
-            <button mat-stroked-button type="button" (click)="checkForAppUpdate()">
-              Buscar actualización
-            </button>
-            <button
-              mat-stroked-button
-              color="primary"
-              type="button"
-              *ngIf="pwaService.updateAvailable()"
-              (click)="applyAppUpdate()"
-            >
-              Aplicar actualización
-            </button>
-          </div>
-        </mat-card-content>
-      </mat-card>
-
-      <mat-card class="surface-card">
-        <mat-progress-bar *ngIf="passwordLoading" mode="indeterminate" />
-        <mat-card-content>
-          <div class="card-header-row">
-            <div>
-              <h2 class="card-title">Seguridad</h2>
-              <p class="card-subtitle">Actualiza tu contraseña de acceso</p>
-            </div>
-          </div>
-
-          <form [formGroup]="passwordForm" (ngSubmit)="changePassword()" class="form-row">
-            <mat-form-field>
-              <mat-label>Contraseña actual</mat-label>
-              <mat-icon matPrefix>lock</mat-icon>
-              <input matInput type="password" formControlName="currentPassword" />
-            </mat-form-field>
-            <mat-form-field>
-              <mat-label>Nueva contraseña</mat-label>
-              <mat-icon matPrefix>lock_reset</mat-icon>
-              <input matInput type="password" formControlName="newPassword" />
-            </mat-form-field>
-            <div class="inline-actions">
-              <button mat-flat-button color="primary" [disabled]="passwordForm.invalid || passwordLoading">
-                {{ passwordLoading ? 'Guardando...' : 'Actualizar contraseña' }}
-              </button>
-            </div>
-          </form>
-
-          <div class="error" *ngIf="passwordError">{{ passwordError }}</div>
-          <div class="status-message" *ngIf="passwordMessage">{{ passwordMessage }}</div>
-        </mat-card-content>
-      </mat-card>
 
       <mat-card class="surface-card">
         <mat-progress-bar *ngIf="smtpLoading" mode="indeterminate" />
@@ -439,21 +338,6 @@ import { PwaService } from '../services/pwa.service';
         flex-shrink: 0;
       }
 
-      .pwa-status-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 12px;
-      }
-
-      .pwa-hint-card {
-        display: grid;
-        gap: 10px;
-        padding: 12px 14px;
-        border: 1px solid rgba(127, 127, 127, 0.2);
-        border-radius: 12px;
-        background: rgba(25, 118, 210, 0.06);
-      }
-
       @media (max-width: 600px) {
         .import-input {
           width: 100%;
@@ -475,10 +359,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' }
   ];
   readonly defaultLlmModelPriority: GeminiModelId[] = this.geminiModelCatalog.map((model) => model.id);
-
-  passwordLoading = false;
-  passwordError = '';
-  passwordMessage = '';
 
   smtpLoading = false;
   smtpError = '';
@@ -505,11 +385,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   private onlineSub?: Subscription;
 
-  readonly passwordForm = this.fb.nonNullable.group({
-    currentPassword: ['', [Validators.required, Validators.minLength(8)]],
-    newPassword: ['', [Validators.required, Validators.minLength(8)]]
-  });
-
   readonly smtpForm = this.fb.nonNullable.group({
     host: ['', [Validators.required]],
     port: [587, [Validators.required]],
@@ -531,13 +406,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   constructor(
     private readonly fb: FormBuilder,
-    private readonly authService: AuthService,
     private readonly settingsService: SettingsService,
     private readonly syncService: SyncService,
     private readonly transferService: TransferService,
     private readonly warehouseService: WarehouseService,
-    private readonly notificationService: NotificationService,
-    public readonly pwaService: PwaService
+    private readonly notificationService: NotificationService
   ) {}
 
   ngOnInit(): void {
@@ -551,31 +424,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.onlineSub?.unsubscribe();
-  }
-
-  changePassword(): void {
-    if (this.passwordForm.invalid || this.passwordLoading) {
-      return;
-    }
-
-    this.passwordLoading = true;
-    this.passwordError = '';
-    this.passwordMessage = '';
-
-    const raw = this.passwordForm.getRawValue();
-    this.authService.changePassword(raw.currentPassword, raw.newPassword).subscribe({
-      next: (res) => {
-        this.passwordLoading = false;
-        this.passwordMessage = res.message;
-        this.notificationService.success(res.message || 'Contraseña actualizada correctamente.');
-        this.passwordForm.reset();
-      },
-      error: () => {
-        this.passwordLoading = false;
-        this.passwordError = 'No se pudo cambiar la contraseña.';
-        this.notificationService.error(this.passwordError);
-      }
-    });
   }
 
   saveSmtp(): void {
@@ -727,53 +575,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.notificationService.error(this.syncError);
     } finally {
       this.syncLoading = false;
-    }
-  }
-
-  async installApp(): Promise<void> {
-    const result = await this.pwaService.promptInstall();
-    if (result === 'accepted') {
-      this.notificationService.success('La instalación de la app se ha iniciado.');
-      return;
-    }
-    if (result === 'dismissed') {
-      this.notificationService.info('La instalación se ha pospuesto.');
-      return;
-    }
-    if (this.pwaService.showIosInstallHint()) {
-      this.notificationService.info('En Safari usa Compartir > Añadir a pantalla de inicio.');
-      return;
-    }
-    this.notificationService.info('La instalación estará disponible cuando el navegador valide la PWA en HTTPS.');
-  }
-
-  async checkForAppUpdate(): Promise<void> {
-    const available = await this.pwaService.checkForUpdate();
-    if (available || this.pwaService.updateAvailable()) {
-      const latestVersion = this.pwaService.latestVersionLabel();
-      const currentVersion = this.pwaService.currentVersionLabel();
-      this.notificationService.info(
-        latestVersion
-          ? `Hay una actualización lista para aplicar: ${currentVersion} → ${latestVersion}.`
-          : 'Hay una actualización lista para aplicar.'
-      );
-      return;
-    }
-    if (this.pwaService.lastUpdateError()) {
-      this.notificationService.error(this.pwaService.lastUpdateError() || 'No se pudo comprobar la actualización.');
-      return;
-    }
-    this.notificationService.info(`La app ya está actualizada en la versión ${this.pwaService.currentVersionLabel()}.`);
-  }
-
-  async applyAppUpdate(): Promise<void> {
-    const result = await this.pwaService.activateUpdate();
-    if (result.status === 'none') {
-      this.notificationService.info('No hay actualizaciones pendientes para aplicar.');
-      return;
-    }
-    if (result.status === 'error') {
-      this.notificationService.error(result.message);
     }
   }
 

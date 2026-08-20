@@ -73,30 +73,6 @@ describe('SettingsComponent', () => {
     expect(component.llmModelPriority[0]).toBe('gemini-2.5-flash-lite');
   });
 
-  it('changes password via auth API', async () => {
-    const fixture = await createSettings();
-    const component = fixture.componentInstance;
-    const notificationService = TestBed.inject(NotificationService);
-    vi.spyOn(notificationService, 'success');
-
-    component.passwordForm.setValue({
-      currentPassword: 'oldpass12',
-      newPassword: 'newpass12'
-    });
-    component.changePassword();
-
-    const req = httpMock.expectOne(`${environment.apiBaseUrl}/auth/change-password`);
-    expect(req.request.body).toEqual({
-      current_password: 'oldpass12',
-      new_password: 'newpass12'
-    });
-    req.flush({ message: 'Contraseña actualizada.' });
-
-    expect(component.passwordMessage).toBe('Contraseña actualizada.');
-    expect(notificationService.success).toHaveBeenCalled();
-    expect(component.passwordForm.value.currentPassword).toBe('');
-  });
-
   it('shows the real SMTP test success returned by the backend', async () => {
     const fixture = await createSettings();
     const component = fixture.componentInstance;

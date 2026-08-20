@@ -51,7 +51,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
             authService.clearTokens();
 
             if (!router.url.startsWith('/login')) {
-              const redirect = router.url || '/warehouses';
+              const redirect = router.url || '/app';
               void router.navigate(['/login'], {
                 queryParams: { redirect }
               });
@@ -66,7 +66,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         authService.clearTokens();
 
         if (!router.url.startsWith('/login')) {
-          const redirect = router.url || '/warehouses';
+          const redirect = router.url || '/app';
           void router.navigate(['/login'], {
             queryParams: { redirect }
           });
