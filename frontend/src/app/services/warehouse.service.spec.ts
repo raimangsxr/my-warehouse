@@ -63,7 +63,9 @@ describe('WarehouseService', () => {
       warehouse_id: 'wh-1',
       invite_token: 'token',
       invite_url: 'https://example.com/invite',
-      expires_at: '2026-01-02'
+      expires_at: '2026-01-02',
+      email_delivery_status: 'sent',
+      email_delivery_message: 'Invitación enviada por correo.'
     });
   });
 

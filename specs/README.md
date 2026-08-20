@@ -46,7 +46,9 @@ specs/
     ├── 001-initial-sdd-baseline/
     ├── 002-delete-warehouse/
     ├── 003-dev-docker-setup/
-    └── 004-app-version-warehouses-footer/   # Footer versión + APP_VERSION build (2026-07-08)
+    ├── 004-app-version-warehouses-footer/   # Footer versión + APP_VERSION build (2026-07-08)
+    ├── 005-frontend-test-suite/             # Suite Vitest frontend (2026-08-20)
+    └── 006-smtp-invite-delivery/            # SMTP real + invitaciones fiables (2026-08-20)
 ```
 
 ## Validación rápida

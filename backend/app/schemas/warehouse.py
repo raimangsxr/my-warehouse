@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class WarehouseCreateRequest(BaseModel):
@@ -23,7 +25,7 @@ class MemberResponse(BaseModel):
 
 
 class WarehouseInviteCreateRequest(BaseModel):
-    email: str | None = Field(default=None, max_length=255)
+    email: EmailStr | None = None
     expires_in_hours: int = Field(default=72, ge=1, le=168)
 
 
@@ -32,6 +34,8 @@ class WarehouseInviteResponse(BaseModel):
     invite_token: str
     invite_url: str
     expires_at: datetime
+    email_delivery_status: Literal["sent", "not_configured", "failed", "not_requested"]
+    email_delivery_message: str
 
 
 class InviteAcceptResponse(BaseModel):

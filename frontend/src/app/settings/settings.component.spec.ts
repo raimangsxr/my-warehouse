@@ -97,6 +97,45 @@ describe('SettingsComponent', () => {
     expect(component.passwordForm.value.currentPassword).toBe('');
   });
 
+  it('shows the real SMTP test success returned by the backend', async () => {
+    const fixture = await createSettings();
+    const component = fixture.componentInstance;
+    const notificationService = TestBed.inject(NotificationService);
+    vi.spyOn(notificationService, 'success');
+    component.smtpTestEmail = 'target@example.com';
+
+    component.testSmtp();
+
+    expect(component.smtpLoading).toBe(true);
+    const req = httpMock.expectOne((request) => request.url.endsWith('/settings/smtp/test'));
+    expect(req.request.body).toEqual({ to_email: 'target@example.com' });
+    req.flush({ message: 'Correo de prueba enviado a target@example.com.' });
+
+    expect(component.smtpLoading).toBe(false);
+    expect(component.smtpMessage).toBe('Correo de prueba enviado a target@example.com.');
+    expect(notificationService.success).toHaveBeenCalledWith(component.smtpMessage);
+  });
+
+  it('shows the sanitized backend detail when the SMTP test fails', async () => {
+    const fixture = await createSettings();
+    const component = fixture.componentInstance;
+    const notificationService = TestBed.inject(NotificationService);
+    vi.spyOn(notificationService, 'error');
+    component.smtpTestEmail = 'target@example.com';
+
+    component.testSmtp();
+
+    const req = httpMock.expectOne((request) => request.url.endsWith('/settings/smtp/test'));
+    req.flush(
+      { detail: 'El servidor SMTP rechazó las credenciales.' },
+      { status: 502, statusText: 'Bad Gateway' }
+    );
+
+    expect(component.smtpLoading).toBe(false);
+    expect(component.smtpError).toBe('El servidor SMTP rechazó las credenciales.');
+    expect(notificationService.error).toHaveBeenCalledWith(component.smtpError);
+  });
+
   it('exports warehouse snapshot', async () => {
     const fixture = await createSettings();
     const component = fixture.componentInstance;

@@ -48,7 +48,7 @@ If G1–G4 are not met: **stop**, run `/speckit-specify` (or create change retro
 ## Active SDD work
 
 - Active contracts: `specs/contracts/app/contract.md`, `specs/contracts/ops-platform/contract.md`
-- No active change (last completed: `specs/archive/004-app-version-warehouses-footer/`)
+- No active change (last completed: `specs/archive/006-smtp-invite-delivery/`)
 
 ## Suggested flow
 

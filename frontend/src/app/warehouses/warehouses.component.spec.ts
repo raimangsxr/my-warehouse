@@ -40,6 +40,7 @@ describe('WarehousesComponent', () => {
     vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     vi.spyOn(notificationService, 'success');
     vi.spyOn(notificationService, 'error');
+    vi.spyOn(notificationService, 'info');
     vi.spyOn(syncService, 'isOnline').mockReturnValue(true);
   });
 
@@ -129,13 +130,35 @@ describe('WarehousesComponent', () => {
     req.flush({
       warehouse_id: 'wh-test',
       invite_token: 'token-abc',
-      invite_url: 'https://app.test/invite/token-abc',
-      expires_at: '2026-12-31T00:00:00.000Z'
+      invite_url: 'https://app.test/invites/token-abc',
+      expires_at: '2026-12-31T00:00:00.000Z',
+      email_delivery_status: 'sent',
+      email_delivery_message: 'Invitación enviada por correo.'
     });
 
-    expect(component.inviteMessage).toBe('Invitación creada.');
-    expect(component.inviteLink).toBe('https://app.test/invite/token-abc');
-    expect(notificationService.success).toHaveBeenCalledWith('Invitación creada.');
+    expect(component.inviteMessage).toBe('Invitación enviada por correo.');
+    expect(component.inviteLink).toBe('https://app.test/invites/token-abc');
+    expect(notificationService.success).toHaveBeenCalledWith('Invitación enviada por correo.');
+  });
+
+  it('keeps the manual invite link when email delivery fails', () => {
+    const component = createComponent();
+    component.inviteForm.setValue({ warehouseId: 'wh-test', email: 'guest@example.com' });
+    component.createInvite();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/wh-test/invites`);
+    req.flush({
+      warehouse_id: 'wh-test',
+      invite_token: 'token-fallback',
+      invite_url: 'https://app.test/invites/token-fallback',
+      expires_at: '2026-12-31T00:00:00.000Z',
+      email_delivery_status: 'failed',
+      email_delivery_message: 'Invitación creada, pero no se pudo enviar el correo.'
+    });
+
+    expect(component.inviteMessage).toContain('no se pudo enviar');
+    expect(component.inviteLink).toBe('https://app.test/invites/token-fallback');
+    expect(notificationService.info).toHaveBeenCalledWith(component.inviteMessage);
   });
 
   it('deletes warehouse successfully after confirmation', async () => {

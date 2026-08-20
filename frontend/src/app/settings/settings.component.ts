@@ -209,8 +209,8 @@ import { PwaService } from '../services/pwa.service';
                 <mat-label>Email destino para test</mat-label>
                 <input matInput [(ngModel)]="smtpTestEmail" [ngModelOptions]="{ standalone: true }" />
               </mat-form-field>
-              <button mat-stroked-button type="button" (click)="testSmtp()" [disabled]="!smtpTestEmail.trim()">
-                Test SMTP
+              <button mat-stroked-button type="button" (click)="testSmtp()" [disabled]="smtpLoading || !smtpTestEmail.trim()">
+                {{ smtpLoading ? 'Enviando...' : 'Test SMTP' }}
               </button>
             </div>
           </form>
@@ -613,16 +613,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   testSmtp(): void {
-    if (!this.selectedWarehouseId || !this.smtpTestEmail.trim()) {
+    if (!this.selectedWarehouseId || !this.smtpTestEmail.trim() || this.smtpLoading) {
       return;
     }
+    this.smtpLoading = true;
+    this.smtpError = '';
+    this.smtpMessage = '';
     this.settingsService.testSmtpSettings(this.selectedWarehouseId, this.smtpTestEmail.trim()).subscribe({
       next: (res) => {
+        this.smtpLoading = false;
         this.smtpMessage = res.message;
         this.notificationService.success(res.message || 'Test SMTP completado.');
       },
-      error: () => {
-        this.smtpError = 'No se pudo ejecutar test SMTP.';
+      error: (err) => {
+        this.smtpLoading = false;
+        this.smtpError = err?.error?.detail || 'No se pudo ejecutar test SMTP.';
         this.notificationService.error(this.smtpError);
       }
     });

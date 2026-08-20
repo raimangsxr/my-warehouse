@@ -2,7 +2,7 @@
 
 **Product:** my-warehouse — PWA de inventario doméstico (garaje/trastero).  
 **Versions:** backend `0.3.4`, frontend `0.3.5`.  
-**Last verified:** 2026-07-08 (change `004-app-version-warehouses-footer`).
+**Last verified:** 2026-08-20 (change `006-smtp-invite-delivery`).
 
 ## Governance
 
@@ -45,7 +45,9 @@ No es offline-first completo: la mayoría de operaciones requieren red.
 Signup → login (opcional *Mantener sesión*: access JWT sin `exp` + refresh en cookie HttpOnly) → forgot/reset/change password. Interceptor: 401 → logout; refresh automático solo con sesión persistente.
 
 ### Warehouse
-Listar/crear → seleccionar (persistido) → invitar por link manual (`invite_url` en UI; **no** envío SMTP automático).
+Listar/crear → seleccionar (persistido) → invitar por email. La invitación siempre conserva `invite_url` como fallback manual; si existe SMTP para el warehouse se intenta enviar el enlace y la respuesta distingue `sent`, `not_configured`, `failed` y `not_requested` sin invalidar la invitación.
+
+Al abrir `/invites/{token}` sin sesión, el destino completo se conserva durante login o registro. Tras autenticar, la aceptación valida email normalizado, expiración UTC y consumo único; en éxito selecciona el warehouse y entra en `/app/home`.
 
 La vista `/warehouses` muestra un pie de página discreto con la versión desplegada (`Versión {APP_VERSION}`). En desarrollo local sin inyección de build: `dev`. En imágenes de release: tag de GitHub (ver `ops-platform` contract).
 
@@ -85,6 +87,8 @@ Breadcrumbs navegables, búsqueda recursiva debounced, mismos componentes `item-
 
 ### Ops
 Papelera, actividad (default 50 eventos), conflictos (keep_server / keep_client), Settings (PWA, SMTP, LLM, sync manual, export/import JSON).
+
+SMTP se configura por warehouse (`starttls`, `ssl`, `none`). El test realiza un envío real síncrono a la dirección indicada; solo responde éxito cuando el servidor SMTP acepta el mensaje. Fallos de configuración/conexión/autenticación/entrega devuelven errores categóricos sin secretos. No hay cola ni reintentos automáticos.
 
 ---
 
@@ -177,20 +181,20 @@ La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `P
 | Feature | Estado |
 |---------|--------|
 | Auth + remember me | ✅ |
-| Warehouses + invites (link manual) | ✅ |
+| Warehouses + invites (email + link manual fallback) | ✅ |
 | Eliminar warehouse (creador, confirmación nombre) | ✅ |
 | Cajas jerárquicas (mover por selector) | ✅ |
 | Artículos + stock + favoritos + batch | ✅ |
 | Búsqueda + tag cloud | ✅ |
 | QR + etiquetas (QR vía qrserver.com) | ✅ |
-| Settings SMTP/LLM | ✅ (SMTP test **simulado**) |
+| Settings SMTP/LLM | ✅ (SMTP test real) |
 | Export/import JSON | ✅ |
 | Foto + LLM draft | ✅ |
 | Intake masivo | ✅ |
 | PWA | ✅ |
 | Sync backend completo | ✅ |
 | Sync offline cliente | ⚠️ Solo stock + favoritos; sync manual |
-| Invites por email automático | ❌ |
+| Invites por email automático | ✅ (síncrono, sin reintentos) |
 | Drag-and-drop UI | ❌ |
 | Virtual scroll | ❌ |
 | Cache offline de entidades | ❌ |
@@ -214,8 +218,9 @@ La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `P
 ## Validation
 
 ```bash
-cd backend && uv run pytest    # 54 tests
+cd backend && uv run pytest                         # 64 tests
+cd frontend && npm run test -- --configuration=ci  # 195 tests
 cd frontend && npm run build
 ```
 
-Tests por área: `test_auth_warehouses`, `test_delete_warehouse`, `test_slice2_boxes_items`, `test_slice3_search_tags`, `test_slice4_qr_scan`, `test_slice5_invites_activity`, `test_slice6_settings_llm_smtp`, `test_slice7_sync_conflicts`, `test_slice8_export_import`, `test_slice9_item_photo_draft`, `test_slice10_intake_batch`, `test_llm_enrichment_json_parsing`.
+Tests por área: `test_auth_warehouses`, `test_delete_warehouse`, `test_slice2_boxes_items`, `test_slice3_search_tags`, `test_slice4_qr_scan`, `test_slice5_invites_activity`, `test_slice6_settings_llm_smtp`, `test_smtp_mailer`, `test_slice7_sync_conflicts`, `test_slice8_export_import`, `test_slice9_item_photo_draft`, `test_slice10_intake_batch`, `test_llm_enrichment_json_parsing`.

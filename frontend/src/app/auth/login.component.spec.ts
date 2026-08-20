@@ -21,7 +21,7 @@ describe('LoginComponent', () => {
         ...provideCommonTestProviders(),
         {
           provide: ActivatedRoute,
-          useValue: createActivatedRouteMock({}, { redirect: '/app/home' })
+          useValue: createActivatedRouteMock({}, { redirect: '/invites/invite-token' })
         }
       ]
     }).compileComponents();
@@ -60,7 +60,8 @@ describe('LoginComponent', () => {
     req.flush({ access_token: 'a', refresh_token: 'r', token_type: 'bearer' });
 
     expect(component.loading).toBe(false);
-    expect(router.navigateByUrl).toHaveBeenCalledWith('/app/home');
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/invites/invite-token');
+    expect(component.authRedirectQueryParams).toEqual({ redirect: '/invites/invite-token' });
   });
 
   it('shows error message when login fails', () => {
