@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -63,7 +63,7 @@ import { AuthService } from '../services/auth.service';
             </form>
           </mat-card-content>
           <mat-card-actions>
-            <a mat-button routerLink="/login">Ya tengo cuenta</a>
+            <a mat-button routerLink="/login" [queryParams]="authRedirectQueryParams">Ya tengo cuenta</a>
           </mat-card-actions>
         </mat-card>
       </div>
@@ -82,8 +82,14 @@ export class SignupComponent {
   constructor(
     private readonly fb: FormBuilder,
     private readonly authService: AuthService,
-    private readonly router: Router
+    private readonly router: Router,
+    private readonly route: ActivatedRoute
   ) {}
+
+  get authRedirectQueryParams(): Record<string, string> {
+    const redirect = this.redirectTarget();
+    return redirect ? { redirect } : {};
+  }
 
   submit(): void {
     if (this.form.invalid || this.loading) {
@@ -99,11 +105,14 @@ export class SignupComponent {
         this.authService.login(raw).subscribe({
           next: () => {
             this.loading = false;
-            this.router.navigateByUrl('/warehouses');
+            this.router.navigateByUrl(this.redirectTarget() || '/warehouses');
           },
           error: () => {
             this.loading = false;
-            this.router.navigateByUrl('/login');
+            const redirect = this.redirectTarget();
+            this.router.navigateByUrl(
+              redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'
+            );
           }
         });
       },
@@ -112,5 +121,10 @@ export class SignupComponent {
         this.errorMessage = 'No se pudo crear la cuenta.';
       }
     });
+  }
+
+  private redirectTarget(): string | null {
+    const redirect = this.route.snapshot.queryParamMap.get('redirect');
+    return redirect?.startsWith('/') && !redirect.startsWith('//') ? redirect : null;
   }
 }

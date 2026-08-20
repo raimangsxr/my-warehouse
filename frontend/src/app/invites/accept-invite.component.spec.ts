@@ -46,6 +46,7 @@ describe('AcceptInviteComponent', () => {
     expect(fixture.componentInstance.successMessage).toContain('aceptada');
     expect(localStorage.getItem('mw_selected_warehouse_id')).toBe('wh-invited');
     expect(notificationService.success).toHaveBeenCalled();
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/app/home');
   });
 
   it('shows expired invite message on 400', () => {
@@ -63,5 +64,16 @@ describe('AcceptInviteComponent', () => {
     const fixture = TestBed.createComponent(AcceptInviteComponent);
     fixture.componentInstance.goWarehouses();
     expect(router.navigateByUrl).toHaveBeenCalledWith('/warehouses');
+  });
+
+  it('shows an invalid link message on 404', () => {
+    const fixture = TestBed.createComponent(AcceptInviteComponent);
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/invites/invite-token/accept`);
+    req.flush('Not Found', { status: 404, statusText: 'Not Found' });
+
+    expect(fixture.componentInstance.errorMessage).toContain('no existe');
+    expect(notificationService.error).toHaveBeenCalled();
   });
 });

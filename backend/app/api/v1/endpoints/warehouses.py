@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 import logging
 import secrets
 
@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models.activity_event import ActivityEvent
 from app.models.box import Box
 from app.models.membership import Membership
+from app.models.smtp_setting import SMTPSetting
 from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.models.warehouse_invite import WarehouseInvite
@@ -29,22 +30,19 @@ from app.schemas.warehouse import (
 from app.services.activity import record_activity
 from app.services.box_codes import generate_unique_short_code
 from app.services.security import hash_token
+from app.services.smtp_mailer import SMTPConfigurationError, SMTPDeliveryError, send_smtp_message
 from app.services.sync_log import append_change_log
 from app.services.warehouse_delete import (
     WarehouseDeletionFailedError,
     assert_can_delete_warehouse,
     delete_warehouse as delete_warehouse_service,
 )
+from app.utils.datetime import ensure_utc, utcnow
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 invites_router = APIRouter(prefix="/invites", tags=["warehouses"])
 INBOUND_BOX_DEFAULT_NAME = "Entrada de mercancias"
 logger = logging.getLogger(__name__)
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
 
 def _new_qr_token() -> str:
     return secrets.token_urlsafe(24)
@@ -224,12 +222,53 @@ def create_invite(
     db.commit()
 
     invite_url = f"{settings.frontend_url.rstrip('/')}/invites/{invite_token}"
+    email_delivery_status = "not_requested"
+    email_delivery_message = "Invitación creada sin envío de correo."
+    if invite.invitee_email:
+        smtp_setting = db.scalar(select(SMTPSetting).where(SMTPSetting.warehouse_id == warehouse_id))
+        if smtp_setting is None:
+            email_delivery_status = "not_configured"
+            email_delivery_message = "Invitación creada; SMTP no está configurado."
+        else:
+            try:
+                send_smtp_message(
+                    smtp_setting,
+                    to_email=invite.invitee_email,
+                    subject=f"Invitación a {warehouse.name} en My Warehouse",
+                    body=(
+                        f"Te han invitado a unirte al garaje {warehouse.name}.\n\n"
+                        f"Acepta la invitación desde este enlace:\n{invite_url}\n\n"
+                        "Si no esperabas esta invitación, puedes ignorar este mensaje."
+                    ),
+                )
+                email_delivery_status = "sent"
+                email_delivery_message = "Invitación enviada por correo."
+            except SMTPConfigurationError:
+                email_delivery_status = "failed"
+                email_delivery_message = "Invitación creada, pero la configuración SMTP no es válida."
+                logger.warning(
+                    "Invite email failed due to invalid SMTP configuration warehouse_id=%s invite_id=%s",
+                    warehouse_id,
+                    invite.id,
+                )
+            except SMTPDeliveryError as exc:
+                email_delivery_status = "failed"
+                email_delivery_message = "Invitación creada, pero no se pudo enviar el correo."
+                logger.warning(
+                    "Invite email delivery failed warehouse_id=%s invite_id=%s failure=%s",
+                    warehouse_id,
+                    invite.id,
+                    exc.code,
+                )
+
     logger.info("Invite created warehouse_id=%s invite_id=%s", warehouse_id, invite.id)
     return WarehouseInviteResponse(
         warehouse_id=warehouse_id,
         invite_token=invite_token,
         invite_url=invite_url,
         expires_at=invite.expires_at,
+        email_delivery_status=email_delivery_status,
+        email_delivery_message=email_delivery_message,
     )
 
 
@@ -246,7 +285,7 @@ def accept_invite(
         logger.error("Accept invite failed: invite token not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
 
-    if invite.accepted_at is not None or invite.expires_at < utcnow():
+    if invite.accepted_at is not None or ensure_utc(invite.expires_at) < utcnow():
         logger.error("Accept invite failed: invite already used or expired invite_id=%s", invite.id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite expired or already used")
 

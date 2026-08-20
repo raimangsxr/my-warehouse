@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,8 +25,17 @@ from app.schemas.setting import (
 from app.services.activity import record_activity
 from app.services.llm_enrichment import generate_tags_and_aliases
 from app.services.secret_store import decrypt_secret, encrypt_secret, mask_secret
+from app.services.smtp_mailer import SMTPConfigurationError, SMTPDeliveryError, send_smtp_message
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
+
+SMTP_DELIVERY_DETAILS = {
+    "authentication": "El servidor SMTP rechazó las credenciales.",
+    "connection": "No se pudo conectar con el servidor SMTP.",
+    "timeout": "El servidor SMTP tardó demasiado en responder.",
+    "delivery": "El servidor SMTP rechazó el mensaje.",
+}
 
 
 def _ensure_membership(db: Session, warehouse_id: str, user_id: str) -> None:
@@ -125,11 +136,32 @@ def test_smtp_settings(
     if setting is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP settings not configured")
 
-    # Bootstrap environment: validate config presence and simulate delivery.
-    if not setting.host or not setting.from_address:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP settings incomplete")
+    try:
+        send_smtp_message(
+            setting,
+            to_email=str(payload.to_email),
+            subject="Prueba SMTP de My Warehouse",
+            body="Tu configuración SMTP funciona correctamente.",
+        )
+    except SMTPConfigurationError:
+        logger.warning("SMTP test rejected due to invalid configuration warehouse_id=%s", warehouse_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La configuración SMTP está incompleta o no es válida.",
+        ) from None
+    except SMTPDeliveryError as exc:
+        logger.warning(
+            "SMTP test delivery failed warehouse_id=%s failure=%s",
+            warehouse_id,
+            exc.code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=SMTP_DELIVERY_DETAILS[exc.code],
+        ) from None
 
-    return MessageResponse(message=f"SMTP test queued for {payload.to_email} (simulated)")
+    logger.info("SMTP test delivered warehouse_id=%s", warehouse_id)
+    return MessageResponse(message=f"Correo de prueba enviado a {payload.to_email}.")
 
 
 @router.get("/llm", response_model=LLMSettingsResponse)

@@ -69,7 +69,7 @@ import { AuthService } from '../services/auth.service';
             </form>
           </mat-card-content>
           <mat-card-actions>
-            <a mat-button routerLink="/signup">Crear cuenta</a>
+            <a mat-button routerLink="/signup" [queryParams]="authRedirectQueryParams">Crear cuenta</a>
             <a mat-button routerLink="/forgot-password">Recuperar contraseña</a>
           </mat-card-actions>
         </mat-card>
@@ -94,6 +94,11 @@ export class LoginComponent {
     private readonly route: ActivatedRoute
   ) {}
 
+  get authRedirectQueryParams(): Record<string, string> {
+    const redirect = this.redirectTarget();
+    return redirect ? { redirect } : {};
+  }
+
   submit(): void {
     if (this.form.invalid || this.loading) {
       return;
@@ -105,13 +110,17 @@ export class LoginComponent {
     this.authService.login(this.form.getRawValue()).subscribe({
       next: () => {
         this.loading = false;
-        const redirect = this.route.snapshot.queryParamMap.get('redirect');
-        this.router.navigateByUrl(redirect || '/warehouses');
+        this.router.navigateByUrl(this.redirectTarget() || '/warehouses');
       },
       error: () => {
         this.loading = false;
         this.errorMessage = 'No se pudo iniciar sesión. Revisa tus credenciales.';
       }
     });
+  }
+
+  private redirectTarget(): string | null {
+    const redirect = this.route.snapshot.queryParamMap.get('redirect');
+    return redirect?.startsWith('/') && !redirect.startsWith('//') ? redirect : null;
   }
 }

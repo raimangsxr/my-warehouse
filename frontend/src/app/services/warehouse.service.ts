@@ -16,6 +16,8 @@ export interface WarehouseInviteResponse {
   invite_token: string;
   invite_url: string;
   expires_at: string;
+  email_delivery_status: 'sent' | 'not_configured' | 'failed' | 'not_requested';
+  email_delivery_message: string;
 }
 
 export interface ActivityEvent {

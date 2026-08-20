@@ -23,7 +23,15 @@ def create_box(client, headers, warehouse_id) -> str:
     return res.json()["id"]
 
 
-def test_smtp_settings_roundtrip_and_test_endpoint(client):
+def test_smtp_settings_roundtrip_and_test_endpoint(client, monkeypatch):
+    from app.api.v1.endpoints import settings as settings_endpoint
+
+    deliveries = []
+
+    def fake_send(setting, *, to_email, subject, body):
+        deliveries.append((setting.host, to_email, subject, body))
+
+    monkeypatch.setattr(settings_endpoint, "send_smtp_message", fake_send)
     headers = signup_and_login(client, "slice6-smtp@example.com")
     warehouse_id = create_warehouse(client, headers)
 
@@ -57,7 +65,49 @@ def test_smtp_settings_roundtrip_and_test_endpoint(client):
         headers=headers,
     )
     assert test_mail.status_code == 200
-    assert "simulated" in test_mail.json()["message"]
+    assert test_mail.json()["message"] == "Correo de prueba enviado a target@example.com."
+    assert deliveries == [
+        ("smtp.example.com", "target@example.com", "Prueba SMTP de My Warehouse", "Tu configuración SMTP funciona correctamente.")
+    ]
+
+
+def test_smtp_test_returns_sanitized_delivery_error(client, monkeypatch):
+    from app.api.v1.endpoints import settings as settings_endpoint
+    from app.services.smtp_mailer import SMTPDeliveryError
+
+    headers = signup_and_login(client, "slice6-smtp-error@example.com")
+    warehouse_id = create_warehouse(client, headers)
+    client.put(
+        "/api/settings/smtp",
+        params={"warehouse_id": warehouse_id},
+        json={
+            "host": "smtp.example.com",
+            "port": 587,
+            "username": "user",
+            "password": "secret-pass",
+            "encryption_mode": "starttls",
+            "from_address": "noreply@example.com",
+            "from_name": "My Warehouse",
+        },
+        headers=headers,
+    )
+
+    monkeypatch.setattr(
+        settings_endpoint,
+        "send_smtp_message",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(SMTPDeliveryError("authentication")),
+    )
+
+    response = client.post(
+        "/api/settings/smtp/test",
+        params={"warehouse_id": warehouse_id},
+        json={"to_email": "target@example.com"},
+        headers=headers,
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "El servidor SMTP rechazó las credenciales."
+    assert "secret-pass" not in response.text
 
 
 def test_llm_settings_and_reprocess_item(client, monkeypatch):

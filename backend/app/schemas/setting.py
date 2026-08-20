@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.llm import DEFAULT_GEMINI_MODEL_PRIORITY, SUPPORTED_GEMINI_MODELS, GeminiModelId
 
@@ -25,13 +25,13 @@ class SMTPSettingsUpdateRequest(BaseModel):
     port: int = Field(ge=1, le=65535)
     username: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, max_length=255)
-    encryption_mode: str = Field(default="starttls", max_length=32)
-    from_address: str = Field(min_length=3, max_length=255)
+    encryption_mode: Literal["starttls", "ssl", "none"] = "starttls"
+    from_address: EmailStr
     from_name: str | None = Field(default=None, max_length=255)
 
 
 class SMTPTestRequest(BaseModel):
-    to_email: str = Field(min_length=3, max_length=255)
+    to_email: EmailStr
 
 
 class LLMSettingsResponse(BaseModel):

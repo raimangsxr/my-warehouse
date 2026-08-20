@@ -71,6 +71,7 @@ export class AcceptInviteComponent implements OnInit {
         this.warehouseService.setSelectedWarehouseId(res.warehouse_id);
         this.successMessage = 'Invitación aceptada correctamente.';
         this.notificationService.success(this.successMessage);
+        this.router.navigateByUrl('/app/home');
       },
       error: (err) => {
         this.loading = false;
@@ -81,6 +82,11 @@ export class AcceptInviteComponent implements OnInit {
         }
         if (err?.status === 403) {
           this.errorMessage = 'La invitación no corresponde a tu email.';
+          this.notificationService.error(this.errorMessage);
+          return;
+        }
+        if (err?.status === 404) {
+          this.errorMessage = 'La invitación no existe o el enlace no es válido.';
           this.notificationService.error(this.errorMessage);
           return;
         }

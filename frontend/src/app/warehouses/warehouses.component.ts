@@ -342,8 +342,12 @@ export class WarehousesComponent implements OnInit {
         this.inviteLoading = false;
         this.inviteLink = invite.invite_url;
         this.inviteToken = invite.invite_token;
-        this.inviteMessage = 'Invitación creada.';
-        this.notificationService.success(this.inviteMessage);
+        this.inviteMessage = invite.email_delivery_message;
+        if (invite.email_delivery_status === 'sent') {
+          this.notificationService.success(this.inviteMessage);
+        } else {
+          this.notificationService.info(this.inviteMessage);
+        }
       },
       error: () => {
         this.inviteLoading = false;
