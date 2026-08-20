@@ -2,7 +2,7 @@
 
 **Product:** my-warehouse — PWA de inventario doméstico (garaje/trastero).  
 **Versions:** backend `0.3.4`, frontend `0.3.5`.  
-**Last verified:** 2026-08-20 (change `006-smtp-invite-delivery`).
+**Last verified:** 2026-08-20 (change `007-warehouse-user-roles`).
 
 ## Governance
 
@@ -17,7 +17,7 @@ Aplicación **online-first** para localizar objetos físicos mediante:
 - cajas jerárquicas con QR por caja,
 - artículos con foto, stock, favoritos, tags y alias,
 - búsqueda con relevancia y escaneo QR,
-- colaboración multiusuario sin roles,
+- colaboración multiusuario con roles Administrador y Contribuidor por warehouse,
 - **cola offline limitada** (stock y favoritos) + sync manual,
 - enriquecimiento LLM (Gemini) y captura masiva por lotes.
 
@@ -30,7 +30,7 @@ No es offline-first completo: la mayoría de operaciones requieren red.
 | Concepto | Implementación actual |
 |----------|----------------------|
 | **User** | Email + password (Argon2). Múltiples warehouses. |
-| **Warehouse** | Sin roles. Al crearse añade caja `Entrada de mercancias` (`is_inbound=true`, no borrable). |
+| **Warehouse** | Membresías con rol `administrator` o `contributor`. Al crearse, el creador es Administrador y se añade la caja `Entrada de mercancias` (`is_inbound=true`, no borrable). |
 | **Box** | Árbol con `parent_box_id`, `qr_token`, `short_code`, `version`, soft-delete. |
 | **Item** | En una caja. `photo_url`, `tags`/`aliases` como **JSON**, stock derivado, favorito por usuario. |
 | **Stock** | Suma de `stock_movements`. Alta: `+1`. Intake commit: `+quantity`. Ajuste UI: `±1` con `command_id`. |
@@ -45,16 +45,23 @@ No es offline-first completo: la mayoría de operaciones requieren red.
 Signup → login (opcional *Mantener sesión*: access JWT sin `exp` + refresh en cookie HttpOnly) → forgot/reset/change password. Interceptor: 401 → logout; refresh automático solo con sesión persistente.
 
 ### Warehouse
-Listar/crear → seleccionar (persistido) → invitar por email. La invitación siempre conserva `invite_url` como fallback manual; si existe SMTP para el warehouse se intenta enviar el enlace y la respuesta distingue `sent`, `not_configured`, `failed` y `not_requested` sin invalidar la invitación.
+Listar/crear → seleccionar (persistido) → invitar por email. La API expone el rol del usuario autenticado en cada warehouse. Solo un Administrador puede invitar y elige `administrator` o `contributor`, con Contribuidor por defecto. La invitación guarda el rol que se copiará a la membresía al aceptar y siempre conserva `invite_url` como fallback manual; si existe SMTP para el warehouse se intenta enviar el enlace y la respuesta distingue `sent`, `not_configured`, `failed` y `not_requested` sin invalidar la invitación.
 
 Al abrir `/invites/{token}` sin sesión, el destino completo se conserva durante login o registro. Tras autenticar, la aceptación valida email normalizado, expiración UTC y consumo único; en éxito selecciona el warehouse y entra en `/app/home`.
 
 La vista `/warehouses` muestra un pie de página discreto con la versión desplegada (`Versión {APP_VERSION}`). En desarrollo local sin inyección de build: `dev`. En imágenes de release: tag de GitHub (ver `ops-platform` contract).
 
-**Eliminar warehouse** (solo creador, solo desde `/warehouses`):
+**Miembros y roles** (solo Administrador):
+- El módulo `/app/members` lista identidad y rol de los miembros del warehouse seleccionado y muestra la matriz fija de permisos.
+- `GET /api/warehouses/{warehouse_id}/members` y `PATCH /api/warehouses/{warehouse_id}/members/{user_id}` requieren Administrador.
+- Un Administrador puede promover o degradar membresías, incluida la propia si queda otro Administrador.
+- Una degradación que dejaría cero Administradores se rechaza con HTTP 409 y sin cambios parciales.
+- No hay permisos individuales, roles configurables, expulsión ni abandono de warehouse.
+
+**Eliminar warehouse** (cualquier Administrador, solo desde `/warehouses`):
 - `DELETE /api/warehouses/{warehouse_id}` con body `{ "confirm_name": "<nombre exacto>" }`.
 - Requiere red; la UI deshabilita la acción offline.
-- Solo `created_by` puede eliminar; miembros no creadores no ven el botón.
+- Cualquier miembro con rol Administrador puede eliminar; Contribuidores no ven el botón y reciben HTTP 403 si llaman directamente. `created_by` es histórico y no concede por sí solo permisos.
 - Bloqueado con HTTP 409 si existe un lote intake con `status=processing`.
 - Borrado atómico: filas relacionadas en BD + directorio `media_root/{warehouse_id}/`.
 - Si falla el borrado de media → HTTP 500, warehouse intacto (rollback).
@@ -86,9 +93,24 @@ Breadcrumbs navegables, búsqueda recursiva debounced, mismos componentes `item-
 - **Lotes:** `/app/batches`, `/app/batches/:batchId` — cámara continua, cola de subidas, polling 5s, estados UX Nuevo/Procesado/Error/Guardado.
 
 ### Ops
-Papelera, actividad (default 50 eventos), conflictos (keep_server / keep_client), Settings (PWA, SMTP, LLM, sync manual, export/import JSON).
+Papelera y actividad (default 50 eventos) están disponibles para ambos roles. Conflictos (keep_server / keep_client) y Settings (PWA, SMTP, LLM, sync manual, export/import JSON) requieren Administrador.
 
 SMTP se configura por warehouse (`starttls`, `ssl`, `none`). El test realiza un envío real síncrono a la dirección indicada; solo responde éxito cuando el servidor SMTP acepta el mensaje. Fallos de configuración/conexión/autenticación/entrega devuelven errores categóricos sin secretos. No hay cola ni reintentos automáticos.
+
+### Matriz de permisos por warehouse
+
+| Capacidad | Administrador | Contribuidor |
+|-----------|---------------|--------------|
+| Ver/seleccionar warehouse y crear uno propio | ✅ | ✅ (será Administrador del nuevo) |
+| Búsqueda, actividad y QR | ✅ | ✅ |
+| Cajas, artículos, stock, favoritos, fotos, tags, papelera y lotes | ✅ | ✅ |
+| Invitaciones y selección de rol | ✅ | ❌ |
+| Listado de miembros y cambio de roles | ✅, conservando al menos un Administrador | ❌ |
+| Eliminar warehouse | ✅, con confirmación y bloqueos existentes | ❌ |
+| Settings, contraseña desde Settings, PWA, SMTP, LLM, sync y conflictos | ✅ | ❌ |
+| Export/import JSON | ✅ | ❌ |
+
+La autorización se evalúa en backend contra la membresía del warehouse objetivo. La UI oculta y protege rutas administrativas, pero no es la barrera de seguridad. La recuperación pública de contraseña permanece disponible a cualquier usuario.
 
 ---
 
@@ -106,14 +128,14 @@ Definidas en `frontend/src/app/routes.ts`. Shell en `/app/*`; redirect raíz →
 |-------|-------|
 | `users` | |
 | `warehouses` | `created_by` |
-| `memberships` | PK compuesta |
+| `memberships` | PK compuesta; `role` no nulo (`administrator`/`contributor`) |
 | `refresh_tokens` | Incluye hash de access persistente cuando `remember_me` |
 | `password_reset_tokens` | |
 | `boxes` | Sin `created_by`/`updated_by` — solo `TimestampMixin` |
 | `items` | `tags`, `aliases` JSON; `photo_url` string |
 | `item_favorites` | Por usuario |
 | `stock_movements` | `command_id` único por item |
-| `warehouse_invites` | |
+| `warehouse_invites` | `role` no nulo, default `contributor` |
 | `activity_events` | |
 | `smtp_settings`, `llm_settings` | Secretos cifrados; `updated_by` |
 | `intake_batches`, `intake_drafts` | |
@@ -143,6 +165,8 @@ Definidas en `frontend/src/app/routes.ts`. Shell en `/app/*`; redirect raíz →
 Grupos: auth (8), warehouses+invites+activity+**DELETE warehouse**, boxes+QR, items+batch+draft, intake (11), photos upload, tags+cloud, settings SMTP/LLM, sync push/pull/resolve, export/import.
 
 **Sync push** acepta 11 tipos de comando en backend; el cliente solo genera 3 en práctica.
+
+Los grupos administrativos (invitaciones, miembros/roles, DELETE warehouse, Settings SMTP/LLM, sync push/pull/resolve y export/import) requieren Administrador. El resto de recursos operativos mantiene autorización por membresía para ambos roles.
 
 **Conflictos:** UI expone `keep_server` y `keep_client`. El enum backend incluye `merge` pero no hay flujo distinto implementado ni UI para merge.
 
@@ -182,7 +206,9 @@ La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `P
 |---------|--------|
 | Auth + remember me | ✅ |
 | Warehouses + invites (email + link manual fallback) | ✅ |
-| Eliminar warehouse (creador, confirmación nombre) | ✅ |
+| Roles Administrador/Contribuidor por warehouse | ✅ |
+| Gestión de miembros y roles | ✅ |
+| Eliminar warehouse (Administrador, confirmación nombre) | ✅ |
 | Cajas jerárquicas (mover por selector) | ✅ |
 | Artículos + stock + favoritos + batch | ✅ |
 | Búsqueda + tag cloud | ✅ |
@@ -200,7 +226,7 @@ La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `P
 | Cache offline de entidades | ❌ |
 | Rate limiting auth | ❌ |
 | QR por artículo | ❌ (fuera de alcance) |
-| Roles / 2FA | ❌ (fuera de alcance) |
+| 2FA | ❌ (fuera de alcance) |
 | Resolución merge de conflictos | ❌ (enum sin UI/flujo) |
 | Filtro “con foto” en Home UI | ❌ (solo en API) |
 
@@ -218,9 +244,9 @@ La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `P
 ## Validation
 
 ```bash
-cd backend && uv run pytest                         # 64 tests
-cd frontend && npm run test -- --configuration=ci  # 195 tests
+cd backend && uv run pytest                         # 69 tests
+cd frontend && npm run test -- --configuration=ci  # 204 tests
 cd frontend && npm run build
 ```
 
-Tests por área: `test_auth_warehouses`, `test_delete_warehouse`, `test_slice2_boxes_items`, `test_slice3_search_tags`, `test_slice4_qr_scan`, `test_slice5_invites_activity`, `test_slice6_settings_llm_smtp`, `test_smtp_mailer`, `test_slice7_sync_conflicts`, `test_slice8_export_import`, `test_slice9_item_photo_draft`, `test_slice10_intake_batch`, `test_llm_enrichment_json_parsing`.
+Tests por área: `test_auth_warehouses`, `test_warehouse_roles`, `test_warehouse_roles_migration`, `test_delete_warehouse`, `test_slice2_boxes_items`, `test_slice3_search_tags`, `test_slice4_qr_scan`, `test_slice5_invites_activity`, `test_slice6_settings_llm_smtp`, `test_smtp_mailer`, `test_slice7_sync_conflicts`, `test_slice8_export_import`, `test_slice9_item_photo_draft`, `test_slice10_intake_batch`, `test_llm_enrichment_json_parsing`.

@@ -4,12 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_warehouse_administrator
 from app.core.llm import DEFAULT_GEMINI_MODEL_PRIORITY, normalize_model_priority
 from app.db.session import get_db
 from app.models.item import Item
 from app.models.llm_setting import LLMSetting
-from app.models.membership import Membership
 from app.models.smtp_setting import SMTPSetting
 from app.models.user import User
 from app.schemas.common import MessageResponse
@@ -38,24 +37,13 @@ SMTP_DELIVERY_DETAILS = {
 }
 
 
-def _ensure_membership(db: Session, warehouse_id: str, user_id: str) -> None:
-    membership = db.scalar(
-        select(Membership).where(
-            Membership.warehouse_id == warehouse_id,
-            Membership.user_id == user_id,
-        )
-    )
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to warehouse")
-
-
 @router.get("/smtp", response_model=SMTPSettingsResponse)
 def get_smtp_settings(
     warehouse_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SMTPSettingsResponse:
-    _ensure_membership(db, warehouse_id, current_user.id)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
     setting = db.scalar(select(SMTPSetting).where(SMTPSetting.warehouse_id == warehouse_id))
     if setting is None:
         return SMTPSettingsResponse(warehouse_id=warehouse_id, has_password=False)
@@ -87,7 +75,7 @@ def update_smtp_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SMTPSettingsResponse:
-    _ensure_membership(db, warehouse_id, current_user.id)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
     setting = db.scalar(select(SMTPSetting).where(SMTPSetting.warehouse_id == warehouse_id))
     if setting is None:
         setting = SMTPSetting(
@@ -131,7 +119,7 @@ def test_smtp_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
-    _ensure_membership(db, warehouse_id, current_user.id)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
     setting = db.scalar(select(SMTPSetting).where(SMTPSetting.warehouse_id == warehouse_id))
     if setting is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP settings not configured")
@@ -170,7 +158,7 @@ def get_llm_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> LLMSettingsResponse:
-    _ensure_membership(db, warehouse_id, current_user.id)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
     setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
     if setting is None:
         return LLMSettingsResponse(
@@ -212,7 +200,7 @@ def update_llm_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> LLMSettingsResponse:
-    _ensure_membership(db, warehouse_id, current_user.id)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
     setting = db.scalar(select(LLMSetting).where(LLMSetting.warehouse_id == warehouse_id))
     if setting is None:
         setting = LLMSetting(
@@ -257,7 +245,7 @@ def reprocess_llm_item(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> LLMReprocessResponse:
-    _ensure_membership(db, warehouse_id, current_user.id)
+    require_warehouse_administrator(warehouse_id, current_user=current_user, db=db)
     item = db.scalar(
         select(Item).where(
             Item.id == item_id,

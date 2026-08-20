@@ -1,13 +1,25 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { computed, Injectable, signal } from '@angular/core';
+import { Observable, tap } from 'rxjs';
 
 import { environment } from '../core/environment';
+
+export type WarehouseRole = 'administrator' | 'contributor';
 
 export interface Warehouse {
   id: string;
   name: string;
   created_by: string;
+  created_at: string;
+  role: WarehouseRole;
+}
+
+export interface WarehouseMember {
+  user_id: string;
+  warehouse_id: string;
+  email: string;
+  display_name: string | null;
+  role: WarehouseRole;
   created_at: string;
 }
 
@@ -16,6 +28,7 @@ export interface WarehouseInviteResponse {
   invite_token: string;
   invite_url: string;
   expires_at: string;
+  role: WarehouseRole;
   email_delivery_status: 'sent' | 'not_configured' | 'failed' | 'not_requested';
   email_delivery_message: string;
 }
@@ -34,11 +47,21 @@ export interface ActivityEvent {
 @Injectable({ providedIn: 'root' })
 export class WarehouseService {
   private readonly selectedWarehouseKey = 'mw_selected_warehouse_id';
+  private knownWarehouses: Warehouse[] = [];
+  readonly selectedWarehouseRole = signal<WarehouseRole | null>(null);
+  readonly isSelectedWarehouseAdministrator = computed(
+    () => this.selectedWarehouseRole() === 'administrator'
+  );
 
   constructor(private readonly http: HttpClient) {}
 
   list(): Observable<Warehouse[]> {
-    return this.http.get<Warehouse[]>(`${environment.apiBaseUrl}/warehouses`);
+    return this.http.get<Warehouse[]>(`${environment.apiBaseUrl}/warehouses`).pipe(
+      tap((warehouses) => {
+        this.knownWarehouses = warehouses;
+        this.syncSelectedWarehouseRole();
+      })
+    );
   }
 
   create(name: string): Observable<Warehouse> {
@@ -47,7 +70,7 @@ export class WarehouseService {
 
   createInvite(
     warehouseId: string,
-    payload: { email?: string | null; expires_in_hours?: number } = {}
+    payload: { email?: string | null; expires_in_hours?: number; role?: WarehouseRole } = {}
   ): Observable<WarehouseInviteResponse> {
     return this.http.post<WarehouseInviteResponse>(`${environment.apiBaseUrl}/warehouses/${warehouseId}/invites`, payload);
   }
@@ -65,6 +88,23 @@ export class WarehouseService {
     });
   }
 
+  members(warehouseId: string): Observable<WarehouseMember[]> {
+    return this.http.get<WarehouseMember[]>(
+      `${environment.apiBaseUrl}/warehouses/${warehouseId}/members`
+    );
+  }
+
+  updateMemberRole(
+    warehouseId: string,
+    userId: string,
+    role: WarehouseRole
+  ): Observable<WarehouseMember> {
+    return this.http.patch<WarehouseMember>(
+      `${environment.apiBaseUrl}/warehouses/${warehouseId}/members/${userId}`,
+      { role }
+    );
+  }
+
   delete(warehouseId: string, confirmName: string): Observable<{ message: string }> {
     return this.http.request<{ message: string }>('DELETE', `${environment.apiBaseUrl}/warehouses/${warehouseId}`, {
       body: { confirm_name: confirmName },
@@ -77,9 +117,17 @@ export class WarehouseService {
 
   setSelectedWarehouseId(warehouseId: string): void {
     localStorage.setItem(this.selectedWarehouseKey, warehouseId);
+    this.syncSelectedWarehouseRole();
   }
 
   clearSelectedWarehouseId(): void {
     localStorage.removeItem(this.selectedWarehouseKey);
+    this.selectedWarehouseRole.set(null);
+  }
+
+  private syncSelectedWarehouseRole(): void {
+    const selectedId = this.getSelectedWarehouseId();
+    const selected = this.knownWarehouses.find((warehouse) => warehouse.id === selectedId);
+    this.selectedWarehouseRole.set(selected?.role ?? null);
   }
 }

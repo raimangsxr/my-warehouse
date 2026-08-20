@@ -227,6 +227,7 @@ type HomeViewMode = 'cards' | 'list';
             [isSelected]="selectedItemIds.has(item.id)"
             [isMobileView]="isMobileView"
             [isReprocessing]="reprocessingItemIds.has(item.id)"
+            [canReprocess]="isAdministrator()"
             [enablePhotoPreview]="true"
             (selectionToggle)="toggleSelected(item.id)"
             (favoriteToggle)="toggleFavorite(item)"
@@ -246,6 +247,7 @@ type HomeViewMode = 'cards' | 'list';
             [showSelection]="batchActionsExpanded"
             [selectedItemIds]="selectedItemIds"
             [reprocessingItemIds]="reprocessingItemIds"
+            [canReprocess]="isAdministrator()"
             [enablePhotoPreview]="true"
             (selectionToggle)="toggleSelected($event)"
             (favoriteToggle)="toggleFavorite($event)"
@@ -926,6 +928,7 @@ type HomeViewMode = 'cards' | 'list';
 })
 export class HomeComponent implements OnInit, OnDestroy {
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
+  readonly isAdministrator = this.warehouseService.isSelectedWarehouseAdministrator;
   private readonly destroy$ = new Subject<void>();
   private readonly viewModeStorageKey = 'home_view_mode';
 

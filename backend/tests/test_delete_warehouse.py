@@ -189,7 +189,7 @@ def test_wrong_confirm_name(client):
     assert res.json()["detail"] == "Confirmation name does not match warehouse name"
 
 
-def test_non_creator_forbidden(client):
+def test_contributor_forbidden(client):
     owner_headers = signup_and_login(client, "owner-delete@example.com")
     member_headers = signup_and_login(client, "member-delete@example.com")
     warehouse = create_warehouse(client, owner_headers, name="Shared WH")
@@ -208,7 +208,7 @@ def test_non_creator_forbidden(client):
 
     res = delete_warehouse_api(client, member_headers, warehouse["id"], warehouse["name"])
     assert res.status_code == 403
-    assert res.json()["detail"] == "Only the warehouse creator can delete this warehouse"
+    assert res.json()["detail"] == "Administrator role required"
 
 
 def test_co_member_loses_access(client):

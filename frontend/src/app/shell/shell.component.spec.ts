@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStandaloneComponent } from '../../testing/component-test-helpers';
 import { NotificationService } from '../services/notification.service';
 import { PwaService } from '../services/pwa.service';
+import { WarehouseService } from '../services/warehouse.service';
 import { ShellComponent } from './shell.component';
 
 describe('ShellComponent', () => {
@@ -31,6 +32,20 @@ describe('ShellComponent', () => {
   it('should create', async () => {
     const fixture = await createShell();
     expect(fixture.componentInstance).toBeTruthy();
+  });
+
+  it('shows administrative navigation only for administrators', async () => {
+    const fixture = await createShell();
+    const warehouseService = TestBed.inject(WarehouseService);
+    warehouseService.selectedWarehouseRole.set('administrator');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Miembros');
+    expect(fixture.nativeElement.textContent).toContain('Configuración');
+
+    warehouseService.selectedWarehouseRole.set('contributor');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Miembros');
+    expect(fixture.nativeElement.textContent).not.toContain('Configuración');
   });
 
   it('logs out and navigates to login', async () => {

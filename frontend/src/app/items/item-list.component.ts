@@ -70,6 +70,7 @@ import { Item } from '../services/item.service';
               <td class="col-stock">
                 <div class="product-stock-inline">
                   <button
+                    *ngIf="canReprocess"
                     mat-icon-button
                     type="button"
                     class="stock-step-btn stock-step-dec"
@@ -441,6 +442,7 @@ export class ItemListComponent {
   @Input() showSelection = false;
   @Input() selectedItemIds: Set<string> = new Set<string>();
   @Input() reprocessingItemIds: Set<string> = new Set<string>();
+  @Input() canReprocess = true;
   @Input() enablePhotoPreview = false;
   @Input() showPathLinks = false;
   @Input() boxPathIdsByItemId: Record<string, string[]> = {};

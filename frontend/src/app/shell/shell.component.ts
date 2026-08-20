@@ -64,11 +64,15 @@ import { WarehouseService } from '../services/warehouse.service';
             <mat-icon matListItemIcon>history</mat-icon>
             <span matListItemTitle>Actividad</span>
           </a>
-          <a mat-list-item class="shell-link" routerLink="/app/conflicts" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+          <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/conflicts" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
             <mat-icon matListItemIcon>sync_problem</mat-icon>
             <span matListItemTitle>Conflictos</span>
           </a>
-          <a mat-list-item class="shell-link" routerLink="/app/settings" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+          <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/members" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
+            <mat-icon matListItemIcon>group</mat-icon>
+            <span matListItemTitle>Miembros</span>
+          </a>
+          <a *ngIf="isAdministrator()" mat-list-item class="shell-link" routerLink="/app/settings" routerLinkActive="shell-link-active" (click)="closeIfMobile()">
             <mat-icon matListItemIcon>settings</mat-icon>
             <span matListItemTitle>Configuración</span>
           </a>
@@ -87,7 +91,9 @@ import { WarehouseService } from '../services/warehouse.service';
           <span class="shell-toolbar-title">my-warehouse</span>
           <span class="grow"></span>
           <ng-container *ngIf="!isMobile; else mobileActions">
-            <span class="inline-chip shell-warehouse-chip" *ngIf="selectedWarehouseId">WH: {{ selectedWarehouseId }}</span>
+            <span class="inline-chip shell-warehouse-chip" *ngIf="selectedWarehouseId">
+              WH: {{ selectedWarehouseId }} · {{ isAdministrator() ? 'Administrador' : 'Contribuidor' }}
+            </span>
             <button mat-icon-button aria-label="Escanear QR" routerLink="/app/scan">
               <mat-icon>qr_code_scanner</mat-icon>
             </button>
@@ -99,7 +105,7 @@ import { WarehouseService } from '../services/warehouse.service';
             </button>
             <button
               mat-icon-button
-              *ngIf="pwaService.canInstall()"
+              *ngIf="isAdministrator() && pwaService.canInstall()"
               aria-label="Instalar aplicación"
               type="button"
               (click)="installApp()"
@@ -108,14 +114,14 @@ import { WarehouseService } from '../services/warehouse.service';
             </button>
             <button
               mat-icon-button
-              *ngIf="pwaService.updateAvailable()"
+              *ngIf="isAdministrator() && pwaService.updateAvailable()"
               aria-label="Aplicar actualización"
               type="button"
               (click)="applyAppUpdate()"
             >
               <mat-icon>system_update_alt</mat-icon>
             </button>
-            <button mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
+            <button *ngIf="isAdministrator()" mat-icon-button aria-label="Ir a configuración" routerLink="/app/settings">
               <mat-icon>tune</mat-icon>
             </button>
             <button mat-stroked-button type="button" (click)="logout()">Salir</button>
@@ -137,15 +143,19 @@ import { WarehouseService } from '../services/warehouse.service';
             <mat-icon>photo_camera</mat-icon>
             <span>Nuevo por foto</span>
           </button>
-          <button mat-menu-item routerLink="/app/settings">
+          <button *ngIf="isAdministrator()" mat-menu-item routerLink="/app/members">
+            <mat-icon>group</mat-icon>
+            <span>Miembros</span>
+          </button>
+          <button *ngIf="isAdministrator()" mat-menu-item routerLink="/app/settings">
             <mat-icon>tune</mat-icon>
             <span>Configuración</span>
           </button>
-          <button mat-menu-item type="button" *ngIf="pwaService.canInstall()" (click)="installApp()">
+          <button mat-menu-item type="button" *ngIf="isAdministrator() && pwaService.canInstall()" (click)="installApp()">
             <mat-icon>download_for_offline</mat-icon>
             <span>Instalar app</span>
           </button>
-          <button mat-menu-item type="button" *ngIf="pwaService.updateAvailable()" (click)="applyAppUpdate()">
+          <button mat-menu-item type="button" *ngIf="isAdministrator() && pwaService.updateAvailable()" (click)="applyAppUpdate()">
             <mat-icon>system_update_alt</mat-icon>
             <span>Actualizar app</span>
           </button>
@@ -171,6 +181,7 @@ export class ShellComponent {
 
   isMobile = false;
   readonly selectedWarehouseId = this.warehouseService.getSelectedWarehouseId();
+  readonly isAdministrator = this.warehouseService.isSelectedWarehouseAdministrator;
   private announcedUpdateVersion: string | null = null;
 
   constructor(
@@ -193,7 +204,12 @@ export class ShellComponent {
     effect(() => {
       const updateAvailable = this.pwaService.updateAvailable();
       const latestVersion = this.pwaService.latestVersionLabel();
-      if (!updateAvailable || !latestVersion || this.announcedUpdateVersion === latestVersion) {
+      if (
+        !this.isAdministrator()
+        || !updateAvailable
+        || !latestVersion
+        || this.announcedUpdateVersion === latestVersion
+      ) {
         return;
       }
       this.announcedUpdateVersion = latestVersion;

@@ -9,6 +9,7 @@ import { BoxDetailComponent } from './boxes/box-detail.component';
 import { BoxesComponent } from './boxes/boxes.component';
 import { ConflictsComponent } from './conflicts/conflicts.component';
 import { authGuard, guestGuard } from './core/auth.guard';
+import { warehouseAdministratorGuard } from './core/warehouse-admin.guard';
 import { warehouseSelectedGuard } from './core/warehouse.guard';
 import { HomeComponent } from './home/home.component';
 import { AcceptInviteComponent } from './invites/accept-invite.component';
@@ -16,6 +17,7 @@ import { ItemFormComponent } from './items/item-form.component';
 import { IntakeBatchesComponent } from './items/intake-batches.component';
 import { ItemIntakeBatchComponent } from './items/item-intake-batch.component';
 import { ItemPhotoCaptureComponent } from './items/item-photo-capture.component';
+import { MembersComponent } from './members/members.component';
 import { ScanComponent } from './scan/scan.component';
 import { SettingsComponent } from './settings/settings.component';
 import { ShellComponent } from './shell/shell.component';
@@ -47,8 +49,9 @@ export const routes: Routes = [
       { path: 'scan/:qrToken', component: ScanComponent },
       { path: 'trash', component: TrashComponent },
       { path: 'activity', component: ActivityComponent },
-      { path: 'conflicts', component: ConflictsComponent },
-      { path: 'settings', component: SettingsComponent },
+      { path: 'conflicts', component: ConflictsComponent, canActivate: [warehouseAdministratorGuard] },
+      { path: 'members', component: MembersComponent, canActivate: [warehouseAdministratorGuard] },
+      { path: 'settings', component: SettingsComponent, canActivate: [warehouseAdministratorGuard] },
       { path: '', pathMatch: 'full', redirectTo: 'home' }
     ]
   },

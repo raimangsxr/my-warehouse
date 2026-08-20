@@ -13,7 +13,10 @@ describe('routes', () => {
     const appRoute = routes.find((route) => route.path === 'app');
     expect(appRoute?.canActivate).toEqual(expect.arrayContaining([expect.any(Function), expect.any(Function)]));
     expect(appRoute?.children?.some((child) => child.path === 'home')).toBe(true);
-    expect(appRoute?.children?.some((child) => child.path === 'settings')).toBe(true);
+    const administrativePaths = ['conflicts', 'members', 'settings'];
+    for (const path of administrativePaths) {
+      expect(appRoute?.children?.find((child) => child.path === path)?.canActivate?.length).toBe(1);
+    }
   });
 
   it('redirects root path to login', () => {

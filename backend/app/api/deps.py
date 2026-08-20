@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.membership import Membership
+from app.models.membership import Membership, WAREHOUSE_ROLE_ADMINISTRATOR
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.services.security import decode_token, hash_token
@@ -70,4 +70,27 @@ def require_warehouse_membership(
         warehouse_id,
         current_user.id,
     )
+    return membership
+
+
+def require_warehouse_administrator(
+    warehouse_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Membership:
+    membership = require_warehouse_membership(
+        warehouse_id,
+        current_user=current_user,
+        db=db,
+    )
+    if membership.role != WAREHOUSE_ROLE_ADMINISTRATOR:
+        logger.warning(
+            "Warehouse administrator access denied warehouse_id=%s user_id=%s",
+            warehouse_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator role required",
+        )
     return membership
