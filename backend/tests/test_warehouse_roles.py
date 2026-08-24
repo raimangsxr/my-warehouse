@@ -190,3 +190,130 @@ def test_contributor_cannot_promote_self(client):
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Administrator role required"
+
+
+def test_administrator_can_remove_members_of_any_role(client):
+    owner_headers = signup_and_login(client, "owner-remove@example.com")
+    contributor_headers = signup_and_login(client, "contributor-remove@example.com")
+    admin_headers = signup_and_login(client, "admin-remove@example.com")
+    warehouse = create_warehouse(client, owner_headers, "Removal warehouse")
+    invite_and_accept(
+        client,
+        warehouse["id"],
+        owner_headers,
+        contributor_headers,
+        "contributor-remove@example.com",
+    )
+    invite_and_accept(
+        client,
+        warehouse["id"],
+        owner_headers,
+        admin_headers,
+        "admin-remove@example.com",
+        role="administrator",
+    )
+    default_response = client.put(
+        "/api/auth/me/default-warehouse",
+        json={"warehouse_id": warehouse["id"]},
+        headers=contributor_headers,
+    )
+    assert default_response.status_code == 200
+
+    members = client.get(
+        f"/api/warehouses/{warehouse['id']}/members",
+        headers=owner_headers,
+    ).json()
+    contributor = next(row for row in members if row["email"] == "contributor-remove@example.com")
+    administrator = next(row for row in members if row["email"] == "admin-remove@example.com")
+
+    remove_contributor = client.delete(
+        f"/api/warehouses/{warehouse['id']}/members/{contributor['user_id']}",
+        headers=owner_headers,
+    )
+    remove_administrator = client.delete(
+        f"/api/warehouses/{warehouse['id']}/members/{administrator['user_id']}",
+        headers=owner_headers,
+    )
+
+    assert remove_contributor.status_code == 200
+    assert remove_contributor.json() == {"message": "Member removed"}
+    assert remove_administrator.status_code == 200
+    remaining = client.get(
+        f"/api/warehouses/{warehouse['id']}/members",
+        headers=owner_headers,
+    ).json()
+    assert [row["email"] for row in remaining] == ["owner-remove@example.com"]
+    assert client.get(
+        f"/api/warehouses/{warehouse['id']}",
+        headers=contributor_headers,
+    ).status_code == 403
+    assert client.get("/api/auth/me", headers=contributor_headers).json()["default_warehouse_id"] is None
+
+    activity = client.get(
+        f"/api/warehouses/{warehouse['id']}/activity",
+        headers=owner_headers,
+    ).json()
+    removal_events = [event for event in activity if event["event_type"] == "member.removed"]
+    assert len(removal_events) == 2
+    assert {event["entity_id"] for event in removal_events} == {
+        contributor["user_id"],
+        administrator["user_id"],
+    }
+    assert {event["metadata"]["role"] for event in removal_events} == {
+        "contributor",
+        "administrator",
+    }
+
+
+def test_member_removal_rejects_unauthorized_self_and_missing_targets(client):
+    owner_headers = signup_and_login(client, "owner-remove-guards@example.com")
+    contributor_headers = signup_and_login(client, "contributor-remove-guards@example.com")
+    warehouse = create_warehouse(client, owner_headers, "Removal guards")
+    invite_and_accept(
+        client,
+        warehouse["id"],
+        owner_headers,
+        contributor_headers,
+        "contributor-remove-guards@example.com",
+    )
+    members = client.get(
+        f"/api/warehouses/{warehouse['id']}/members",
+        headers=owner_headers,
+    ).json()
+    owner = next(row for row in members if row["email"] == "owner-remove-guards@example.com")
+    contributor = next(
+        row for row in members if row["email"] == "contributor-remove-guards@example.com"
+    )
+
+    unauthorized = client.delete(
+        f"/api/warehouses/{warehouse['id']}/members/{owner['user_id']}",
+        headers=contributor_headers,
+    )
+    self_removal = client.delete(
+        f"/api/warehouses/{warehouse['id']}/members/{owner['user_id']}",
+        headers=owner_headers,
+    )
+    missing = client.delete(
+        f"/api/warehouses/{warehouse['id']}/members/missing-user",
+        headers=owner_headers,
+    )
+
+    assert unauthorized.status_code == 403
+    assert unauthorized.json()["detail"] == "Administrator role required"
+    assert self_removal.status_code == 409
+    assert self_removal.json()["detail"] == "Administrators cannot remove themselves"
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Member not found"
+    unchanged = client.get(
+        f"/api/warehouses/{warehouse['id']}/members",
+        headers=owner_headers,
+    ).json()
+    assert {row["user_id"] for row in unchanged} == {
+        owner["user_id"],
+        contributor["user_id"],
+    }
+    activity = client.get(
+        f"/api/warehouses/{warehouse['id']}/activity",
+        headers=owner_headers,
+    ).json()
+    assert not any(event["event_type"] == "member.removed" for event in activity)

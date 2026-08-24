@@ -140,6 +140,12 @@ export class WarehouseService {
     );
   }
 
+  removeMember(warehouseId: string, userId: string): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(
+      `${environment.apiBaseUrl}/warehouses/${warehouseId}/members/${userId}`
+    );
+  }
+
   delete(warehouseId: string, confirmName: string): Observable<{ message: string }> {
     return this.http.request<{ message: string }>('DELETE', `${environment.apiBaseUrl}/warehouses/${warehouseId}`, {
       body: { confirm_name: confirmName },

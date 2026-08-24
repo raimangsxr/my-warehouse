@@ -11,6 +11,12 @@ contracts:
     description: Local development, Docker, and release workflow tooling.
 
 changes:
+  - id: 011-remove-warehouse-member
+    path: specs/archive/011-remove-warehouse-member/
+    status: completed
+    contract: app
+    description: Allow warehouse administrators to remove another member regardless of role.
+    completed: 2026-08-25
   - id: 010-batch-back-navigation
     path: specs/archive/010-batch-back-navigation/
     status: completed

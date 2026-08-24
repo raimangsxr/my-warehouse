@@ -27,6 +27,7 @@ from app.models.stock_movement import StockMovement
 from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.models.warehouse_invite import WarehouseInvite
+from app.schemas.common import MessageResponse
 from app.schemas.warehouse import (
     ActivityEventResponse,
     InviteAcceptResponse,
@@ -402,6 +403,59 @@ def update_member_role(
         role=target.role,
         created_at=target.created_at,
     )
+
+
+@router.delete("/{warehouse_id}/members/{user_id}", response_model=MessageResponse)
+def remove_member(
+    warehouse_id: str,
+    user_id: str,
+    _membership: Membership = Depends(require_warehouse_administrator),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Administrators cannot remove themselves",
+        )
+
+    target = db.scalar(
+        select(Membership)
+        .where(
+            Membership.warehouse_id == warehouse_id,
+            Membership.user_id == user_id,
+        )
+        .with_for_update()
+    )
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+    target_user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+    previous_role = target.role
+    if target_user.default_warehouse_id == warehouse_id:
+        target_user.default_warehouse_id = None
+    record_activity(
+        db,
+        warehouse_id=warehouse_id,
+        actor_user_id=current_user.id,
+        event_type="member.removed",
+        entity_type="membership",
+        entity_id=user_id,
+        metadata={"user_id": user_id, "role": previous_role},
+    )
+    db.delete(target)
+    db.commit()
+    logger.info(
+        "Warehouse member removed warehouse_id=%s target_user_id=%s actor_user_id=%s role=%s",
+        warehouse_id,
+        user_id,
+        current_user.id,
+        previous_role,
+    )
+    return MessageResponse(message="Member removed")
 
 
 @router.post("/{warehouse_id}/invites", response_model=WarehouseInviteResponse, status_code=status.HTTP_201_CREATED)
