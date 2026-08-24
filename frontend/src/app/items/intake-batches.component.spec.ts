@@ -47,13 +47,13 @@ describe('IntakeBatchesComponent', () => {
     httpMock?.verify();
   });
 
-  async function createComponent() {
+  async function createComponent(queryParams: Record<string, string> = {}) {
     await TestBed.configureTestingModule({
       imports: [IntakeBatchesComponent],
       providers: [
         provideRouter([]),
         ...provideCommonTestProviders(),
-        { provide: ActivatedRoute, useValue: createActivatedRouteMock() }
+        { provide: ActivatedRoute, useValue: createActivatedRouteMock({}, queryParams) }
       ]
     }).compileComponents();
 
@@ -73,6 +73,24 @@ describe('IntakeBatchesComponent', () => {
   it('should create', async () => {
     const fixture = await createComponent();
     expect(fixture.componentInstance).toBeTruthy();
+  });
+
+  it('links back to the source box when box context is present', async () => {
+    const fixture = await createComponent({ boxId: 'box-test', lockBox: '1' });
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('.batch-parent-link') as HTMLAnchorElement | null;
+    expect(link?.textContent).toContain('Volver a la caja');
+    expect(link?.getAttribute('href')).toBe('/app/boxes/box-test');
+  });
+
+  it('links back to home when there is no box context', async () => {
+    const fixture = await createComponent();
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('.batch-parent-link') as HTMLAnchorElement | null;
+    expect(link?.textContent).toContain('Volver a Inicio');
+    expect(link?.getAttribute('href')).toBe('/app/home');
   });
 
   it('maps batch status labels', async () => {
@@ -112,6 +130,26 @@ describe('IntakeBatchesComponent', () => {
 
     expect(component.batchTitle(testIntakeBatch({ name: 'Morning intake' }))).toBe('Morning intake');
     expect(component.batchTitle(testIntakeBatch({ id: 'abcdef12-3456', name: null }))).toBe('Lote abcdef12');
+  });
+
+  it('shows the destination box beside the batch title when available', async () => {
+    const fixture = await createComponent();
+    const component = fixture.componentInstance;
+
+    component.loadBatches();
+
+    const req = httpMock.expectOne((request) => request.url.includes('/intake/batches'));
+    req.flush([
+      testIntakeBatch({ id: 'batch-with-box', name: 'Morning intake', target_box_name: 'Garage' }),
+      testIntakeBatch({ id: 'abcdef12-3456', name: null, target_box_name: null })
+    ]);
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('.batch-row') as NodeListOf<HTMLElement>;
+    expect(rows[0].querySelector('.batch-title')?.textContent).toContain('Morning intake');
+    expect(rows[0].querySelector('.batch-title')?.textContent).toContain('Caja: Garage');
+    expect(rows[1].querySelector('.batch-title')?.textContent).toContain('Lote abcdef12');
+    expect(rows[1].querySelector('.batch-title')?.textContent).not.toContain('Caja:');
   });
 
   it('creates a batch via HTTP and navigates to detail', async () => {
