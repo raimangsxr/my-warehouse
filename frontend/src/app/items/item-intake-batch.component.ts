@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -50,6 +50,7 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
   imports: [
     CommonModule,
     FormsModule,
+    RouterLink,
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
@@ -62,6 +63,10 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
     <div class="app-page" *ngIf="batch">
       <header class="page-header intake-header">
         <div>
+          <a mat-button class="batch-parent-link" routerLink="/app/batches">
+            <mat-icon>arrow_back</mat-icon>
+            Volver a lotes
+          </a>
           <div class="batch-title-row">
             <h1 class="page-title">{{ batchTitle() }}</h1>
             <span class="batch-target-chip" *ngIf="batch.target_box_name" matTooltip="Caja destino del lote">

@@ -41,6 +41,10 @@ import { WarehouseService } from '../services/warehouse.service';
           <h1 class="page-title">Lotes</h1>
           <p class="page-subtitle">Espacio temporal para capturar, procesar y guardar artículos por foto.</p>
         </div>
+        <a mat-stroked-button class="batch-parent-link" [routerLink]="batchParentRoute()">
+          <mat-icon>arrow_back</mat-icon>
+          {{ batchParentLabel() }}
+        </a>
       </header>
 
       <mat-card class="surface-card compact-card">
@@ -96,7 +100,10 @@ import { WarehouseService } from '../services/warehouse.service';
           <div class="batch-list" *ngIf="batches.length > 0">
             <article class="batch-row" *ngFor="let batch of batches; trackBy: trackByBatchId">
               <div class="batch-main">
-                <p class="batch-title">{{ batchTitle(batch) }}</p>
+                <p class="batch-title">
+                  <span>{{ batchTitle(batch) }}</span>
+                  <span class="batch-box-label" *ngIf="batch.target_box_name">Caja: {{ batch.target_box_name }}</span>
+                </p>
                 <p class="batch-subtitle">
                   Estado {{ statusLabel(batch.status) }} · Creado hace {{ daysSinceCreated(batch.created_at) }} día(s)
                 </p>
@@ -143,6 +150,10 @@ import { WarehouseService } from '../services/warehouse.service';
         gap: 8px;
       }
 
+      .batch-parent-link {
+        flex-shrink: 0;
+      }
+
       .batch-row {
         border: 1px solid var(--border-soft);
         border-radius: 12px;
@@ -162,6 +173,16 @@ import { WarehouseService } from '../services/warehouse.service';
         margin: 0;
         font-size: 0.98rem;
         font-weight: 600;
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+      }
+
+      .batch-box-label {
+        color: var(--text-2);
+        font-size: 0.78rem;
+        font-weight: 500;
       }
 
       .batch-subtitle {
@@ -199,6 +220,7 @@ export class IntakeBatchesComponent implements OnInit, OnDestroy {
   batches: IntakeBatch[] = [];
   batchName = '';
   targetBoxId: string | null = null;
+  parentBoxId: string | null = null;
   boxLocked = false;
 
   loading = false;
@@ -235,6 +257,7 @@ export class IntakeBatchesComponent implements OnInit, OnDestroy {
 
       const queryBoxId = params.get('boxId');
       const lockBox = params.get('lockBox');
+      this.parentBoxId = queryBoxId;
       this.boxLocked = lockBox === '1' || lockBox === 'true';
       if (queryBoxId) {
         this.targetBoxId = queryBoxId;
@@ -248,6 +271,14 @@ export class IntakeBatchesComponent implements OnInit, OnDestroy {
 
   trackByBatchId(_index: number, batch: IntakeBatch): string {
     return batch.id;
+  }
+
+  batchParentRoute(): string[] {
+    return this.parentBoxId ? ['/app/boxes', this.parentBoxId] : ['/app/home'];
+  }
+
+  batchParentLabel(): string {
+    return this.parentBoxId ? 'Volver a la caja' : 'Volver a Inicio';
   }
 
   boxPathLabel(node: BoxTreeNode): string {

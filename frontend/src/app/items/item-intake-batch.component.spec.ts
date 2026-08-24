@@ -56,6 +56,15 @@ describe('ItemIntakeBatchComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
+  it('links back to the batch list', async () => {
+    const fixture = await createComponent();
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('.batch-parent-link') as HTMLAnchorElement | null;
+    expect(link?.textContent).toContain('Volver a lotes');
+    expect(link?.getAttribute('href')).toBe('/app/batches');
+  });
+
   it('maps draft backend status to UI status', async () => {
     const fixture = await createComponent();
     const component = fixture.componentInstance;

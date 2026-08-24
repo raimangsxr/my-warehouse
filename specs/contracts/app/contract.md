@@ -98,7 +98,7 @@ Breadcrumbs navegables, búsqueda recursiva debounced, mismos componentes `item-
 
 ### IA
 - **Foto individual:** `/app/items/from-photo` → `draft-from-photo` → `/app/items/new`.
-- **Lotes:** `/app/batches`, `/app/batches/:batchId` — cámara continua, cola de subidas, polling 5s, estados UX Nuevo/Procesado/Error/Guardado.
+- **Lotes:** `/app/batches`, `/app/batches/:batchId` — cámara continua, cola de subidas, polling 5s, estados UX Nuevo/Procesado/Error/Guardado. En el listado, cada lote muestra junto a su nombre la caja destino cuando su nombre está disponible; si no lo está, el lote y sus acciones se mantienen sin mostrar un identificador técnico ni una caja inventada. El detalle ofrece retorno visible al listado. El listado ofrece retorno visible a la caja de contexto cuando se abrió con `boxId`, o a Inicio cuando no hay contexto de caja; los destinos son directos y no dependen del historial del navegador.
 
 ### Ops
 Papelera y actividad (default 50 eventos) están disponibles para ambos roles. Conflictos (keep_server / keep_client) y Settings del warehouse (SMTP, LLM, sync manual, export/import JSON) requieren Administrador. Perfil, contraseña y actualización de la aplicación están disponibles para cualquier usuario autenticado.

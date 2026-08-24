@@ -11,6 +11,18 @@ contracts:
     description: Local development, Docker, and release workflow tooling.
 
 changes:
+  - id: 010-batch-back-navigation
+    path: specs/archive/010-batch-back-navigation/
+    status: completed
+    contract: app
+    description: Keep visible parent navigation throughout the intake batch list and detail flow.
+    completed: 2026-08-24
+  - id: 009-show-batch-box
+    path: specs/archive/009-show-batch-box/
+    status: completed
+    contract: app
+    description: Show each intake batch's destination box beside its name in the batch list.
+    completed: 2026-08-24
   - id: 001-initial-sdd-baseline
     path: specs/archive/001-initial-sdd-baseline/
     status: completed
