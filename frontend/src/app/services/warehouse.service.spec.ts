@@ -97,6 +97,17 @@ describe('WarehouseService', () => {
     updateRequest.flush({ user_id: 'u2', warehouse_id: 'wh-1', email: 'guest@example.com', display_name: 'Guest', role: 'administrator', created_at: '2026-01-01' });
   });
 
+  it('removes a warehouse member', () => {
+    service.removeMember('wh-1', 'u2').subscribe((response) => {
+      expect(response.message).toBe('Member removed');
+    });
+
+    const request = httpMock.expectOne(`${environment.apiBaseUrl}/warehouses/wh-1/members/u2`);
+    expect(request.request.method).toBe('DELETE');
+    expect(request.request.body).toBeNull();
+    request.flush({ message: 'Member removed' });
+  });
+
   it('tracks the selected warehouse role when the list changes', () => {
     service.setSelectedWarehouseId('wh-1');
     service.list().subscribe();

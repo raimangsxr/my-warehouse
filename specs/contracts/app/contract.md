@@ -2,7 +2,7 @@
 
 **Product:** my-warehouse — PWA de inventario doméstico (garaje/trastero).  
 **Versions:** backend `0.3.4`, frontend `0.3.5`.  
-**Last updated:** 2026-08-20 (change `008-warehouse-navigation-profile`; implementation must conform before completion).
+**Last updated:** 2026-08-25 (change `011-remove-warehouse-member`).
 
 ## Governance
 
@@ -61,10 +61,13 @@ Cada tarjeta de `/app/warehouses` muestra rol, estados activo/predeterminado, ar
 
 **Miembros y roles** (solo Administrador):
 - El módulo `/app/members` lista identidad y rol de los miembros del warehouse seleccionado y muestra la matriz fija de permisos.
-- `GET /api/warehouses/{warehouse_id}/members` y `PATCH /api/warehouses/{warehouse_id}/members/{user_id}` requieren Administrador.
+- `GET /api/warehouses/{warehouse_id}/members`, `PATCH /api/warehouses/{warehouse_id}/members/{user_id}` y `DELETE /api/warehouses/{warehouse_id}/members/{user_id}` requieren Administrador.
 - Un Administrador puede promover o degradar membresías, incluida la propia si queda otro Administrador.
 - Una degradación que dejaría cero Administradores se rechaza con HTTP 409 y sin cambios parciales.
-- No hay permisos individuales, roles configurables, expulsión ni abandono de warehouse.
+- Un Administrador puede retirar a cualquier otro miembro, Administrador o Contribuidor, independientemente de `created_by`. No puede retirar su propia membresía mediante esta operación: se rechaza con HTTP 409.
+- La retirada confirmada elimina solo la membresía, revoca el acceso desde la siguiente operación autorizada, limpia `users.default_warehouse_id` si apuntaba al warehouse y registra un único evento `member.removed` con actor, objetivo y rol anterior, todo en una transacción. La cuenta, el contenido compartido y el historial se conservan.
+- Un objetivo que no pertenece al warehouse devuelve HTTP 404 sin cambios parciales. La UI identifica al objetivo, exige confirmación, retira la fila tras éxito y no ofrece la acción en la fila propia.
+- No hay permisos individuales, roles configurables ni abandono voluntario de warehouse.
 
 **Eliminar warehouse** (cualquier Administrador, solo desde `/app/warehouses`):
 - `DELETE /api/warehouses/{warehouse_id}` con body `{ "confirm_name": "<nombre exacto>" }`.
@@ -114,7 +117,7 @@ SMTP se configura por warehouse (`starttls`, `ssl`, `none`). El test realiza un 
 | Búsqueda, actividad y QR | ✅ | ✅ |
 | Cajas, artículos, stock, favoritos, fotos, tags, papelera y lotes | ✅ | ✅ |
 | Invitaciones y selección de rol | ✅ | ❌ |
-| Listado de miembros y cambio de roles | ✅, conservando al menos un Administrador | ❌ |
+| Listado, cambio de roles y retirada de otros miembros | ✅, conservando al menos un Administrador y sin autoeliminación | ❌ |
 | Eliminar warehouse | ✅, con confirmación y bloqueos existentes | ❌ |
 | Perfil, contraseña y acciones de actualización PWA | ✅ | ✅ |
 | Diagnóstico PWA completo | ✅ en warehouse activo | ❌ (resumen de 4 campos) |
@@ -180,7 +183,7 @@ Grupos: auth (perfil GET/PATCH, default warehouse PUT y sesión/contraseña), wa
 
 **Sync push** acepta 11 tipos de comando en backend; el cliente solo genera 3 en práctica.
 
-Los grupos administrativos (invitaciones, miembros/roles, DELETE warehouse, Settings SMTP/LLM, sync push/pull/resolve y export/import) requieren Administrador. El resto de recursos operativos mantiene autorización por membresía para ambos roles.
+Los grupos administrativos (invitaciones, listado/cambio/retirada de miembros, DELETE warehouse, Settings SMTP/LLM, sync push/pull/resolve y export/import) requieren Administrador. El resto de recursos operativos mantiene autorización por membresía para ambos roles.
 
 **Conflictos:** UI expone `keep_server` y `keep_client`. El enum backend incluye `merge` pero no hay flujo distinto implementado ni UI para merge.
 
@@ -227,7 +230,7 @@ La constante `APP_VERSION` en `frontend/src/app/core/app-version.ts` alimenta `P
 | Warehouses integrados con resúmenes y cambio activo | ✅ |
 | Perfil de usuario en header | ✅ |
 | Acciones móviles compactas con scroll seguro | ✅ |
-| Gestión de miembros y roles | ✅ |
+| Gestión de miembros, roles y retirada de acceso | ✅ |
 | Eliminar warehouse (Administrador, confirmación nombre) | ✅ |
 | Cajas jerárquicas (mover por selector) | ✅ |
 | Artículos + stock + favoritos + batch | ✅ |

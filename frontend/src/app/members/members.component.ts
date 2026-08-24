@@ -8,6 +8,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 
 import { NotificationService } from '../services/notification.service';
+import { AuthService } from '../services/auth.service';
 import {
   WarehouseMember,
   WarehouseRole,
@@ -56,7 +57,7 @@ import {
                   <mat-select
                     [value]="pendingRoles[member.user_id] || member.role"
                     (selectionChange)="setPendingRole(member.user_id, $event.value)"
-                    [disabled]="savingUserId === member.user_id"
+                    [disabled]="savingUserId === member.user_id || removingUserId === member.user_id"
                   >
                     <mat-option value="administrator">Administrador</mat-option>
                     <mat-option value="contributor">Contribuidor</mat-option>
@@ -66,10 +67,22 @@ import {
                   mat-flat-button
                   color="primary"
                   type="button"
-                  [disabled]="!hasRoleChanged(member) || savingUserId === member.user_id"
+                  [disabled]="!hasRoleChanged(member) || savingUserId === member.user_id || removingUserId === member.user_id"
                   (click)="saveRole(member)"
                 >
                   {{ savingUserId === member.user_id ? 'Guardando...' : 'Guardar rol' }}
+                </button>
+                <button
+                  mat-stroked-button
+                  color="warn"
+                  type="button"
+                  *ngIf="canRemoveMember(member)"
+                  [attr.aria-label]="'Retirar a ' + memberLabel(member)"
+                  [disabled]="savingUserId === member.user_id || removingUserId === member.user_id"
+                  (click)="removeMember(member)"
+                >
+                  <mat-icon>person_remove</mat-icon>
+                  {{ removingUserId === member.user_id ? 'Retirando...' : 'Retirar' }}
                 </button>
               </div>
             </div>
@@ -128,18 +141,20 @@ export class MembersComponent implements OnInit {
   members: WarehouseMember[] = [];
   pendingRoles: Record<string, WarehouseRole> = {};
   savingUserId: string | null = null;
+  removingUserId: string | null = null;
   errorMessage = '';
 
   readonly permissions = [
     { label: 'Gestionar inventario, cajas y lotes', contributor: true },
     { label: 'Buscar, consultar actividad y usar QR', contributor: true },
     { label: 'Invitar personas y asignar roles', contributor: false },
-    { label: 'Gestionar miembros y roles', contributor: false },
+    { label: 'Gestionar miembros, roles y accesos', contributor: false },
     { label: 'Acceder a Configuración, sync y backups', contributor: false },
     { label: 'Eliminar el warehouse', contributor: false },
   ];
 
   constructor(
+    private readonly authService: AuthService,
     private readonly warehouseService: WarehouseService,
     private readonly notificationService: NotificationService
   ) {}
@@ -154,6 +169,51 @@ export class MembersComponent implements OnInit {
 
   hasRoleChanged(member: WarehouseMember): boolean {
     return !!this.pendingRoles[member.user_id] && this.pendingRoles[member.user_id] !== member.role;
+  }
+
+  canRemoveMember(member: WarehouseMember): boolean {
+    const currentUserId = this.authService.currentUser()?.id;
+    return !!currentUserId && member.user_id !== currentUserId;
+  }
+
+  memberLabel(member: WarehouseMember): string {
+    return member.display_name?.trim() || member.email;
+  }
+
+  removeMember(member: WarehouseMember): void {
+    const warehouseId = this.warehouseService.getSelectedWarehouseId();
+    if (!warehouseId || !this.canRemoveMember(member)) {
+      return;
+    }
+    const label = this.memberLabel(member);
+    const confirmed = window.confirm(
+      `¿Retirar a ${label} de este warehouse? Perderá el acceso inmediatamente.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    this.removingUserId = member.user_id;
+    this.errorMessage = '';
+    this.warehouseService.removeMember(warehouseId, member.user_id).subscribe({
+      next: () => {
+        this.removingUserId = null;
+        this.members = this.members.filter((candidate) => candidate.user_id !== member.user_id);
+        delete this.pendingRoles[member.user_id];
+        this.notificationService.success('Miembro retirado correctamente.');
+      },
+      error: (error: HttpErrorResponse) => {
+        this.removingUserId = null;
+        if (error.status === 404) {
+          this.errorMessage = 'El miembro ya no pertenece al warehouse.';
+        } else if (error.status === 409) {
+          this.errorMessage = 'No puedes retirar tu propia membresía.';
+        } else {
+          this.errorMessage = 'No se pudo retirar al miembro.';
+        }
+        this.notificationService.error(this.errorMessage);
+      },
+    });
   }
 
   saveRole(member: WarehouseMember): void {
